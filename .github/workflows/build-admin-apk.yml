@@ -30,16 +30,34 @@ jobs:
           mkdir -p app/src/main/res/mipmap-xxhdpi
           mkdir -p app/src/main/res/mipmap-xxxhdpi
           mkdir -p app/src/main/res/drawable-nodpi
+
           LOGO_FILE=""
-          if [ -f "logo.png" ]; then LOGO_FILE="logo.png"; elif [ -f "1000060058.png" ]; then LOGO_FILE="1000060058.png"; fi
+          if [ -f "logo.png" ]; then
+            LOGO_FILE="logo.png"
+          elif [ -f "1000060058.png" ]; then
+            LOGO_FILE="1000060058.png"
+          elif [ -f "play_store_512.png" ]; then
+            LOGO_FILE="play_store_512.png"
+          fi
+
           if [ -n "$LOGO_FILE" ]; then
-            echo "Memproses logo $LOGO_FILE menjadi ikon aplikasi..."
-            convert "$LOGO_FILE" -resize 48x48 app/src/main/res/mipmap-mdpi/ic_launcher.png
-            convert "$LOGO_FILE" -resize 72x72 app/src/main/res/mipmap-hdpi/ic_launcher.png
-            convert "$LOGO_FILE" -resize 96x96 app/src/main/res/mipmap-xhdpi/ic_launcher.png
-            convert "$LOGO_FILE" -resize 144x144 app/src/main/res/mipmap-xxhdpi/ic_launcher.png
-            convert "$LOGO_FILE" -resize 192x192 app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
-            convert "$LOGO_FILE" -resize 512x512 app/src/main/res/drawable-nodpi/arneta_logo_full.png
+            echo "Menginstal ImageMagick untuk memproses $LOGO_FILE..."
+            if ! command -v convert &> /dev/null; then
+              sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick
+            fi
+
+            echo "Memproses logo $LOGO_FILE menjadi ikon aplikasi PNG32 murni..."
+            convert "$LOGO_FILE" -resize 48x48 PNG32:app/src/main/res/mipmap-mdpi/ic_launcher.png
+            convert "$LOGO_FILE" -resize 72x72 PNG32:app/src/main/res/mipmap-hdpi/ic_launcher.png
+            convert "$LOGO_FILE" -resize 96x96 PNG32:app/src/main/res/mipmap-xhdpi/ic_launcher.png
+            convert "$LOGO_FILE" -resize 144x144 PNG32:app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+            convert "$LOGO_FILE" -resize 192x192 PNG32:app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+            convert "$LOGO_FILE" -resize 512x512 PNG32:app/src/main/res/drawable-nodpi/arneta_logo_full.png
+
+            # Gunakan ikon mipmap hasil konversi logo.png di AndroidManifest.xml
+            if [ -f "app/src/main/AndroidManifest.xml" ]; then
+              sed -i 's|@drawable/ic_arneta_shield|@mipmap/ic_launcher|g' app/src/main/AndroidManifest.xml
+            fi
           fi
 
       - name: Setup Gradle
