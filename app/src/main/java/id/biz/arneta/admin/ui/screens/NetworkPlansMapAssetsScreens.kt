@@ -71,15 +71,15 @@ fun AdminInAppWebViewScreen(
     var currentUrl by remember { mutableStateOf("") }
     var selectedQuickRoute by remember { mutableStateOf(initialRouteOrUrl) }
 
-    fun buildTargetUrl(routeOrUrl: String): String {
-        if (routeOrUrl.startsWith("http://") || routeOrUrl.startsWith("https://")) {
-            return routeOrUrl
-        }
-        val cleanRoute = routeOrUrl.removePrefix("?_route=").removePrefix("/")
-        val encodedToken = URLEncoder.encode(ApiClient.token, "UTF-8")
-        val encodedRoute = URLEncoder.encode(cleanRoute, "UTF-8")
-        return "${ApiClient.baseUrl}/?_route=apiv1/admin_webview_sso&token=$encodedToken&redirect=$encodedRoute"
+fun buildTargetUrl(routeOrUrl: String): String {
+    if (routeOrUrl.startsWith("http://") || routeOrUrl.startsWith("https://")) {
+        return routeOrUrl
     }
+    val cleanRoute = routeOrUrl.removePrefix("?_route=").removePrefix("/")
+    val encodedToken = URLEncoder.encode(ApiClient.token, "UTF-8")
+    val encodedRoute = URLEncoder.encode(cleanRoute, "UTF-8")
+    return "${ApiClient.baseUrl}/system/api.php?r=apiv1/webview_sso&token=$encodedToken&redirect=$encodedRoute"
+}
 
     Column(modifier = Modifier.fillMaxSize()) {
         Surface(
