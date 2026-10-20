@@ -2,7 +2,7 @@
 
 Aplikasi ini adalah versi APK (Android) dari **PHPNuxBill**, yang di-generate dan dibuat sepenuhnya oleh AI. Repository ini memuat aplikasi klien, sedangkan untuk menghubungkan aplikasi ini dengan server PHPNuxBill Anda, Anda perlu menyiapkan API di sisi server.
 
-## ðŸš€ Cara Pemasangan API di Server (Server-Side)
+## Cara Pemasangan API di Server (Server-Side)
 
 Agar aplikasi APK ini dapat berkomunikasi dengan database dan sistem PHPNuxBill Anda, Anda harus menambahkan endpoint API kustom.
 
@@ -13,7 +13,7 @@ Agar aplikasi APK ini dapat berkomunikasi dengan database dan sistem PHPNuxBill 
 4. Buat file baru dengan nama **`apiv1.php`**.
 5. Copy dan Paste seluruh kode di bawah ini ke dalam file `apiv1.php` tersebut.
 
-### ðŸ“ Kode `apiv1.php`
+### Kode `apiv1.php`
 
 ```php
 <?php
@@ -3207,7 +3207,7 @@ switch ($action) {
 }
 ```
 
-### âš™ï¸ Bagian yang Dapat Diedit (Opsional)
+### Bagian yang Dapat Diedit (Opsional)
 Jika Anda perlu mengkustomisasi pengaturan API (misalnya mengubah fallback "Secret Key"), Anda dipersilakan mengedit bagian ini pada kode yang sudah disalin di atas:
 
 ```php
