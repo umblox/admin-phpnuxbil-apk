@@ -76,8 +76,9 @@ object ApiClient {
     }
 
     /**
-     * Memanggil /system/api.php?r=<route>&token=<token> dengan POST Form-UrlEncoded
-     * agar kompatibel 100% dengan _post() / _get() / _req() pada controller asli PHPNuxBill (.tpl)
+     * Memanggil /system/api.php?r=<route>&token=<token>
+     * Mengirim parameter baik melalui Query String (_get / _req) maupun Form-UrlEncoded Body (_post)
+     * sesuai dokumentasi resmi PHPNuxBill (lihat nama field di file .tpl)
      */
     suspend fun callNativeApi(
         route: String,
@@ -92,7 +93,6 @@ object ApiClient {
                 queryBuilder.append("&token=$encodedToken")
             }
 
-            // Sertakan parameter sederhana di query string sekaligus di POST body agar _get() & _post() sama-sama terbaca
             val postPairs = mutableListOf<String>()
             for ((k, v) in formParams) {
                 if (v == null) continue
@@ -141,13 +141,12 @@ object ApiClient {
             val stream = if (responseCode in 200..299) conn.inputStream else conn.errorStream
             val rawText = BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { it.readText() }.trim()
 
-            // Tangani jika output mengandung notice/spasi sebelum kurung kurawal JSON
             val jsonStart = rawText.indexOf('{')
             val cleanJson = if (jsonStart >= 0) rawText.substring(jsonStart) else rawText
 
             val json = JSONObject(cleanJson)
             val isSuccess = if (json.has("success")) json.optBoolean("success", false) else json.optBoolean("status", false)
-            val msg = json.optString("message", if (isSuccess) "Berhasil" else "Gagal memproses permintaan")
+            val msg = json.optString("message", if (isSuccess) "Berhasil" else "Permintaan gagal diproses")
             val rawResult = if (json.has("result") && !json.isNull("result")) json.opt("result") else json.opt("data")
 
             ApiResult(
@@ -161,7 +160,7 @@ object ApiClient {
         } catch (e: Exception) {
             ApiResult(
                 status = false,
-                message = "Koneksi bermasalah: ${e.localizedMessage ?: "Timeout"}",
+                message = "Gangguan koneksi: ${e.localizedMessage ?: "Timeout"}",
                 code = 500
             )
         } finally {
@@ -170,19 +169,18 @@ object ApiClient {
     }
 
     /**
-     * Smart Router & Adapter:
-     * Menghubungkan seluruh request aplikasi ke Controller Asli (/system/api.php?r=...)
-     * dan menerjemahkan variabel Smarty (.tpl) ke format yang siap dirender UI Android
+     * Smart Adapter (.tpl Variable Mapper):
+     * Menerjemahkan output variabel Smarty dari /system/api.php?r=... beserta relasi antar tabelnya
      */
     suspend fun request(
         action: String,
         params: Map<String, Any?> = emptyMap()
     ): ApiResult = withContext(Dispatchers.IO) {
         when (action) {
-            // 1. LOGIN ADMIN -> /system/api.php?r=apiv1/auth
+            // 1. LOGIN ADMIN -> Menghasilkan token resmi a.uid.time.sha1
             "admin_login" -> callNativeApi("apiv1/auth", params + mapOf("role" to "admin"))
 
-            // 2. DASBOR ADMIN -> Menggabungkan /system/api.php?r=dashboard (.tpl asli) + ?r=apiv1/dashboard_extras
+            // 2. DASBOR UTAMA -> /system/api.php?r=dashboard + ?r=apiv1/dashboard_extras
             "admin_dashboard" -> {
                 val dashRes = callNativeApi("dashboard")
                 val extRes = callNativeApi("apiv1/dashboard_extras")
@@ -199,17 +197,16 @@ object ApiClient {
                 val cAll = dObj.optString("c_all", "0").toIntOrNull() ?: 0
                 val cb = dObj.optString("cb", "0").toDoubleOrNull() ?: 0.0
 
-                // Konversi variabel stocks & plans dari dashboard.php asli
                 val stocksOut = JSONArray()
                 val rawPlans = dObj.optJSONArray("plans")
                 val rawStocks = dObj.optJSONObject("stocks")
-                if (rawPlans != null) {
+                if (rawPlans != null && rawPlans.length() > 0) {
                     for (i in 0 until rawPlans.length()) {
                         val p = rawPlans.getJSONObject(i)
                         stocksOut.put(
                             JSONObject().apply {
                                 put("name_plan", p.optString("name_plan"))
-                                put("active_users", p.optInt("active_users", 0))
+                                put("active_users", p.optInt("active_users", p.optInt("active", 0)))
                                 put("unused", p.optInt("unused", 0))
                                 put("used", p.optInt("used", 0))
                             }
@@ -230,7 +227,9 @@ object ApiClient {
                     put("company", JSONObject().apply {
                         put("name", cfgObj.optString("CompanyName", companyName))
                         put("currency", cfgObj.optString("currency_code", currencyCode))
-                        put("date_Period", "${dObj.optString("start_date", "01")} / ${dObj.optString("current_date", "Hari Ini")}")
+                        val stDate = dObj.optString("start_date", "")
+                        val curDate = dObj.optString("current_date", "")
+                        put("date_Period", if (stDate.isNotEmpty()) "$stDate / $curDate" else "Bulan Berjalan")
                     })
                     put("cards", JSONObject().apply {
                         put("income_today", iday)
@@ -249,18 +248,61 @@ object ApiClient {
                     put("stocks", stocksOut)
                     put("expiring_users", dObj.optJSONArray("exp") ?: JSONArray())
                 }
-                ApiResult(status = true, message = "Dashboard dimuat", data = combined)
+                ApiResult(status = true, message = "Dashboard berhasil dimuat", data = combined)
             }
 
-            // 3. MANAJEMEN PELANGGAN -> /system/api.php?r=customers/...
+            // 3. PELANGGAN -> Menggabungkan ?r=customers/list ('d') + ?r=prepaid/list ('d') agar active_package tampil
             "admin_customers" -> {
-                val res = callNativeApi("customers/list", params)
-                val dArr = res.data?.optJSONArray("d") ?: res.dataArray ?: JSONArray()
-                val out = JSONObject().apply {
-                    put("total", dArr.length())
-                    put("customers", dArr)
+                val custRes = callNativeApi("customers/list", params)
+                val prepRes = callNativeApi("prepaid/list")
+
+                val cArr = custRes.data?.optJSONArray("d") ?: custRes.dataArray ?: JSONArray()
+                val pArr = prepRes.data?.optJSONArray("d") ?: prepRes.dataArray ?: JSONArray()
+
+                val rechargeByCustId = mutableMapOf<Int, JSONObject>()
+                val rechargeByUsername = mutableMapOf<String, JSONObject>()
+                for (i in 0 until pArr.length()) {
+                    val r = pArr.getJSONObject(i)
+                    val cid = r.optInt("customer_id", 0)
+                    val uname = r.optString("username", "")
+                    if (cid > 0 && (!rechargeByCustId.containsKey(cid) || r.optString("status") == "on")) {
+                        rechargeByCustId[cid] = r
+                    }
+                    if (uname.isNotEmpty() && (!rechargeByUsername.containsKey(uname) || r.optString("status") == "on")) {
+                        rechargeByUsername[uname] = r
+                    }
                 }
-                ApiResult(status = res.status, message = res.message, data = out)
+
+                val serviceFilter = (params["service_type"]?.toString() ?: "").trim()
+                val enrichedCustomers = JSONArray()
+                for (i in 0 until cArr.length()) {
+                    val c = cArr.getJSONObject(i)
+                    val sType = c.optString("service_type", "Hotspot")
+                    if (serviceFilter.isNotEmpty() && !serviceFilter.equals("All", ignoreCase = true) && !sType.equals(serviceFilter, ignoreCase = true)) {
+                        continue
+                    }
+                    val cid = c.optInt("id", 0)
+                    val uname = c.optString("username", "")
+                    val rech = rechargeByCustId[cid] ?: rechargeByUsername[uname]
+                    if (rech != null && !c.has("active_package")) {
+                        c.put("active_package", JSONObject().apply {
+                            put("id", rech.optInt("id"))
+                            put("namebp", rech.optString("namebp"))
+                            put("status", rech.optString("status"))
+                            put("expiration", rech.optString("expiration"))
+                            put("time", rech.optString("time"))
+                            put("routers", rech.optString("routers"))
+                            put("type", rech.optString("type"))
+                        })
+                    }
+                    enrichedCustomers.put(c)
+                }
+
+                val out = JSONObject().apply {
+                    put("total", enrichedCustomers.length())
+                    put("customers", enrichedCustomers)
+                }
+                ApiResult(status = custRes.status, message = custRes.message, data = out)
             }
             "admin_customer_save" -> {
                 val id = (params["id"]?.toString()?.toIntOrNull() ?: 0)
@@ -270,10 +312,16 @@ object ApiClient {
             "admin_customer_delete" -> callNativeApi("customers/delete/${params["id"]}")
             "admin_customer_sync" -> callNativeApi("customers/sync/${params["id"]}")
 
-            // 4. LAYANAN / PREPAID & VOUCHER -> /system/api.php?r=prepaid/...
+            // 4. LAYANAN PREPAID & VOUCHER -> Menggabungkan ?r=prepaid/voucher dengan info harga/nama paket
             "admin_prepaid_list" -> {
                 val res = callNativeApi("prepaid/list", params)
                 val dArr = res.data?.optJSONArray("d") ?: res.dataArray ?: JSONArray()
+                for (i in 0 until dArr.length()) {
+                    val item = dArr.getJSONObject(i)
+                    if (item.optString("fullname").isEmpty()) {
+                        item.put("fullname", item.optString("username"))
+                    }
+                }
                 val out = JSONObject().apply {
                     put("total", dArr.length())
                     put("items", dArr)
@@ -306,6 +354,29 @@ object ApiClient {
             "admin_vouchers" -> {
                 val res = callNativeApi("prepaid/voucher", params)
                 val dArr = res.data?.optJSONArray("d") ?: res.dataArray ?: JSONArray()
+                val plansArr = res.data?.optJSONArray("plans") ?: JSONArray()
+
+                val planMap = mutableMapOf<Int, JSONObject>()
+                for (i in 0 until plansArr.length()) {
+                    val p = plansArr.getJSONObject(i)
+                    planMap[p.optInt("id")] = p
+                }
+
+                for (i in 0 until dArr.length()) {
+                    val v = dArr.getJSONObject(i)
+                    val pid = v.optInt("id_plan", 0)
+                    val p = planMap[pid]
+                    if (p != null) {
+                        if (v.optString("name_plan").isEmpty()) v.put("name_plan", p.optString("name_plan"))
+                        if (!v.has("price")) v.put("price", p.optDouble("price", 0.0))
+                        if (v.optString("validity").isEmpty()) {
+                            v.put("validity", "${p.optString("validity")} ${p.optString("validity_unit")}")
+                        }
+                    } else if (v.optString("name_plan").isEmpty()) {
+                        v.put("name_plan", "Plan #$pid")
+                    }
+                }
+
                 val out = JSONObject().apply {
                     put("total", dArr.length())
                     put("vouchers", dArr)
@@ -340,7 +411,7 @@ object ApiClient {
                 }
             }
 
-            // 5. PAKET INTERNET & BANDWIDTH -> /system/api.php?r=plans/... & ?r=bandwidth/...
+            // 5. PAKET INTERNET & BANDWIDTH -> Menggabungkan ?r=plans/* dengan ?r=bandwidth/list
             "admin_plans" -> {
                 val hsRes = callNativeApi("plans/hotspot")
                 val pppRes = callNativeApi("plans/pppoe")
@@ -349,22 +420,39 @@ object ApiClient {
                 val rRes = callNativeApi("routers/list")
                 val poolRes = callNativeApi("pool/list")
 
-                val allPlans = JSONArray()
-                fun appendPlans(arr: JSONArray?) {
-                    if (arr == null) return
-                    for (i in 0 until arr.length()) allPlans.put(arr.getJSONObject(i))
+                val bwArr = bwRes.data?.optJSONArray("d") ?: JSONArray()
+                val bwMap = mutableMapOf<Int, JSONObject>()
+                for (i in 0 until bwArr.length()) {
+                    val b = bwArr.getJSONObject(i)
+                    bwMap[b.optInt("id")] = b
                 }
-                appendPlans(hsRes.data?.optJSONArray("d"))
-                appendPlans(pppRes.data?.optJSONArray("d"))
-                appendPlans(balRes.data?.optJSONArray("d"))
+
+                val allPlans = JSONArray()
+                fun appendEnrichedPlans(arr: JSONArray?) {
+                    if (arr == null) return
+                    for (i in 0 until arr.length()) {
+                        val p = arr.getJSONObject(i)
+                        val bw = bwMap[p.optInt("id_bw", 0)]
+                        if (bw != null) {
+                            p.put("name_bw", bw.optString("name_bw"))
+                            p.put("rate_label", "${bw.optString("rate_down")}${bw.optString("rate_down_unit")} / ${bw.optString("rate_up")}${bw.optString("rate_up_unit")}")
+                        } else if (p.optString("rate_label").isEmpty()) {
+                            p.put("rate_label", p.optString("name_bw", "-"))
+                        }
+                        allPlans.put(p)
+                    }
+                }
+                appendEnrichedPlans(hsRes.data?.optJSONArray("d"))
+                appendEnrichedPlans(pppRes.data?.optJSONArray("d"))
+                appendEnrichedPlans(balRes.data?.optJSONArray("d"))
 
                 val out = JSONObject().apply {
                     put("plans", allPlans)
-                    put("bandwidths", bwRes.data?.optJSONArray("d") ?: JSONArray())
+                    put("bandwidths", bwArr)
                     put("routers", rRes.data?.optJSONArray("d") ?: JSONArray())
                     put("pools", poolRes.data?.optJSONArray("d") ?: JSONArray())
                 }
-                ApiResult(status = true, message = "Daftar paket dimuat", data = out)
+                ApiResult(status = true, message = "Daftar paket berhasil dimuat", data = out)
             }
             "admin_plan_save" -> {
                 val id = (params["id"]?.toString()?.toIntOrNull() ?: 0)
@@ -416,7 +504,7 @@ object ApiClient {
             }
             "admin_pool_delete" -> callNativeApi("pool/delete/${params["id"]}")
 
-            // 7. LAPORAN, BROADCAST PESAN, PENGATURAN & LOGS -> Controller Asli system/api.php
+            // 7. LAPORAN, BROADCAST, PENGATURAN, LOGS -> Controller Asli system/api.php
             "admin_reports" -> {
                 val res = callNativeApi(
                     "reports/period-view",
@@ -469,8 +557,77 @@ object ApiClient {
                 ApiResult(status = res.status, message = res.message, dataArray = dArr)
             }
 
-            // 8. MODUL EKSTRA PENDAMPING -> /system/api.php?r=apiv1/...
-            "admin_map_data" -> callNativeApi("apiv1/map_all", params)
+            // 8. PETA LOKASI -> Menggabungkan ?r=apiv1/map_all & Fallback ke ?r=map/customer asli
+            "admin_map_data" -> {
+                val res = callNativeApi("apiv1/map_all", params)
+                if (res.status && res.data != null) {
+                    res
+                } else {
+                    // Fallback langsung ke controller asli ?r=map/customer & ?r=routers/list
+                    val mapRes = callNativeApi("map/customer")
+                    val rtrRes = callNativeApi("routers/list")
+                    val cRaw = mapRes.data?.optJSONArray("c") ?: mapRes.data?.optJSONArray("d") ?: JSONArray()
+                    val rRaw = rtrRes.data?.optJSONArray("d") ?: JSONArray()
+
+                    val custOut = JSONArray()
+                    for (i in 0 until cRaw.length()) {
+                        val c = cRaw.getJSONObject(i)
+                        val coords = c.optString("coordinates", "").split(",")
+                        if (coords.size >= 2) {
+                            val lat = coords[0].trim().toDoubleOrNull()
+                            val lng = coords[1].trim().toDoubleOrNull()
+                            if (lat != null && lng != null) {
+                                custOut.put(JSONObject().apply {
+                                    put("id", c.optInt("id"))
+                                    put("username", c.optString("username"))
+                                    put("fullname", c.optString("fullname"))
+                                    put("phonenumber", c.optString("phonenumber"))
+                                    put("address", c.optString("address"))
+                                    put("service_type", c.optString("service_type", "Hotspot"))
+                                    put("lat", lat)
+                                    put("lng", lng)
+                                    put("plan_status", "on")
+                                    put("plan_name", c.optString("service_type", "Internet"))
+                                    put("expiration", "-")
+                                })
+                            }
+                        }
+                    }
+
+                    val rtrOut = JSONArray()
+                    for (i in 0 until rRaw.length()) {
+                        val r = rRaw.getJSONObject(i)
+                        val coords = r.optString("coordinates", "").split(",")
+                        if (coords.size >= 2) {
+                            val lat = coords[0].trim().toDoubleOrNull()
+                            val lng = coords[1].trim().toDoubleOrNull()
+                            if (lat != null && lng != null) {
+                                rtrOut.put(JSONObject().apply {
+                                    put("id", r.optInt("id"))
+                                    put("name", r.optString("name"))
+                                    put("ip_address", r.optString("ip_address"))
+                                    put("description", r.optString("description"))
+                                    put("coverage", r.optInt("coverage", 350))
+                                    put("lat", lat)
+                                    put("lng", lng)
+                                })
+                            }
+                        }
+                    }
+
+                    ApiResult(
+                        status = true,
+                        message = "Data peta dimuat",
+                        data = JSONObject().apply {
+                            put("customers", custOut)
+                            put("routers", rtrOut)
+                            put("assets", JSONArray())
+                        }
+                    )
+                }
+            }
+
+            // 9. MODUL PENDAMPING LAINNYA
             "admin_router_status" -> callNativeApi("apiv1/mikrotik_live", params)
             "admin_online_users" -> callNativeApi("apiv1/online_users", params)
             "admin_data_usage" -> callNativeApi("apiv1/data_usage", params)
@@ -482,6 +639,9 @@ object ApiClient {
             "admin_assets" -> callNativeApi("apiv1/assets", params)
             "admin_asset_save" -> callNativeApi("apiv1/asset_save", params)
             "admin_asset_delete" -> callNativeApi("apiv1/asset_delete", params)
+            "admin_pages" -> callNativeApi("apiv1/pages", params)
+            "admin_page_save" -> callNativeApi("apiv1/page_save", params)
+            "admin_system_tools" -> callNativeApi("apiv1/system_tools", params)
             else -> callNativeApi("apiv1/$action", params)
         }
     }
