@@ -2,6 +2,8 @@ package id.biz.arneta.admin.ui.screens
 
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
+import android.util.Base64
+import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -13,7 +15,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -26,7 +27,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -39,7 +39,6 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -62,219 +61,108 @@ import java.net.URLEncoder
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun AdminMapScreen() {
-    var customersGeo by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
-    var routersGeo by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
-    var assetsGeo by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
-    var mapHtml by remember { mutableStateOf("") }
-    var isLoading by remember { mutableStateOf(true) }
+fun AdminInAppWebViewScreen(
+    initialRouteOrUrl: String = "dashboard",
+    title: String = "Web Admin Arneta.ID",
+    onBack: () -> Unit
+) {
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    var progress by remember { mutableIntStateOf(0) }
+    var currentUrl by remember { mutableStateOf("") }
+    var selectedQuickRoute by remember { mutableStateOf(initialRouteOrUrl) }
 
-    LaunchedEffect(Unit) {
-        isLoading = true
-        val res = ApiClient.request("admin_map_data")
-        if (res.status && res.data != null) {
-            val cArr = res.data.optJSONArray("customers") ?: JSONArray()
-            val rArr = res.data.optJSONArray("routers") ?: JSONArray()
-            val aArr = res.data.optJSONArray("assets") ?: JSONArray()
-
-            val cList = mutableListOf<JSONObject>()
-            for (i in 0 until cArr.length()) cList.add(cArr.getJSONObject(i))
-            customersGeo = cList
-
-            val rList = mutableListOf<JSONObject>()
-            for (i in 0 until rArr.length()) rList.add(rArr.getJSONObject(i))
-            routersGeo = rList
-
-            val aList = mutableListOf<JSONObject>()
-            for (i in 0 until aArr.length()) aList.add(aArr.getJSONObject(i))
-            assetsGeo = aList
-
-            val centerLat = rList.firstOrNull()?.optDouble("lat")
-                ?: cList.firstOrNull()?.optDouble("lat")
-                ?: -6.200000
-            val centerLng = rList.firstOrNull()?.optDouble("lng")
-                ?: cList.firstOrNull()?.optDouble("lng")
-                ?: 106.816666
-
-            mapHtml = """
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <meta charset="utf-8" />
-                    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-                    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
-                    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
-                    <style>
-                        * { box-sizing: border-box; margin: 0; padding: 0; }
-                        html, body { width: 100%; height: 100vh; overflow: hidden; background: #0B1120; font-family: sans-serif; }
-                        #map { position: absolute; top: 0; bottom: 0; left: 0; right: 0; width: 100%; height: 100vh; z-index: 1; }
-                        .leaflet-popup-content-wrapper { border-radius: 10px; font-size: 12px; }
-                    </style>
-                </head>
-                <body>
-                    <div id="map"></div>
-                    <script>
-                        var osmStreet = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-                            maxZoom: 20,
-                            attribution: '© OpenStreetMap & Carto • Arneta.ID'
-                        });
-                        var googleSat = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
-                            maxZoom: 20,
-                            attribution: '© Google Hybrid • Arneta.ID'
-                        });
-
-                        var map = L.map('map', {
-                            center: [$centerLat, $centerLng],
-                            zoom: 15,
-                            layers: [osmStreet],
-                            zoomControl: true
-                        });
-
-                        L.control.layers({
-                            "Peta Jalan (Terang)": osmStreet,
-                            "Satelit Hybrid": googleSat
-                        }).addTo(map);
-
-                        var bounds = [];
-                        var customers = ${cArr.toString()};
-                        var routers = ${rArr.toString()};
-                        var assets = ${aArr.toString()};
-
-                        routers.forEach(function(r) {
-                            if (!r.lat || !r.lng) return;
-                            bounds.push([r.lat, r.lng]);
-                            L.circle([r.lat, r.lng], {
-                                radius: r.coverage || 350,
-                                color: '#00C0EF',
-                                weight: 1.5,
-                                fillColor: '#00C0EF',
-                                fillOpacity: 0.14
-                            }).addTo(map);
-
-                            L.circleMarker([r.lat, r.lng], {
-                                radius: 10,
-                                fillColor: '#F59E0B',
-                                color: '#000000',
-                                weight: 2.5,
-                                fillOpacity: 1
-                            }).addTo(map).bindPopup(
-                                '<b>📡 Router: ' + r.name + '</b><br>IP: ' + r.ip_address + '<br>Coverage: ' + (r.coverage || 350) + 'm'
-                            );
-                        });
-
-                        customers.forEach(function(c) {
-                            if (!c.lat || !c.lng) return;
-                            bounds.push([c.lat, c.lng]);
-                            var isOn = (c.plan_status === 'on');
-                            var fillCol = isOn ? '#10B981' : '#EF4444';
-                            var badge = isOn ? '<span style="color:#10B981;font-weight:bold;">AKTIF</span>' : '<span style="color:#EF4444;font-weight:bold;">EXPIRED</span>';
-
-                            L.circleMarker([c.lat, c.lng], {
-                                radius: 8,
-                                fillColor: fillCol,
-                                color: '#FFFFFF',
-                                weight: 2,
-                                fillOpacity: 0.95
-                            }).addTo(map).bindPopup(
-                                '<b>👤 ' + c.fullname + '</b> (@' + c.username + ')<br>' +
-                                'Status: ' + badge + '<br>' +
-                                'Paket: ' + c.plan_name + '<br>' +
-                                'Exp: ' + c.expiration + '<br>' +
-                                'WA: ' + (c.phonenumber || '-')
-                            );
-                        });
-
-                        assets.forEach(function(a) {
-                            if (!a.lat || !a.lng) return;
-                            bounds.push([a.lat, a.lng]);
-                            L.circleMarker([a.lat, a.lng], {
-                                radius: 7,
-                                fillColor: '#A855F7',
-                                color: '#FFFFFF',
-                                weight: 2,
-                                fillOpacity: 0.95
-                            }).addTo(map).bindPopup(
-                                '<b>📦 ' + a.name + '</b> (' + a.category + ')<br>Kondisi: ' + a.condition
-                            );
-                        });
-
-                        setTimeout(function() {
-                            map.invalidateSize();
-                            if (bounds.length > 1) {
-                                map.fitBounds(bounds, { padding: [35, 35], maxZoom: 17 });
-                            } else if (bounds.length === 1) {
-                                map.setView(bounds[0], 16);
-                            }
-                        }, 300);
-                    </script>
-                </body>
-                </html>
-            """.trimIndent()
+    fun buildTargetUrl(routeOrUrl: String): String {
+        if (routeOrUrl.startsWith("http://") || routeOrUrl.startsWith("https://")) {
+            return routeOrUrl
         }
-        isLoading = false
+        val cleanRoute = routeOrUrl.removePrefix("?_route=").removePrefix("/")
+        val encodedToken = URLEncoder.encode(ApiClient.token, "UTF-8")
+        val encodedRoute = URLEncoder.encode(cleanRoute, "UTF-8")
+        return "${ApiClient.baseUrl}/?_route=apiv1/admin_webview_sso&token=$encodedToken&redirect=$encodedRoute"
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(bottom = 84.dp)
-    ) {
-        // Bar Legenda di Atas Peta
-        Row(
-            horizontalArrangement = Arrangement.SpaceAround,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 10.dp, horizontal = 8.dp)
+    Column(modifier = Modifier.fillMaxSize()) {
+        Surface(
+            color = Color(0xFF141B2D),
+            shadowElevation = 4.dp,
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Text("🟢 Aktif (${customersGeo.count { it.optString("plan_status") == "on" }})", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            Text("🔴 Expired (${customersGeo.count { it.optString("plan_status") != "on" }})", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            Text("🟡 Router (${routersGeo.size})", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            Text("📦 Aset/ODP (${assetsGeo.size})", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-        }
-
-        if (isLoading) {
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                CircularProgressIndicator(color = ArnetaGoldPrimary)
-            }
-        } else {
-            AndroidView(
-                factory = { ctx ->
-                    WebView(ctx).apply {
-                        layoutParams = android.view.ViewGroup.LayoutParams(
-                            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                            android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                        settings.apply {
-                            javaScriptEnabled = true
-                            domStorageEnabled = true
-                            loadsImagesAutomatically = true
-                            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                            userAgentString = "Mozilla/5.0 (Linux; Android 15; ArnetaAdminApp) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.Filled.ArrowBack, contentDescription = "Kembali", tint = Color.White)
                         }
-                        webChromeClient = WebChromeClient()
-                        webViewClient = WebViewClient()
-                        tag = ""
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = title,
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = currentUrl.ifEmpty { "${ApiClient.baseUrl}/?_route=$selectedQuickRoute" },
+                                color = ArnetaGoldLight.copy(alpha = 0.8f),
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
-                },
-                update = { webView ->
-                    if (mapHtml.isNotEmpty() && webView.tag != mapHtml) {
-                        webView.tag = mapHtml
-                        webView.loadDataWithBaseURL(
-                            ApiClient.baseUrl,
-                            mapHtml,
-                            "text/html",
-                            "UTF-8",
-                            null
+
+                    Row {
+                        IconButton(
+                            onClick = {
+                                if (webViewRef?.canGoBack() == true) webViewRef?.goBack()
+                            }
+                        ) {
+                            Icon(Icons.Filled.ChevronLeft, contentDescription = "Mundur", tint = Color.White)
+                        }
+                        IconButton(onClick = { webViewRef?.reload() }) {
+                            Icon(Icons.Filled.Refresh, contentDescription = "Muat Ulang", tint = ArnetaGoldPrimary)
+                        }
+                    }
+                }
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    val webRoutes = listOf(
+                        "admin" to "Login Admin (?_route=admin)",
+                        "dashboard" to "Dasbor Web (?_route=dashboard)",
+                        "pluginmanager" to "Plugin Manager",
+                        "paymentgateway" to "Payment Gateway",
+                        "radius" to "FreeRADIUS",
+                        "pages/Order_Voucher" to "Template Voucher",
+                        "community" to "Info & Update"
+                    )
+                    webRoutes.forEach { (rKey, rLabel) ->
+                        AssistChip(
+                            onClick = {
+                                selectedQuickRoute = rKey
+                                val target = if (rKey == "admin") {
+                                    "${ApiClient.baseUrl}/?_route=admin"
+                                } else {
+                                    buildTargetUrl(rKey)
+                                }
+                                webViewRef?.loadUrl(target)
+                            },
+                            label = { Text(rLabel, fontSize = 11.sp, color = Color.White) }
                         )
                     }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-            )
-        }
-    }
-}
+                }
 
                 if (progress in 1..99) {
                     LinearProgressIndicator(
@@ -289,10 +177,13 @@ fun AdminMapScreen() {
             }
         }
 
-        // Komponen WebView Internal (Terkunci di dalam aplikasi)
         AndroidView(
             factory = { ctx ->
                 WebView(ctx).apply {
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
                     CookieManager.getInstance().setAcceptCookie(true)
                     CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
 
@@ -315,7 +206,6 @@ fun AdminMapScreen() {
                             request: WebResourceRequest?
                         ): Boolean {
                             val reqUrl = request?.url?.toString() ?: return false
-                            // Tetap buka semua link HTTP/HTTPS di dalam WebView internal aplikasi
                             if (reqUrl.startsWith("http://") || reqUrl.startsWith("https://")) {
                                 return false
                             }
@@ -360,7 +250,7 @@ fun AdminNetworkAndOnlineScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var currentTab by remember { mutableStateOf(initialTab) } // live_monitor | online_users | routers | pools
+    var currentTab by remember { mutableStateOf(initialTab) }
     var isLivePolling by remember { mutableStateOf(true) }
     var routerStatusList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var onlineUsersList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
@@ -368,13 +258,11 @@ fun AdminNetworkAndOnlineScreen(
     var poolList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
 
-    // Riwayat titik untuk Live Diagram Real-Time Dinamis (20 titik waktu terakhir)
     var cpuHistory by remember { mutableStateOf(listOf(10f, 12f, 15f, 11f, 14f, 18f, 15f, 13f)) }
     var ramHistory by remember { mutableStateOf(listOf(35f, 35f, 36f, 36f, 35f, 37f, 36f, 36f)) }
     var pingHistory by remember { mutableStateOf(listOf(4f, 5f, 3f, 6f, 4f, 4f, 5f, 4f)) }
     var lastUpdatedTime by remember { mutableStateOf("Baru saja") }
 
-    // Dialog Tambah/Edit Router & Pool
     var showRouterDialog by remember { mutableStateOf(false) }
     var editingRouter by remember { mutableStateOf<JSONObject?>(null) }
     var showPoolDialog by remember { mutableStateOf(false) }
@@ -453,7 +341,6 @@ fun AdminNetworkAndOnlineScreen(
         }
     }
 
-    // Engine Real-Time Auto-Polling tiap 3.5 detik saat tab Live Monitor / Online Users aktif
     LaunchedEffect(currentTab, isLivePolling) {
         loadTabContent()
         if (isLivePolling && (currentTab == "live_monitor" || currentTab == "online_users")) {
@@ -481,7 +368,6 @@ fun AdminNetworkAndOnlineScreen(
     ) {
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Navigasi Sub-Tab Jaringan
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
@@ -510,7 +396,6 @@ fun AdminNetworkAndOnlineScreen(
                     contentPadding = PaddingValues(bottom = 110.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Header Status Real-Time + Sakelar Live Stream
                     item {
                         Card(
                             shape = RoundedCornerShape(16.dp),
@@ -553,7 +438,6 @@ fun AdminNetworkAndOnlineScreen(
 
                                 Spacer(modifier = Modifier.height(14.dp))
 
-                                // LIVE DIAGRAM DINAMIS (Gelombang CPU Load & RAM Usage Real-Time)
                                 LiveDynamicWaveDiagram(
                                     cpuPoints = cpuHistory,
                                     ramPoints = ramHistory,
@@ -566,7 +450,6 @@ fun AdminNetworkAndOnlineScreen(
                         }
                     }
 
-                    // Daftar Kartu Resource per Router + Tombol Reboot
                     items(routerStatusList) { r ->
                         val online = r.optBoolean("online", false)
                         val cpu = r.optInt("cpu_load", 0)
@@ -612,7 +495,6 @@ fun AdminNetworkAndOnlineScreen(
 
                                 Spacer(modifier = Modifier.height(12.dp))
 
-                                // Progress Bar Dinamis CPU & RAM
                                 Text("CPU Load: $cpu%", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                                 Spacer(modifier = Modifier.height(4.dp))
                                 LinearProgressIndicator(
@@ -727,7 +609,6 @@ fun AdminNetworkAndOnlineScreen(
                                     )
                                 }
 
-                                // Tombol KICK / Putuskan Koneksi Sesi
                                 FilledTonalButton(
                                     onClick = {
                                         scope.launch {
@@ -902,7 +783,6 @@ private fun LiveDynamicWaveDiagram(
     val latestPing by animateFloatAsState(targetValue = pingPoints.lastOrNull() ?: 0f, animationSpec = tween(500), label = "ping")
 
     Column(modifier = modifier) {
-        // Legend Bar Real-Time
         Row(
             horizontalArrangement = Arrangement.SpaceBetween,
             modifier = Modifier
@@ -937,7 +817,6 @@ private fun LiveDynamicWaveDiagram(
             val w = size.width
             val h = size.height
 
-            // Garis Grid Horizontal
             for (i in 0..4) {
                 val y = h * (i / 4f)
                 drawLine(
@@ -984,7 +863,6 @@ private fun LiveDynamicWaveDiagram(
                 )
             }
 
-            // Render Gelombang RAM & CPU
             drawWave(ramPoints, ArnetaGoldPrimary, 0.18f)
             drawWave(cpuPoints, ArnetaCyanIncome, 0.30f)
         }
@@ -996,10 +874,9 @@ private fun LiveDynamicWaveDiagram(
  */
 @Composable
 fun AdminPlansScreen() {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var currentTab by remember { mutableStateOf("Hotspot") } // Hotspot | PPPoE | Balance | Bandwidth
+    var currentTab by remember { mutableStateOf("Hotspot") }
     var plansList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var bwList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var routersList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
@@ -1209,18 +1086,20 @@ fun AdminPlansScreen() {
 }
 
 /**
- * 4. LAYAR PETA PELANGGAN, ROUTER COVERAGE & ODP INTERAKTIF (Leaflet OpenStreetMap In-App)
+ * 4. LAYAR PETA PELANGGAN, ROUTER COVERAGE & ODP INTERAKTIF
+ * Menggunakan Cloudflare CDN + Google Maps Street/Satellite Hybrid + Base64 Safe Payload
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun AdminMapScreen() {
-    val scope = rememberCoroutineScope()
     var customersGeo by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var routersGeo by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var assetsGeo by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var mapHtml by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
+        isLoading = true
         val res = ApiClient.request("admin_map_data")
         if (res.status && res.data != null) {
             val cArr = res.data.optJSONArray("customers") ?: JSONArray()
@@ -1239,53 +1118,181 @@ fun AdminMapScreen() {
             for (i in 0 until aArr.length()) aList.add(aArr.getJSONObject(i))
             assetsGeo = aList
 
-            val centerLat = cList.firstOrNull()?.optDouble("lat") ?: rList.firstOrNull()?.optDouble("lat") ?: -6.200000
-            val centerLng = cList.firstOrNull()?.optDouble("lng") ?: rList.firstOrNull()?.optDouble("lng") ?: 106.816666
+            val centerLat = rList.firstOrNull()?.optDouble("lat")
+                ?: cList.firstOrNull()?.optDouble("lat")
+                ?: -6.200000
+            val centerLng = rList.firstOrNull()?.optDouble("lng")
+                ?: cList.firstOrNull()?.optDouble("lng")
+                ?: 106.816666
+
+            val customersB64 = Base64.encodeToString(cArr.toString().toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+            val routersB64 = Base64.encodeToString(rArr.toString().toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+            val assetsB64 = Base64.encodeToString(aArr.toString().toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
 
             mapHtml = """
                 <!DOCTYPE html>
                 <html>
                 <head>
-                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-                    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-                    <style>body,html,#map{margin:0;padding:0;width:100%;height:100%;background:#0B1120;}</style>
+                    <meta charset="utf-8" />
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+                    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+                    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+                    <style>
+                        * { box-sizing: border-box; margin: 0; padding: 0; }
+                        html, body { width: 100%; height: 100%; overflow: hidden; background: #0B1120; font-family: sans-serif; }
+                        #map { position: fixed; top: 0; bottom: 0; left: 0; right: 0; width: 100vw; height: 100vh; z-index: 1; }
+                        .leaflet-popup-content-wrapper { border-radius: 10px; font-size: 12px; }
+                    </style>
                 </head>
                 <body>
                     <div id="map"></div>
                     <script>
-                        var map = L.map('map').setView([$centerLat, $centerLng], 14);
-                        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                            attribution: '© OpenStreetMap • Arneta.ID'
-                        }).addTo(map);
-                        var customers = $cArr;
-                        customers.forEach(function(c) {
-                            var color = c.plan_status === 'on' ? '#10B981' : '#EF4444';
-                            L.circleMarker([c.lat, c.lng], {radius: 8, fillColor: color, color: '#fff', weight: 2, fillOpacity: 0.9})
-                             .addTo(map)
-                             .bindPopup('<b>' + c.fullname + ' (@' + c.username + ')</b><br>Paket: ' + c.plan_name + '<br>Exp: ' + c.expiration);
-                        });
-                        var routers = $rArr;
-                        routers.forEach(function(r) {
-                            L.circle([r.lat, r.lng], {radius: r.coverage || 300, color: '#00C0EF', fillOpacity: 0.12}).addTo(map);
-                            L.circleMarker([r.lat, r.lng], {radius: 10, fillColor: '#F59E0B', color: '#000', weight: 2, fillOpacity: 1})
-                             .addTo(map)
-                             .bindPopup('<b>Router: ' + r.name + '</b><br>IP: ' + r.ip_address);
-                        });
+                        function decodeB64Json(b64) {
+                            try {
+                                return JSON.parse(decodeURIComponent(escape(window.atob(b64))));
+                            } catch (e) {
+                                try { return JSON.parse(window.atob(b64)); } catch (e2) { return []; }
+                            }
+                        }
+
+                        function initArnetaMap() {
+                            if (typeof L === 'undefined') {
+                                setTimeout(initArnetaMap, 250);
+                                return;
+                            }
+
+                            var googleStreet = L.tileLayer('https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+                                maxZoom: 20,
+                                attribution: '© Google Maps • Arneta.ID'
+                            });
+                            var googleHybrid = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+                                maxZoom: 20,
+                                attribution: '© Google Satellite • Arneta.ID'
+                            });
+                            var osmTile = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                                maxZoom: 19,
+                                attribution: '© OpenStreetMap'
+                            });
+
+                            var map = L.map('map', {
+                                center: [$centerLat, $centerLng],
+                                zoom: 15,
+                                layers: [googleStreet],
+                                zoomControl: true
+                            });
+
+                            L.control.layers({
+                                "Peta Jalan (Google)": googleStreet,
+                                "Satelit Hybrid (Google)": googleHybrid,
+                                "OpenStreetMap": osmTile
+                            }).addTo(map);
+
+                            var bounds = [];
+                            var customers = decodeB64Json("$customersB64");
+                            var routers = decodeB64Json("$routersB64");
+                            var assets = decodeB64Json("$assetsB64");
+
+                            routers.forEach(function(r) {
+                                var lat = parseFloat(r.lat);
+                                var lng = parseFloat(r.lng);
+                                if (isNaN(lat) || isNaN(lng)) return;
+                                bounds.push([lat, lng]);
+                                var cov = parseInt(r.coverage) || 350;
+
+                                L.circle([lat, lng], {
+                                    radius: cov,
+                                    color: '#00C0EF',
+                                    weight: 1.5,
+                                    fillColor: '#00C0EF',
+                                    fillOpacity: 0.15
+                                }).addTo(map);
+
+                                L.circleMarker([lat, lng], {
+                                    radius: 10,
+                                    fillColor: '#F59E0B',
+                                    color: '#000000',
+                                    weight: 2.5,
+                                    fillOpacity: 1
+                                }).addTo(map).bindPopup(
+                                    '<b>📡 Router: ' + (r.name || '-') + '</b><br>IP: ' + (r.ip_address || '-') + '<br>Radius: ' + cov + 'm'
+                                );
+                            });
+
+                            customers.forEach(function(c) {
+                                var lat = parseFloat(c.lat);
+                                var lng = parseFloat(c.lng);
+                                if (isNaN(lat) || isNaN(lng)) return;
+                                bounds.push([lat, lng]);
+                                var isOn = (c.plan_status === 'on');
+                                var fillCol = isOn ? '#10B981' : '#EF4444';
+                                var statusTxt = isOn ? 'AKTIF' : 'EXPIRED';
+
+                                L.circleMarker([lat, lng], {
+                                    radius: 8,
+                                    fillColor: fillCol,
+                                    color: '#FFFFFF',
+                                    weight: 2,
+                                    fillOpacity: 0.95
+                                }).addTo(map).bindPopup(
+                                    '<b>👤 ' + (c.fullname || c.username) + '</b> (@' + c.username + ')<br>' +
+                                    'Status: <b>' + statusTxt + '</b><br>' +
+                                    'Paket: ' + (c.plan_name || '-') + '<br>' +
+                                    'Exp: ' + (c.expiration || '-') + '<br>' +
+                                    'WA: ' + (c.phonenumber || '-')
+                                );
+                            });
+
+                            assets.forEach(function(a) {
+                                var lat = parseFloat(a.lat);
+                                var lng = parseFloat(a.lng);
+                                if (isNaN(lat) || isNaN(lng)) return;
+                                bounds.push([lat, lng]);
+                                L.circleMarker([lat, lng], {
+                                    radius: 7,
+                                    fillColor: '#A855F7',
+                                    color: '#FFFFFF',
+                                    weight: 2,
+                                    fillOpacity: 0.95
+                                }).addTo(map).bindPopup(
+                                    '<b>📦 ' + (a.name || '-') + '</b> (' + (a.category || '-') + ')<br>Kondisi: ' + (a.condition || '-')
+                                );
+                            });
+
+                            function adjustViewport() {
+                                map.invalidateSize();
+                                if (bounds.length > 1) {
+                                    map.fitBounds(bounds, { padding: [35, 35], maxZoom: 17 });
+                                } else if (bounds.length === 1) {
+                                    map.setView(bounds[0], 16);
+                                }
+                            }
+
+                            setTimeout(adjustViewport, 250);
+                            setTimeout(adjustViewport, 800);
+                            if (typeof ResizeObserver !== 'undefined') {
+                                new ResizeObserver(function() { map.invalidateSize(); }).observe(document.getElementById('map'));
+                            }
+                        }
+
+                        window.onload = initArnetaMap;
                     </script>
                 </body>
                 </html>
             """.trimIndent()
         }
+        isLoading = false
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        // Legenda Peta
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(bottom = 84.dp)
+    ) {
         Row(
             horizontalArrangement = Arrangement.SpaceAround,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(10.dp)
+                .padding(vertical = 10.dp, horizontal = 8.dp)
         ) {
             Text("🟢 Aktif (${customersGeo.count { it.optString("plan_status") == "on" }})", fontSize = 12.sp, fontWeight = FontWeight.Bold)
             Text("🔴 Expired (${customersGeo.count { it.optString("plan_status") != "on" }})", fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -1293,25 +1300,47 @@ fun AdminMapScreen() {
             Text("📦 Aset/ODP (${assetsGeo.size})", fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
 
-        if (mapHtml.isNotEmpty()) {
+        if (isLoading) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                CircularProgressIndicator(color = ArnetaGoldPrimary)
+            }
+        } else {
             AndroidView(
                 factory = { ctx ->
                     WebView(ctx).apply {
-                        settings.javaScriptEnabled = true
-                        settings.domStorageEnabled = true
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        settings.apply {
+                            javaScriptEnabled = true
+                            domStorageEnabled = true
+                            databaseEnabled = true
+                            loadsImagesAutomatically = true
+                            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                            userAgentString = "Mozilla/5.0 (Linux; Android 15; ArnetaAdmin) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+                        }
+                        webChromeClient = WebChromeClient()
                         webViewClient = WebViewClient()
-                        loadDataWithBaseURL("https://unpkg.com", mapHtml, "text/html", "UTF-8", null)
+                        tag = ""
+                    }
+                },
+                update = { webView ->
+                    if (mapHtml.isNotEmpty() && webView.tag != mapHtml) {
+                        webView.tag = mapHtml
+                        webView.loadDataWithBaseURL(
+                            ApiClient.baseUrl,
+                            mapHtml,
+                            "text/html",
+                            "UTF-8",
+                            null
+                        )
                     }
                 },
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .padding(bottom = 86.dp)
             )
-        } else {
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                CircularProgressIndicator(color = ArnetaGoldPrimary)
-            }
         }
     }
 }
