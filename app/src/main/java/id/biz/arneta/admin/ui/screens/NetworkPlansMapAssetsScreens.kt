@@ -2,8 +2,6 @@ package id.biz.arneta.admin.ui.screens
 
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
-import android.util.Base64
-import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -15,6 +13,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -27,6 +26,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -56,8 +57,7 @@ import org.json.JSONObject
 import java.net.URLEncoder
 
 /**
- * 1. IN-APP BROWSER VIEW INTERNAL (Tanpa Keluar Aplikasi / Tanpa Buka Chrome)
- * Mendukung Auto-Login SSO langsung ke https://phpnuxbill.arneta.biz.id/?_route=admin & ?_route=dashboard
+ * 1. IN-APP BROWSER VIEW (WEBVIEW INTERNAL ADMIN DENGAN AUTO-LOGIN SSO)
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -71,15 +71,15 @@ fun AdminInAppWebViewScreen(
     var currentUrl by remember { mutableStateOf("") }
     var selectedQuickRoute by remember { mutableStateOf(initialRouteOrUrl) }
 
-fun buildTargetUrl(routeOrUrl: String): String {
-    if (routeOrUrl.startsWith("http://") || routeOrUrl.startsWith("https://")) {
-        return routeOrUrl
+    fun buildTargetUrl(routeOrUrl: String): String {
+        if (routeOrUrl.startsWith("http://") || routeOrUrl.startsWith("https://")) {
+            return routeOrUrl
+        }
+        val cleanRoute = routeOrUrl.removePrefix("?_route=").removePrefix("/")
+        val encodedToken = URLEncoder.encode(ApiClient.token, "UTF-8")
+        val encodedRoute = URLEncoder.encode(cleanRoute, "UTF-8")
+        return "${ApiClient.baseUrl}/system/api.php?r=apiv1/webview_sso&token=$encodedToken&redirect=$encodedRoute"
     }
-    val cleanRoute = routeOrUrl.removePrefix("?_route=").removePrefix("/")
-    val encodedToken = URLEncoder.encode(ApiClient.token, "UTF-8")
-    val encodedRoute = URLEncoder.encode(cleanRoute, "UTF-8")
-    return "${ApiClient.baseUrl}/system/api.php?r=apiv1/webview_sso&token=$encodedToken&redirect=$encodedRoute"
-}
 
     Column(modifier = Modifier.fillMaxSize()) {
         Surface(
@@ -140,24 +140,18 @@ fun buildTargetUrl(routeOrUrl: String): String {
                         .padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
                     val webRoutes = listOf(
-                        "admin" to "Login Admin (?_route=admin)",
                         "dashboard" to "Dasbor Web (?_route=dashboard)",
+                        "admin" to "Login Asli (?_route=admin)",
                         "pluginmanager" to "Plugin Manager",
                         "paymentgateway" to "Payment Gateway",
                         "radius" to "FreeRADIUS",
-                        "pages/Order_Voucher" to "Template Voucher",
-                        "community" to "Info & Update"
+                        "pages/Order_Voucher" to "Template Voucher"
                     )
                     webRoutes.forEach { (rKey, rLabel) ->
                         AssistChip(
                             onClick = {
                                 selectedQuickRoute = rKey
-                                val target = if (rKey == "admin") {
-                                    "${ApiClient.baseUrl}/?_route=admin"
-                                } else {
-                                    buildTargetUrl(rKey)
-                                }
-                                webViewRef?.loadUrl(target)
+                                webViewRef?.loadUrl(buildTargetUrl(rKey))
                             },
                             label = { Text(rLabel, fontSize = 11.sp, color = Color.White) }
                         )
@@ -180,10 +174,6 @@ fun buildTargetUrl(routeOrUrl: String): String {
         AndroidView(
             factory = { ctx ->
                 WebView(ctx).apply {
-                    layoutParams = ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                    )
                     CookieManager.getInstance().setAcceptCookie(true)
                     CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
 
@@ -224,12 +214,7 @@ fun buildTargetUrl(routeOrUrl: String): String {
                         }
                     }
 
-                    val startUrl = if (initialRouteOrUrl == "admin") {
-                        "${ApiClient.baseUrl}/?_route=admin"
-                    } else {
-                        buildTargetUrl(initialRouteOrUrl)
-                    }
-                    loadUrl(startUrl)
+                    loadUrl(buildTargetUrl(initialRouteOrUrl))
                     webViewRef = this
                 }
             },
@@ -241,7 +226,7 @@ fun buildTargetUrl(routeOrUrl: String): String {
 }
 
 /**
- * 2. LAYAR JARINGAN, ROUTER MIKROTIK, LIVE DIAGRAM REAL-TIME DINAMIS & ONLINE USERS (KICK USER)
+ * 2. LIVE SPEED MONITOR MIKROTIK (MBPS/KBPS REAL-TIME) & USER ONLINE (KICK SESI)
  */
 @Composable
 fun AdminNetworkAndOnlineScreen(
@@ -250,19 +235,24 @@ fun AdminNetworkAndOnlineScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var currentTab by remember { mutableStateOf(initialTab) }
+    var currentTab by remember { mutableStateOf(initialTab) } // live_monitor | online_users | routers | pools
     var isLivePolling by remember { mutableStateOf(true) }
     var routerStatusList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var onlineUsersList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var routerList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var poolList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
 
-    var cpuHistory by remember { mutableStateOf(listOf(10f, 12f, 15f, 11f, 14f, 18f, 15f, 13f)) }
-    var ramHistory by remember { mutableStateOf(listOf(35f, 35f, 36f, 36f, 35f, 37f, 36f, 36f)) }
-    var pingHistory by remember { mutableStateOf(listOf(4f, 5f, 3f, 6f, 4f, 4f, 5f, 4f)) }
-    var lastUpdatedTime by remember { mutableStateOf("Baru saja") }
+    // Riwayat gelombang kecepatan trafik berjalan (Mbps)
+    var downloadHistory by remember { mutableStateOf(listOf(0f, 0.5f, 1.2f, 2.5f, 1.8f, 3.2f, 4.0f, 2.1f)) }
+    var uploadHistory by remember { mutableStateOf(listOf(0f, 0.2f, 0.4f, 0.8f, 0.6f, 1.1f, 0.9f, 0.7f)) }
+    var currentDownMbps by remember { mutableFloatStateOf(0f) }
+    var currentUpMbps by remember { mutableFloatStateOf(0f) }
+    var downSpeedLabel by remember { mutableStateOf("0 Kbps") }
+    var upSpeedLabel by remember { mutableStateOf("0 Kbps") }
+    var lastUpdatedTime by remember { mutableStateOf("Menghubungkan...") }
 
+    // Dialog Tambah/Edit Router & Pool
     var showRouterDialog by remember { mutableStateOf(false) }
     var editingRouter by remember { mutableStateOf<JSONObject?>(null) }
     var showPoolDialog by remember { mutableStateOf(false) }
@@ -270,94 +260,100 @@ fun AdminNetworkAndOnlineScreen(
 
     suspend fun fetchLiveRouterStatus() {
         val res = ApiClient.request("admin_router_status")
-        if (res.status && res.dataArray != null) {
-            val list = mutableListOf<JSONObject>()
-            var maxCpu = 0f
-            var avgRam = 0f
-            var avgPing = 0f
-            var onlineCount = 0
+        val arr = res.dataArray ?: res.data?.optJSONArray("result") ?: JSONArray()
+        val list = mutableListOf<JSONObject>()
+        var sumDl = 0f
+        var sumUl = 0f
+        var topDlLabel = "0 Kbps"
+        var topUlLabel = "0 Kbps"
 
-            for (i in 0 until res.dataArray.length()) {
-                val obj = res.dataArray.getJSONObject(i)
-                list.add(obj)
-                if (obj.optBoolean("online", false)) {
-                    onlineCount++
-                    val c = obj.optDouble("cpu_load", 0.0).toFloat()
-                    if (c > maxCpu) maxCpu = c
-                    avgRam += obj.optDouble("ram_percent", 0.0).toFloat()
-                    avgPing += obj.optDouble("ping_ms", 0.0).toFloat()
-                }
+        for (i in 0 until arr.length()) {
+            val obj = arr.getJSONObject(i)
+            list.add(obj)
+            if (obj.optBoolean("online", false)) {
+                val dl = obj.optDouble("download_mbps", 0.0).toFloat()
+                val ul = obj.optDouble("upload_mbps", 0.0).toFloat()
+                sumDl += dl
+                sumUl += ul
+                topDlLabel = obj.optString("download_speed_label", "0 Kbps")
+                topUlLabel = obj.optString("upload_speed_label", "0 Kbps")
             }
-            routerStatusList = list
-            if (onlineCount > 0) {
-                avgRam /= onlineCount
-                avgPing /= onlineCount
-                cpuHistory = (cpuHistory + maxCpu).takeLast(20)
-                ramHistory = (ramHistory + avgRam).takeLast(20)
-                pingHistory = (pingHistory + avgPing).takeLast(20)
-            }
-            val cal = java.util.Calendar.getInstance()
-            lastUpdatedTime = String.format(
-                "%02d:%02d:%02d",
-                cal.get(java.util.Calendar.HOUR_OF_DAY),
-                cal.get(java.util.Calendar.MINUTE),
-                cal.get(java.util.Calendar.SECOND)
-            )
         }
+        routerStatusList = list
+        currentDownMbps = sumDl
+        currentUpMbps = sumUl
+        downSpeedLabel = if (list.size > 1) "${String.format("%.2f", sumDl)} Mbps" else topDlLabel
+        upSpeedLabel = if (list.size > 1) "${String.format("%.2f", sumUl)} Mbps" else topUlLabel
+
+        downloadHistory = (downloadHistory + sumDl).takeLast(24)
+        uploadHistory = (uploadHistory + sumUl).takeLast(24)
+
+        val cal = java.util.Calendar.getInstance()
+        lastUpdatedTime = String.format(
+            "%02d:%02d:%02d",
+            cal.get(java.util.Calendar.HOUR_OF_DAY),
+            cal.get(java.util.Calendar.MINUTE),
+            cal.get(java.util.Calendar.SECOND)
+        )
+    }
+
+    suspend fun fetchOnlineUsers() {
+        val res = ApiClient.request("admin_online_users")
+        val arr = res.data?.optJSONArray("users") ?: res.data?.optJSONArray("items") ?: res.dataArray ?: JSONArray()
+        val list = mutableListOf<JSONObject>()
+        for (i in 0 until arr.length()) {
+            list.add(arr.getJSONObject(i))
+        }
+        onlineUsersList = list
     }
 
     fun loadTabContent() {
-        isLoading = true
         scope.launch {
             when (currentTab) {
                 "live_monitor" -> fetchLiveRouterStatus()
-                "online_users" -> {
-                    val res = ApiClient.request("admin_online_users")
-                    if (res.status && res.data != null) {
-                        val arr = res.data.optJSONArray("users") ?: JSONArray()
-                        val list = mutableListOf<JSONObject>()
-                        for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
-                        onlineUsersList = list
-                    }
-                }
+                "online_users" -> fetchOnlineUsers()
                 "routers" -> {
                     val res = ApiClient.request("admin_routers")
-                    if (res.status && res.dataArray != null) {
-                        val list = mutableListOf<JSONObject>()
-                        for (i in 0 until res.dataArray.length()) list.add(res.dataArray.getJSONObject(i))
-                        routerList = list
-                    }
+                    val arr = res.dataArray ?: res.data?.optJSONArray("d") ?: JSONArray()
+                    val list = mutableListOf<JSONObject>()
+                    for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
+                    routerList = list
                 }
                 "pools" -> {
                     val res = ApiClient.request("admin_pools")
-                    if (res.status && res.dataArray != null) {
-                        val list = mutableListOf<JSONObject>()
-                        for (i in 0 until res.dataArray.length()) list.add(res.dataArray.getJSONObject(i))
-                        poolList = list
-                    }
+                    val arr = res.dataArray ?: res.data?.optJSONArray("d") ?: JSONArray()
+                    val list = mutableListOf<JSONObject>()
+                    for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
+                    poolList = list
                 }
             }
-            isLoading = false
         }
     }
 
+    // Auto-polling halus setiap 2.5 detik untuk Live Speed Monitor & User Online
     LaunchedEffect(currentTab, isLivePolling) {
         loadTabContent()
         if (isLivePolling && (currentTab == "live_monitor" || currentTab == "online_users")) {
             while (isActive && isLivePolling) {
-                delay(3500L)
+                delay(2500L)
                 if (currentTab == "live_monitor") {
                     fetchLiveRouterStatus()
                 } else if (currentTab == "online_users") {
-                    val res = ApiClient.request("admin_online_users")
-                    if (res.status && res.data != null) {
-                        val arr = res.data.optJSONArray("users") ?: JSONArray()
-                        val list = mutableListOf<JSONObject>()
-                        for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
-                        onlineUsersList = list
-                    }
+                    fetchOnlineUsers()
                 }
             }
+        }
+    }
+
+    // Filter instan 1 huruf untuk User Online
+    val filteredOnlineUsers = remember(onlineUsersList, searchQuery) {
+        val q = searchQuery.trim().lowercase()
+        if (q.isEmpty()) onlineUsersList
+        else onlineUsersList.filter { u ->
+            u.optString("username", "").lowercase().contains(q) ||
+                u.optString("ip_address", "").lowercase().contains(q) ||
+                u.optString("service", "").lowercase().contains(q) ||
+                u.optString("router", "").lowercase().contains(q)
         }
     }
 
@@ -375,7 +371,7 @@ fun AdminNetworkAndOnlineScreen(
                 .horizontalScroll(rememberScrollState())
         ) {
             listOf(
-                "live_monitor" to "Live Monitor MikroTik",
+                "live_monitor" to "Live Speed Monitor",
                 "online_users" to "User Online (${onlineUsersList.size})",
                 "routers" to "Daftar Router",
                 "pools" to "IP Pool"
@@ -396,10 +392,12 @@ fun AdminNetworkAndOnlineScreen(
                     contentPadding = PaddingValues(bottom = 110.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    // KARTU SPEEDOMETER & GRAFIK REAL-TIME SPEED MIKROTIK
                     item {
                         Card(
                             shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(modifier = Modifier.padding(14.dp)) {
@@ -418,45 +416,100 @@ fun AdminNetworkAndOnlineScreen(
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Column {
                                             Text(
-                                                text = "Live Telemetry MikroTik RouterOS",
+                                                text = "MikroTik Live Speed & Telemetry",
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 14.sp
                                             )
                                             Text(
-                                                text = "Update otomatis tiap 3 detik • Terakhir: $lastUpdatedTime",
+                                                text = "Update: $lastUpdatedTime",
                                                 fontSize = 11.sp,
                                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                                             )
                                         }
                                     }
 
-                                    Switch(
-                                        checked = isLivePolling,
-                                        onCheckedChange = { isLivePolling = it }
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(if (isLivePolling) "Live" else "Pause", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Switch(
+                                            checked = isLivePolling,
+                                            onCheckedChange = { isLivePolling = it }
+                                        )
+                                    }
                                 }
 
-                                Spacer(modifier = Modifier.height(14.dp))
+                                Spacer(modifier = Modifier.height(10.dp))
 
-                                LiveDynamicWaveDiagram(
-                                    cpuPoints = cpuHistory,
-                                    ramPoints = ramHistory,
-                                    pingPoints = pingHistory,
+                                // KOTAK KECEPATAN UPLOAD & DOWNLOAD REAL-TIME DENGAN WARNA MENYALA
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Surface(
+                                        color = ArnetaCyanIncome.copy(alpha = 0.15f),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Column(modifier = Modifier.padding(12.dp)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(Icons.Filled.ArrowDownward, contentDescription = null, tint = ArnetaCyanIncome, modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Download Speed", fontSize = 11.sp, color = ArnetaCyanIncome, fontWeight = FontWeight.Bold)
+                                            }
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = downSpeedLabel,
+                                                fontSize = 18.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = ArnetaCyanIncome
+                                            )
+                                        }
+                                    }
+
+                                    Surface(
+                                        color = ArnetaGoldPrimary.copy(alpha = 0.15f),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Column(modifier = Modifier.padding(12.dp)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(Icons.Filled.ArrowUpward, contentDescription = null, tint = ArnetaGoldPrimary, modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Upload Speed", fontSize = 11.sp, color = ArnetaGoldPrimary, fontWeight = FontWeight.Bold)
+                                            }
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = upSpeedLabel,
+                                                fontSize = 18.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = ArnetaGoldPrimary
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                // GRAFIK GELOMBANG SPEED REAL-TIME (ANIMASI MULUS 60 FPS)
+                                LiveSpeedWaveDiagram(
+                                    downloadPoints = downloadHistory,
+                                    uploadPoints = uploadHistory,
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(175.dp)
+                                        .height(180.dp)
                                 )
                             }
                         }
                     }
 
+                    // DAFTAR STATUS ROUTER MIKROTIK
                     items(routerStatusList) { r ->
                         val online = r.optBoolean("online", false)
                         val cpu = r.optInt("cpu_load", 0)
                         val ramPct = r.optDouble("ram_percent", 0.0).toFloat()
 
                         Card(
-                            shape = RoundedCornerShape(16.dp),
+                            shape = RoundedCornerShape(14.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -469,11 +522,11 @@ fun AdminNetworkAndOnlineScreen(
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             text = "${r.optString("name")} (${r.optString("board_name")})",
-                                            fontWeight = FontWeight.ExtraBold,
+                                            fontWeight = FontWeight.Bold,
                                             fontSize = 15.sp
                                         )
                                         Text(
-                                            text = "IP: ${r.optString("ip_address")} • RouterOS ${r.optString("version")}",
+                                            text = "IP: ${r.optString("ip_address")} • Uptime: ${r.optString("uptime")}",
                                             fontSize = 12.sp,
                                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                                         )
@@ -493,34 +546,23 @@ fun AdminNetworkAndOnlineScreen(
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.height(12.dp))
+                                Spacer(modifier = Modifier.height(10.dp))
 
-                                Text("CPU Load: $cpu%", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                Row(
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("CPU Load: $cpu%", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                    Text("RAM: $ramPct% (${r.optString("free_memory")} Free)", fontSize = 11.5.sp)
+                                }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 LinearProgressIndicator(
                                     progress = { (cpu / 100f).coerceIn(0f, 1f) },
                                     color = if (cpu > 80) ArnetaRedDanger else ArnetaCyanIncome,
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(8.dp)
-                                        .clip(RoundedCornerShape(4.dp))
-                                )
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                Text(
-                                    "RAM Terpakai: $ramPct% (Free: ${r.optString("free_memory")} / Total: ${r.optString("total_memory")})",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                LinearProgressIndicator(
-                                    progress = { (ramPct / 100f).coerceIn(0f, 1f) },
-                                    color = ArnetaGoldPrimary,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(8.dp)
-                                        .clip(RoundedCornerShape(4.dp))
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(3.dp))
                                 )
 
                                 Spacer(modifier = Modifier.height(10.dp))
@@ -531,10 +573,10 @@ fun AdminNetworkAndOnlineScreen(
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Text(
-                                        text = "Uptime: ${r.optString("uptime")} | HS: ${r.optInt("hotspot_online")} | PPPoE: ${r.optInt("pppoe_online")}",
+                                        text = "Trafik Aktif: ↓ ${r.optString("download_speed_label")} • ↑ ${r.optString("upload_speed_label")}",
                                         fontSize = 11.sp,
-                                        color = ArnetaGreenSuccess,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.Bold,
+                                        color = ArnetaGoldPrimary
                                     )
 
                                     OutlinedButton(
@@ -558,81 +600,106 @@ fun AdminNetworkAndOnlineScreen(
             }
 
             "online_users" -> {
-                LazyColumn(
-                    contentPadding = PaddingValues(bottom = 110.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(onlineUsersList) { u ->
-                        Card(
-                            shape = RoundedCornerShape(14.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp)
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Ketik 1 huruf username / IP user online...", fontSize = 13.sp) },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = ArnetaGoldPrimary) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Filled.Clear, contentDescription = "Hapus")
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                if (filteredOnlineUsers.isEmpty()) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                        Text("Tidak ada user online yang cocok.", fontSize = 13.sp)
+                    }
+                } else {
+                    LazyColumn(
+                        contentPadding = PaddingValues(bottom = 110.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(filteredOnlineUsers) { u ->
+                            Card(
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Surface(
-                                            color = if (u.optString("service") == "PPPoE") ArnetaIndigoAccent else ArnetaCyanIncome,
-                                            shape = RoundedCornerShape(6.dp)
-                                        ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp)
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Surface(
+                                                color = if (u.optString("service") == "PPPoE") ArnetaIndigoAccent else ArnetaCyanIncome,
+                                                shape = RoundedCornerShape(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = u.optString("service"),
+                                                    color = Color.White,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(8.dp))
                                             Text(
-                                                text = u.optString("service"),
-                                                color = Color.White,
-                                                fontSize = 10.sp,
+                                                text = u.optString("username"),
                                                 fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                fontSize = 15.sp
                                             )
                                         }
-                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Spacer(modifier = Modifier.height(4.dp))
                                         Text(
-                                            text = u.optString("username"),
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 15.sp
+                                            text = "IP: ${u.optString("ip_address")} • MAC: ${u.optString("mac_address")}",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                                        )
+                                        Text(
+                                            text = "Uptime: ${u.optString("uptime")} • Trafik: ${u.optString("total_bytes")} (${u.optString("router")})",
+                                            fontSize = 11.sp,
+                                            color = ArnetaGoldPrimary
                                         )
                                     }
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = "IP: ${u.optString("ip_address")} • MAC: ${u.optString("mac_address")}",
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                                    )
-                                    Text(
-                                        text = "Uptime: ${u.optString("uptime")} • Trafik: ${u.optString("total_bytes")} (${u.optString("router")})",
-                                        fontSize = 11.sp,
-                                        color = ArnetaGoldPrimary
-                                    )
-                                }
 
-                                FilledTonalButton(
-                                    onClick = {
-                                        scope.launch {
-                                            val kRes = ApiClient.request(
-                                                "admin_kick_user",
-                                                mapOf(
-                                                    "router" to u.optString("router"),
-                                                    "username" to u.optString("username"),
-                                                    "service" to u.optString("service"),
-                                                    "ros_id" to u.optString("ros_id")
+                                    FilledTonalButton(
+                                        onClick = {
+                                            scope.launch {
+                                                val kRes = ApiClient.request(
+                                                    "admin_kick_user",
+                                                    mapOf(
+                                                        "router" to u.optString("router"),
+                                                        "username" to u.optString("username"),
+                                                        "service" to u.optString("service"),
+                                                        "ros_id" to u.optString("ros_id")
+                                                    )
                                                 )
-                                            )
-                                            Toast.makeText(context, kRes.message, Toast.LENGTH_SHORT).show()
-                                            loadTabContent()
-                                        }
-                                    },
-                                    colors = ButtonDefaults.filledTonalButtonColors(
-                                        containerColor = ArnetaRedDanger.copy(alpha = 0.2f),
-                                        contentColor = ArnetaRedDanger
-                                    )
-                                ) {
-                                    Icon(Icons.Filled.LinkOff, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Kick", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                                Toast.makeText(context, kRes.message, Toast.LENGTH_SHORT).show()
+                                                fetchOnlineUsers()
+                                            }
+                                        },
+                                        colors = ButtonDefaults.filledTonalButtonColors(
+                                            containerColor = ArnetaRedDanger.copy(alpha = 0.2f),
+                                            contentColor = ArnetaRedDanger
+                                        )
+                                    ) {
+                                        Icon(Icons.Filled.LinkOff, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Kick", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
                                 }
                             }
                         }
@@ -769,114 +836,91 @@ fun AdminNetworkAndOnlineScreen(
 }
 
 /**
- * Komponen Canvas Live Diagram Real-Time Dinamis (CPU Load, RAM %, & Ping ms)
+ * KOMPONEN CANVAS: GRAFIK GELOMBANG SPEED REAL-TIME (ANIMASI MULUS 60 FPS DENGAN DUA JALUR MBPS)
  */
 @Composable
-private fun LiveDynamicWaveDiagram(
-    cpuPoints: List<Float>,
-    ramPoints: List<Float>,
-    pingPoints: List<Float>,
+private fun LiveSpeedWaveDiagram(
+    downloadPoints: List<Float>,
+    uploadPoints: List<Float>,
     modifier: Modifier = Modifier
 ) {
-    val latestCpu by animateFloatAsState(targetValue = cpuPoints.lastOrNull() ?: 0f, animationSpec = tween(500), label = "cpu")
-    val latestRam by animateFloatAsState(targetValue = ramPoints.lastOrNull() ?: 0f, animationSpec = tween(500), label = "ram")
-    val latestPing by animateFloatAsState(targetValue = pingPoints.lastOrNull() ?: 0f, animationSpec = tween(500), label = "ping")
+    val maxSpeed = (maxOf(
+        downloadPoints.maxOrNull() ?: 1f,
+        uploadPoints.maxOrNull() ?: 1f
+    ) * 1.25f).coerceAtLeast(2.0f)
 
-    Column(modifier = modifier) {
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 8.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(ArnetaCyanIncome))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("CPU: ${latestCpu.toInt()}%", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ArnetaCyanIncome)
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(ArnetaGoldPrimary))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("RAM: ${latestRam.toInt()}%", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ArnetaGoldPrimary)
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(ArnetaGreenSuccess))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Ping: ${latestPing.toInt()} ms", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ArnetaGreenSuccess)
-            }
+    Canvas(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFF0B1120))
+            .padding(10.dp)
+    ) {
+        val w = size.width
+        val h = size.height
+
+        // Garis Grid Horizontal
+        val gridSteps = 4
+        for (i in 0..gridSteps) {
+            val y = h * (i / gridSteps.toFloat())
+            drawLine(
+                color = Color.White.copy(alpha = 0.08f),
+                start = Offset(0f, y),
+                end = Offset(w, y),
+                strokeWidth = 1f
+            )
         }
 
-        Canvas(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color(0xFF0B1120))
-                .padding(8.dp)
-        ) {
-            val w = size.width
-            val h = size.height
+        fun drawSmoothWave(points: List<Float>, lineColor: Color, fillAlpha: Float) {
+            if (points.size < 2) return
+            val path = Path()
+            val fillPath = Path()
+            val stepX = w / (points.size - 1).coerceAtLeast(1)
 
-            for (i in 0..4) {
-                val y = h * (i / 4f)
-                drawLine(
-                    color = Color.White.copy(alpha = 0.08f),
-                    start = Offset(0f, y),
-                    end = Offset(w, y),
-                    strokeWidth = 1f
-                )
-            }
-
-            fun drawWave(points: List<Float>, color: Color, fillAlpha: Float) {
-                if (points.size < 2) return
-                val path = Path()
-                val fillPath = Path()
-                val stepX = w / (points.size - 1).coerceAtLeast(1)
-
-                points.forEachIndexed { idx, value ->
-                    val x = idx * stepX
-                    val y = h - (value.coerceIn(0f, 100f) / 100f) * h
-                    if (idx == 0) {
-                        path.moveTo(x, y)
-                        fillPath.moveTo(x, h)
-                        fillPath.lineTo(x, y)
-                    } else {
-                        path.lineTo(x, y)
-                        fillPath.lineTo(x, y)
-                    }
-                    if (idx == points.lastIndex) {
-                        fillPath.lineTo(x, h)
-                        fillPath.close()
-                    }
+            points.forEachIndexed { idx, speed ->
+                val x = idx * stepX
+                val y = h - ((speed / maxSpeed).coerceIn(0f, 1f) * h)
+                if (idx == 0) {
+                    path.moveTo(x, y)
+                    fillPath.moveTo(x, h)
+                    fillPath.lineTo(x, y)
+                } else {
+                    path.lineTo(x, y)
+                    fillPath.lineTo(x, y)
                 }
-
-                drawPath(
-                    path = fillPath,
-                    brush = Brush.verticalGradient(
-                        colors = listOf(color.copy(alpha = fillAlpha), Color.Transparent)
-                    )
-                )
-                drawPath(
-                    path = path,
-                    color = color,
-                    style = Stroke(width = 4f, cap = StrokeCap.Round)
-                )
+                if (idx == points.lastIndex) {
+                    fillPath.lineTo(x, h)
+                    fillPath.close()
+                }
             }
 
-            drawWave(ramPoints, ArnetaGoldPrimary, 0.18f)
-            drawWave(cpuPoints, ArnetaCyanIncome, 0.30f)
+            drawPath(
+                path = fillPath,
+                brush = Brush.verticalGradient(
+                    colors = listOf(lineColor.copy(alpha = fillAlpha), Color.Transparent)
+                )
+            )
+            drawPath(
+                path = path,
+                color = lineColor,
+                style = Stroke(width = 3.5f, cap = StrokeCap.Round)
+            )
         }
+
+        // Render Gelombang Upload (Gold) & Download (Cyan)
+        drawSmoothWave(uploadPoints, ArnetaGoldPrimary, 0.20f)
+        drawSmoothWave(downloadPoints, ArnetaCyanIncome, 0.35f)
     }
 }
 
 /**
- * 3. LAYAR PAKET INTERNET (HOTSPOT, PPPOE, BALANCE) & PROFIL BANDWIDTH
+ * 3. LAYAR PAKET INTERNET (HOTSPOT PREPAID, PPPOE POSTPAID NON-HIDDEN, SALDO) & BANDWIDTH
  */
 @Composable
 fun AdminPlansScreen() {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var currentTab by remember { mutableStateOf("Hotspot") }
+    var currentTab by remember { mutableStateOf("Hotspot") } // Hotspot | PPPoE | Balance | Bandwidth
     var plansList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var bwList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var routersList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
@@ -1018,12 +1062,12 @@ fun AdminPlansScreen() {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(p.optString("name_plan"), fontWeight = FontWeight.Bold, fontSize = 15.sp)
                                 Text(
-                                    "${p.optString("rate_label")} • Masa Aktif: ${p.optInt("validity")} ${p.optString("validity_unit")}",
+                                    "${p.optString("rate_label")} • Masa: ${p.optInt("validity")} ${p.optString("validity_unit")}",
                                     fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                                 )
                                 Text(
-                                    "Router: ${p.optString("routers")} • Pelanggan Aktif: ${p.optInt("active_users")}",
+                                    "${p.optString("billing_label")} • Router: ${p.optString("routers")} • User Aktif: ${p.optInt("active_users")}",
                                     fontSize = 11.sp,
                                     color = ArnetaGreenSuccess
                                 )
@@ -1086,12 +1130,11 @@ fun AdminPlansScreen() {
 }
 
 /**
- * 4. LAYAR PETA PELANGGAN, ROUTER COVERAGE & ODP INTERAKTIF (Full Marker + Nama + Auto-Focus Router)
+ * 4. PETA PELANGGAN, ROUTER COVERAGE & ODP (LEAFLET OSM / SATELIT HYBRID DENGAN BASE64 & PIN NAMA)
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun AdminMapScreen() {
-    val context = LocalContext.current
     var customersGeo by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var routersGeo by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var assetsGeo by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
@@ -1119,7 +1162,6 @@ fun AdminMapScreen() {
             for (i in 0 until aArr.length()) aList.add(aArr.getJSONObject(i))
             assetsGeo = aList
 
-            // Encode JSON ke Base64 agar karakter '#', '%', enter, atau kutip pada alamat tidak merusak WebView
             val cBase64 = android.util.Base64.encodeToString(
                 cArr.toString().toByteArray(Charsets.UTF_8),
                 android.util.Base64.NO_WRAP
@@ -1133,7 +1175,6 @@ fun AdminMapScreen() {
                 android.util.Base64.NO_WRAP
             )
 
-            // Prioritaskan titik tengah awal ke koordinat Router pertama
             val initLat = rList.firstOrNull()?.optDouble("lat")
                 ?: cList.firstOrNull()?.optDouble("lat")
                 ?: -6.200000
@@ -1153,63 +1194,13 @@ fun AdminMapScreen() {
                         * { box-sizing: border-box; margin: 0; padding: 0; }
                         html, body { width: 100%; height: 100vh; overflow: hidden; background: #0B1120; font-family: sans-serif; }
                         #map { position: absolute; top: 0; bottom: 0; left: 0; right: 0; width: 100%; height: 100vh; z-index: 1; }
-                        
-                        /* Desain Pin Marker Kustom */
-                        .pin-wrap {
-                            display: flex;
-                            flex-direction: column;
-                            align-items: center;
-                            transform: translate(-50%, -100%);
-                        }
-                        .pin-label {
-                            background: rgba(15, 23, 42, 0.92);
-                            color: #FFFFFF;
-                            padding: 2px 7px;
-                            border-radius: 6px;
-                            font-size: 11px;
-                            font-weight: bold;
-                            white-space: nowrap;
-                            box-shadow: 0 2px 5px rgba(0,0,0,0.45);
-                            margin-bottom: 3px;
-                            border: 1px solid rgba(255,255,255,0.25);
-                        }
-                        .pin-label-router {
-                            background: #F59E0B;
-                            color: #0B0F19;
-                            border: 1.5px solid #FFFFFF;
-                            font-size: 11.5px;
-                        }
-                        .pin-dot {
-                            width: 26px;
-                            height: 26px;
-                            border-radius: 50% 50% 50% 0;
-                            transform: rotate(-45deg);
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                            border: 2px solid #FFFFFF;
-                            box-shadow: 0 3px 6px rgba(0,0,0,0.5);
-                        }
-                        .pin-dot span {
-                            transform: rotate(45deg);
-                            font-size: 12px;
-                        }
-                        .leaflet-popup-content-wrapper {
-                            border-radius: 12px;
-                            font-size: 12.5px;
-                            line-height: 1.45;
-                        }
-                        .btn-dir {
-                            display: inline-block;
-                            margin-top: 6px;
-                            padding: 5px 10px;
-                            background: #00C0EF;
-                            color: #FFFFFF !important;
-                            text-decoration: none;
-                            border-radius: 6px;
-                            font-weight: bold;
-                            font-size: 11.5px;
-                        }
+                        .pin-wrap { display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -100%); }
+                        .pin-label { background: rgba(15, 23, 42, 0.92); color: #FFFFFF; padding: 2px 7px; border-radius: 6px; font-size: 11px; font-weight: bold; white-space: nowrap; box-shadow: 0 2px 5px rgba(0,0,0,0.45); margin-bottom: 3px; border: 1px solid rgba(255,255,255,0.25); }
+                        .pin-label-router { background: #F59E0B; color: #0B0F19; border: 1.5px solid #FFFFFF; font-size: 11.5px; }
+                        .pin-dot { width: 26px; height: 26px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); display: flex; align-items: center; justify-content: center; border: 2px solid #FFFFFF; box-shadow: 0 3px 6px rgba(0,0,0,0.5); }
+                        .pin-dot span { transform: rotate(45deg); font-size: 12px; }
+                        .leaflet-popup-content-wrapper { border-radius: 12px; font-size: 12.5px; line-height: 1.45; }
+                        .btn-dir { display: inline-block; margin-top: 6px; padding: 5px 10px; background: #00C0EF; color: #FFFFFF !important; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 11.5px; }
                     </style>
                 </head>
                 <body>
@@ -1220,36 +1211,15 @@ fun AdminMapScreen() {
                                 return JSON.parse(decodeURIComponent(Array.prototype.map.call(window.atob(b64), function(c) {
                                     return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
                                 }).join('')));
-                            } catch (e) {
-                                return [];
-                            }
+                            } catch (e) { return []; }
                         }
 
-                        var osmStreet = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                            maxZoom: 20,
-                            attribution: '© OpenStreetMap • Arneta.ID'
-                        });
-                        var cartoVoyager = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-                            maxZoom: 20,
-                            attribution: '© Carto • Arneta.ID'
-                        });
-                        var googleHybrid = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
-                            maxZoom: 20,
-                            attribution: '© Google Hybrid • Arneta.ID'
-                        });
+                        var osmStreet = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 20, attribution: '© OpenStreetMap • Arneta.ID' });
+                        var cartoVoyager = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 20, attribution: '© Carto • Arneta.ID' });
+                        var googleHybrid = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', { maxZoom: 20, attribution: '© Google Hybrid • Arneta.ID' });
 
-                        var map = L.map('map', {
-                            center: [$initLat, $initLng],
-                            zoom: 16,
-                            layers: [osmStreet],
-                            zoomControl: true
-                        });
-
-                        L.control.layers({
-                            "OpenStreetMap (Default Web)": osmStreet,
-                            "Peta Jalan Terang": cartoVoyager,
-                            "Satelit Hybrid (Atap Rumah)": googleHybrid
-                        }).addTo(map);
+                        var map = L.map('map', { center: [$initLat, $initLng], zoom: 16, layers: [osmStreet], zoomControl: true });
+                        L.control.layers({ "Peta Jalan Terang": cartoVoyager, "OpenStreetMap": osmStreet, "Satelit Hybrid": googleHybrid }).addTo(map);
 
                         var customers = decodeB64("$cBase64");
                         var routers   = decodeB64("$rBase64");
@@ -1266,142 +1236,54 @@ fun AdminMapScreen() {
                                        '<div class="' + lblClass + '">' + label + '</div>' +
                                        '<div class="pin-dot" style="background:' + bgColor + ';"><span>' + emoji + '</span></div>' +
                                        '</div>';
-                            return L.divIcon({
-                                className: '',
-                                html: html,
-                                iconSize: [0, 0],
-                                iconAnchor: [0, 0],
-                                popupAnchor: [0, -34]
-                            });
+                            return L.divIcon({ className: '', html: html, iconSize: [0, 0], iconAnchor: [0, 0], popupAnchor: [0, -34] });
                         }
 
-                        // 1. Render Marker Router & Lingkaran Radius Coverage
                         routers.forEach(function(r) {
-                            var lat = parseFloat(r.lat);
-                            var lng = parseFloat(r.lng);
+                            var lat = parseFloat(r.lat); var lng = parseFloat(r.lng);
                             if (isNaN(lat) || isNaN(lng)) return;
-
-                            routerBounds.push([lat, lng]);
-                            allBounds.push([lat, lng]);
-
+                            routerBounds.push([lat, lng]); allBounds.push([lat, lng]);
                             var cov = parseInt(r.coverage) || 350;
-                            L.circle([lat, lng], {
-                                radius: cov,
-                                color: '#00C0EF',
-                                weight: 2,
-                                fillColor: '#00C0EF',
-                                fillOpacity: 0.14
-                            }).addTo(map);
-
-                            var icon = makePinIcon('📡 ' + (r.name || 'Router'), '#F59E0B', '📡', true);
-                            L.marker([lat, lng], { icon: icon, zIndexOffset: 1000 })
+                            L.circle([lat, lng], { radius: cov, color: '#00C0EF', weight: 2, fillColor: '#00C0EF', fillOpacity: 0.14 }).addTo(map);
+                            L.marker([lat, lng], { icon: makePinIcon('📡 ' + (r.name || 'Router'), '#F59E0B', '📡', true), zIndexOffset: 1000 })
                              .addTo(map)
-                             .bindPopup(
-                                 '<b>📡 Router: ' + (r.name || '-') + '</b><br>' +
-                                 'IP/API: ' + (r.ip_address || '-') + '<br>' +
-                                 'Info: ' + (r.description || '-') + '<br>' +
-                                 'Radius Coverage: ' + cov + ' Meter<br>' +
-                                 '<a class="btn-dir" href="https://www.google.com/maps/dir/?api=1&destination=' + lat + ',' + lng + '">🗺️ Petunjuk Arah</a>'
-                             );
+                             .bindPopup('<b>📡 Router: ' + (r.name || '-') + '</b><br>IP/API: ' + (r.ip_address || '-') + '<br>Coverage: ' + cov + ' Meter<br><a class="btn-dir" href="https://www.google.com/maps/dir/?api=1&destination=' + lat + ',' + lng + '">🗺️ Petunjuk Arah</a>');
                         });
 
-                        // 2. Render Marker Pelanggan (Hijau = Aktif, Merah = Expired) + Nama
                         customers.forEach(function(c) {
-                            var lat = parseFloat(c.lat);
-                            var lng = parseFloat(c.lng);
+                            var lat = parseFloat(c.lat); var lng = parseFloat(c.lng);
                             if (isNaN(lat) || isNaN(lng)) return;
-
-                            customerBounds.push([lat, lng]);
-                            allBounds.push([lat, lng]);
-
+                            customerBounds.push([lat, lng]); allBounds.push([lat, lng]);
                             var isOn = (c.plan_status === 'on');
                             var pinColor = isOn ? '#10B981' : '#EF4444';
-                            var statusBadge = isOn
-                                ? '<span style="color:#10B981;font-weight:bold;">AKTIF (ON)</span>'
-                                : '<span style="color:#EF4444;font-weight:bold;">EXPIRED (OFF)</span>';
-
+                            var statusBadge = isOn ? '<span style="color:#10B981;font-weight:bold;">AKTIF (ON)</span>' : '<span style="color:#EF4444;font-weight:bold;">EXPIRED (OFF)</span>';
                             var displayName = c.fullname || c.username || 'User';
-                            var icon = makePinIcon(displayName, pinColor, '👤', false);
-
-                            L.marker([lat, lng], { icon: icon })
+                            L.marker([lat, lng], { icon: makePinIcon(displayName, pinColor, '👤', false) })
                              .addTo(map)
-                             .bindPopup(
-                                 '<b>👤 ' + displayName + '</b> (@' + (c.username || '-') + ')<br>' +
-                                 'Status: ' + statusBadge + '<br>' +
-                                 'Paket: <b>' + (c.plan_name || '-') + '</b><br>' +
-                                 'Exp: ' + (c.expiration || '-') + '<br>' +
-                                 'Layanan: ' + (c.service_type || '-') + '<br>' +
-                                 'Alamat: ' + (c.address || '-') + '<br>' +
-                                 'WA: ' + (c.phonenumber || '-') + '<br>' +
-                                 '<a class="btn-dir" href="https://www.google.com/maps/dir/?api=1&destination=' + lat + ',' + lng + '">🗺️ Direction / Rute</a>'
-                             );
+                             .bindPopup('<b>👤 ' + displayName + '</b> (@' + (c.username || '-') + ')<br>Status: ' + statusBadge + '<br>Paket: <b>' + (c.plan_name || '-') + '</b><br>Exp: ' + (c.expiration || '-') + '<br>WA: ' + (c.phonenumber || '-') + '<br><a class="btn-dir" href="https://www.google.com/maps/dir/?api=1&destination=' + lat + ',' + lng + '">🗺️ Petunjuk Arah</a>');
                         });
 
-                        // 3. Render Marker ODP / Aset Jaringan
                         assets.forEach(function(a) {
-                            var lat = parseFloat(a.lat);
-                            var lng = parseFloat(a.lng);
+                            var lat = parseFloat(a.lat); var lng = parseFloat(a.lng);
                             if (isNaN(lat) || isNaN(lng)) return;
-
-                            assetBounds.push([lat, lng]);
-                            allBounds.push([lat, lng]);
-
-                            var icon = makePinIcon('📦 ' + (a.name || 'ODP'), '#8B5CF6', '📦', false);
-                            L.marker([lat, lng], { icon: icon })
+                            assetBounds.push([lat, lng]); allBounds.push([lat, lng]);
+                            L.marker([lat, lng], { icon: makePinIcon('📦 ' + (a.name || 'ODP'), '#8B5CF6', '📦', false) })
                              .addTo(map)
-                             .bindPopup(
-                                 '<b>📦 ' + (a.name || '-') + '</b><br>' +
-                                 'Kategori: ' + (a.category || '-') + '<br>' +
-                                 'Kondisi: ' + (a.condition || 'Good') + '<br>' +
-                                 '<a class="btn-dir" href="https://www.google.com/maps/dir/?api=1&destination=' + lat + ',' + lng + '">🗺️ Petunjuk Arah</a>'
-                             );
+                             .bindPopup('<b>📦 ' + (a.name || '-') + '</b> (' + (a.category || '-') + ')<br>Kondisi: ' + (a.condition || 'Good') + '<br><a class="btn-dir" href="https://www.google.com/maps/dir/?api=1&destination=' + lat + ',' + lng + '">🗺️ Petunjuk Arah</a>');
                         });
 
-                        // Fungsi Navigasi Kamera Cepat dari Tombol Aplikasi
                         window.focusMapTarget = function(target) {
                             map.invalidateSize();
-                            if (target === 'router') {
-                                if (routerBounds.length === 1) {
-                                    map.flyTo(routerBounds[0], 16, { duration: 0.8 });
-                                } else if (routerBounds.length > 1) {
-                                    map.flyToBounds(routerBounds, { padding: [45, 45], maxZoom: 16, duration: 0.8 });
-                                }
-                            } else if (target === 'customers') {
-                                if (customerBounds.length > 0) {
-                                    map.flyToBounds(customerBounds, { padding: [45, 45], maxZoom: 17, duration: 0.8 });
-                                }
-                            } else if (target === 'assets') {
-                                if (assetBounds.length > 0) {
-                                    map.flyToBounds(assetBounds, { padding: [45, 45], maxZoom: 17, duration: 0.8 });
-                                }
-                            } else if (target === 'all') {
-                                if (allBounds.length > 0) {
-                                    map.flyToBounds(allBounds, { padding: [45, 45], maxZoom: 16, duration: 0.8 });
-                                }
-                            } else if (target === 'gps') {
-                                if (navigator.geolocation) {
-                                    navigator.geolocation.getCurrentPosition(function(pos) {
-                                        var lat = pos.coords.latitude;
-                                        var lng = pos.coords.longitude;
-                                        map.flyTo([lat, lng], 17, { duration: 0.8 });
-                                    });
-                                }
-                            }
+                            if (target === 'router' && routerBounds.length > 0) map.setView(routerBounds[0], 16);
+                            else if (target === 'customers' && customerBounds.length > 0) map.fitBounds(customerBounds, { padding: [45, 45], maxZoom: 17 });
+                            else if (target === 'assets' && assetBounds.length > 0) map.fitBounds(assetBounds, { padding: [45, 45], maxZoom: 17 });
+                            else if (target === 'all' && allBounds.length > 0) map.fitBounds(allBounds, { padding: [45, 45], maxZoom: 16 });
                         };
 
-                        // Auto-Detect & Fokus saat pertama kali dibuka:
-                        // Utamakan fokus ke sekitar Router terlebih dahulu, lalu tampilkan area pelanggan di sekitarnya
                         setTimeout(function() {
                             map.invalidateSize();
-                            if (routerBounds.length > 0) {
-                                map.setView(routerBounds[0], 16);
-                            } else if (allBounds.length > 0) {
-                                map.fitBounds(allBounds, { padding: [40, 40], maxZoom: 16 });
-                            } else if (navigator.geolocation) {
-                                navigator.geolocation.getCurrentPosition(function(pos) {
-                                    map.setView([pos.coords.latitude, pos.coords.longitude], 15);
-                                });
-                            }
+                            if (routerBounds.length > 0) map.setView(routerBounds[0], 16);
+                            else if (allBounds.length > 0) map.fitBounds(allBounds, { padding: [40, 40], maxZoom: 16 });
                         }, 300);
                     </script>
                 </body>
@@ -1416,7 +1298,6 @@ fun AdminMapScreen() {
             .fillMaxSize()
             .padding(bottom = 84.dp)
     ) {
-        // Baris Tombol Pintas Fokus Kamera (Bisa Diketuk untuk Lompat ke Router / Semua User / ODP / GPS)
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -1426,17 +1307,11 @@ fun AdminMapScreen() {
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             AssistChip(
-                onClick = {
-                    mapWebViewRef?.evaluateJavascript("window.focusMapTarget('router');", null)
-                },
-                label = {
-                    Text("🟡 Fokus Router (${routersGeo.size})", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                }
+                onClick = { mapWebViewRef?.evaluateJavascript("window.focusMapTarget('router');", null) },
+                label = { Text("🟡 Fokus Router (${routersGeo.size})", fontSize = 11.5.sp, fontWeight = FontWeight.Bold) }
             )
             AssistChip(
-                onClick = {
-                    mapWebViewRef?.evaluateJavascript("window.focusMapTarget('customers');", null)
-                },
+                onClick = { mapWebViewRef?.evaluateJavascript("window.focusMapTarget('customers');", null) },
                 label = {
                     val activeCnt = customersGeo.count { it.optString("plan_status") == "on" }
                     val expCnt = customersGeo.count { it.optString("plan_status") != "on" }
@@ -1444,28 +1319,12 @@ fun AdminMapScreen() {
                 }
             )
             AssistChip(
-                onClick = {
-                    mapWebViewRef?.evaluateJavascript("window.focusMapTarget('assets');", null)
-                },
-                label = {
-                    Text("📦 Aset/ODP (${assetsGeo.size})", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                }
+                onClick = { mapWebViewRef?.evaluateJavascript("window.focusMapTarget('assets');", null) },
+                label = { Text("📦 Aset/ODP (${assetsGeo.size})", fontSize = 11.5.sp, fontWeight = FontWeight.Bold) }
             )
             AssistChip(
-                onClick = {
-                    mapWebViewRef?.evaluateJavascript("window.focusMapTarget('all');", null)
-                },
-                label = {
-                    Text("🗺️ Lihat Semua", fontSize = 11.5.sp)
-                }
-            )
-            AssistChip(
-                onClick = {
-                    mapWebViewRef?.evaluateJavascript("window.focusMapTarget('gps');", null)
-                },
-                label = {
-                    Text("📍 Lokasi Saya", fontSize = 11.5.sp)
-                }
+                onClick = { mapWebViewRef?.evaluateJavascript("window.focusMapTarget('all');", null) },
+                label = { Text("🗺️ Lihat Semua", fontSize = 11.5.sp) }
             )
         }
 
@@ -1490,31 +1349,15 @@ fun AdminMapScreen() {
                             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                             userAgentString = "Mozilla/5.0 (Linux; Android 15; ArnetaAdminApp) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
                         }
-                        webChromeClient = object : WebChromeClient() {
-                            override fun onGeolocationPermissionsShowPrompt(
-                                origin: String?,
-                                callback: android.webkit.GeolocationPermissions.Callback?
-                            ) {
-                                callback?.invoke(origin, true, false)
-                            }
-                        }
+                        webChromeClient = WebChromeClient()
                         webViewClient = object : WebViewClient() {
-                            override fun shouldOverrideUrlLoading(
-                                view: WebView?,
-                                request: WebResourceRequest?
-                            ): Boolean {
+                            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                                 val url = request?.url?.toString() ?: return false
-                                // Jika tombol "Petunjuk Arah / Direction" diklik, buka navigasi Google Maps
                                 if (url.contains("google.com/maps") || url.startsWith("geo:")) {
                                     try {
-                                        ctx.startActivity(
-                                            android.content.Intent(
-                                                android.content.Intent.ACTION_VIEW,
-                                                android.net.Uri.parse(url)
-                                            )
-                                        )
+                                        ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)))
                                     } catch (e: Exception) {
-                                        Toast.makeText(ctx, "Aplikasi Google Maps tidak ditemukan.", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(ctx, "Aplikasi Maps tidak ditemukan.", Toast.LENGTH_SHORT).show()
                                     }
                                     return true
                                 }
@@ -1529,13 +1372,7 @@ fun AdminMapScreen() {
                     mapWebViewRef = webView
                     if (mapHtml.isNotEmpty() && webView.tag != mapHtml) {
                         webView.tag = mapHtml
-                        webView.loadDataWithBaseURL(
-                            ApiClient.baseUrl,
-                            mapHtml,
-                            "text/html",
-                            "UTF-8",
-                            null
-                        )
+                        webView.loadDataWithBaseURL(ApiClient.baseUrl, mapHtml, "text/html", "UTF-8", null)
                     }
                 },
                 modifier = Modifier
@@ -1547,7 +1384,7 @@ fun AdminMapScreen() {
 }
 
 /**
- * 5. LAYAR ASSET MANAGER (ODP, ODC, ONT/MODEM, ROUTER, KABEL)
+ * 5. ASSET MANAGER (ODP, ODC, ONT/MODEM, ROUTER, KABEL)
  */
 @Composable
 fun AdminAssetsScreen() {
@@ -1563,7 +1400,7 @@ fun AdminAssetsScreen() {
             val res = ApiClient.request("admin_assets")
             if (res.status && res.data != null) {
                 totalValue = res.data.optJSONObject("summary")?.optDouble("total_value", 0.0) ?: 0.0
-                val arr = res.data.optJSONArray("assets") ?: JSONArray()
+                val arr = res.data.optJSONArray("assets") ?: res.dataArray ?: JSONArray()
                 val list = mutableListOf<JSONObject>()
                 for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
                 assetList = list
@@ -1624,7 +1461,7 @@ fun AdminAssetsScreen() {
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text("${a.optString("name")} (${a.optString("category")})", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                            Text("SN/Brand: ${a.optString("serial_number")} ${a.optString("brand")} • Kondisi: ${a.optString("condition_status")}", fontSize = 12.sp)
+                            Text("SN/Merk: ${a.optString("serial_number")} ${a.optString("brand")} • Kondisi: ${a.optString("condition_status")}", fontSize = 12.sp)
                             Text("Nilai: ${formatRupiah(a.optDouble("cost", 0.0))}", fontSize = 12.sp, color = ArnetaGoldPrimary, fontWeight = FontWeight.Bold)
                         }
                         IconButton(onClick = {
@@ -1654,7 +1491,7 @@ fun AdminAssetsScreen() {
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nama Perangkat / ODP") }, singleLine = true)
-                    OutlinedTextField(value = category, onValueChange = { category = it }, label = { Text("Kategori (ODP/ODC, ONT, Router, Kabel)") }, singleLine = true)
+                    OutlinedTextField(value = category, onValueChange = { category = it }, label = { Text("Kategori (ODP, ONT, Router, Kabel)") }, singleLine = true)
                     OutlinedTextField(value = serial, onValueChange = { serial = it }, label = { Text("Serial Number / Merk") }, singleLine = true)
                     OutlinedTextField(value = cost, onValueChange = { cost = it }, label = { Text("Harga Perolehan (Rp)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
                     OutlinedTextField(value = coords, onValueChange = { coords = it }, label = { Text("Koordinat Peta (Lat, Lng)") }, singleLine = true)
@@ -1701,7 +1538,7 @@ private fun RouterFormDialog(
     var user by remember { mutableStateOf(initial?.optString("username") ?: "admin") }
     var pass by remember { mutableStateOf("") }
     var coords by remember { mutableStateOf(initial?.optString("coordinates") ?: "") }
-    var coverage by remember { mutableStateOf(initial?.optString("coverage") ?: "500") }
+    var coverage by remember { mutableStateOf(initial?.optString("coverage") ?: "350") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1709,9 +1546,9 @@ private fun RouterFormDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nama Router") }, singleLine = true)
-                OutlinedTextField(value = ip, onValueChange = { ip = it }, label = { Text("IP Address:Port API (Misal 10.8.0.1:8728)") }, singleLine = true)
-                OutlinedTextField(value = user, onValueChange = { user = it }, label = { Text("Username API MikroTik") }, singleLine = true)
-                OutlinedTextField(value = pass, onValueChange = { pass = it }, label = { Text("Password API MikroTik") }, singleLine = true)
+                OutlinedTextField(value = ip, onValueChange = { ip = it }, label = { Text("IP Address:Port API") }, singleLine = true)
+                OutlinedTextField(value = user, onValueChange = { user = it }, label = { Text("Username API") }, singleLine = true)
+                OutlinedTextField(value = pass, onValueChange = { pass = it }, label = { Text("Password API") }, singleLine = true)
                 OutlinedTextField(value = coords, onValueChange = { coords = it }, label = { Text("Koordinat (Lat, Lng)") }, singleLine = true)
                 OutlinedTextField(value = coverage, onValueChange = { coverage = it }, label = { Text("Radius Coverage (Meter)") }, singleLine = true)
             }
@@ -1797,6 +1634,8 @@ private fun PlanFormDialog(
     var routerName by remember { mutableStateOf(initial?.optString("routers") ?: (routers.firstOrNull()?.optString("name") ?: "radius")) }
     var bwId by remember { mutableIntStateOf(initial?.optInt("id_bw") ?: (bandwidths.firstOrNull()?.optInt("id") ?: 1)) }
     var poolName by remember { mutableStateOf(initial?.optString("pool") ?: (pools.firstOrNull()?.optString("pool_name") ?: "")) }
+    // Default: PPPoE = Postpaid ('no'), Hotspot = Prepaid ('yes')
+    var isPrepaid by remember { mutableStateOf(initial?.optString("prepaid") ?: if (defaultType == "PPPoE") "no" else "yes") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1808,10 +1647,25 @@ private fun PlanFormDialog(
             ) {
                 OutlinedTextField(value = namePlan, onValueChange = { namePlan = it }, label = { Text("Nama Paket") }, singleLine = true)
                 OutlinedTextField(value = price, onValueChange = { price = it }, label = { Text("Harga Paket (Rp)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
+
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(value = validity, onValueChange = { validity = it }, label = { Text("Masa Aktif") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
-                    OutlinedTextField(value = validityUnit, onValueChange = { validityUnit = it }, label = { Text("Unit (Days/Hrs/Months)") }, modifier = Modifier.weight(1f))
+                    OutlinedTextField(value = validityUnit, onValueChange = { validityUnit = it }, label = { Text("Unit (Days/Mins)") }, modifier = Modifier.weight(1f))
                 }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(
+                        selected = isPrepaid == "yes",
+                        onClick = { isPrepaid = "yes" },
+                        label = { Text("Prabayar (Prepaid)", fontSize = 11.sp) }
+                    )
+                    FilterChip(
+                        selected = isPrepaid == "no",
+                        onClick = { isPrepaid = "no" },
+                        label = { Text("Pascabayar (Postpaid)", fontSize = 11.sp) }
+                    )
+                }
+
                 OutlinedTextField(value = routerName, onValueChange = { routerName = it }, label = { Text("Nama Router") }, singleLine = true)
                 if (defaultType == "PPPoE") {
                     OutlinedTextField(value = poolName, onValueChange = { poolName = it }, label = { Text("Nama IP Pool") }, singleLine = true)
@@ -1832,7 +1686,8 @@ private fun PlanFormDialog(
                             "validity_unit" to validityUnit,
                             "routers" to routerName,
                             "id_bw" to bwId,
-                            "pool" to poolName
+                            "pool" to poolName,
+                            "prepaid" to isPrepaid
                         )
                     )
                     Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
@@ -1861,7 +1716,7 @@ private fun BandwidthFormDialog(
         title = { Text("Tambah Profil Bandwidth", fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = nameBw, onValueChange = { nameBw = it }, label = { Text("Nama Profil (Misal: 10 Mbps)") }, singleLine = true)
+                OutlinedTextField(value = nameBw, onValueChange = { nameBw = it }, label = { Text("Nama Profil") }, singleLine = true)
                 OutlinedTextField(value = rateDown, onValueChange = { rateDown = it }, label = { Text("Rate Download") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
                 OutlinedTextField(value = rateUp, onValueChange = { rateUp = it }, label = { Text("Rate Upload") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
                 OutlinedTextField(value = unit, onValueChange = { unit = it }, label = { Text("Satuan (Mbps / Kbps)") }, singleLine = true)
