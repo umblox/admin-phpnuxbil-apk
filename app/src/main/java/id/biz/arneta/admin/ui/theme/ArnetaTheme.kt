@@ -32,7 +32,6 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// Palet Warna Khas Arneta.ID (Dari Screenshot Web & Logo Perisai Emas)
 val ArnetaNavyDark = Color(0xFF0B1120)
 val ArnetaSidebarDark = Color(0xFF141B2D)
 val ArnetaCardDark = Color(0xFF1E293B)
@@ -41,8 +40,8 @@ val ArnetaPurpleChart = Color(0xFF6366F1)
 
 val ArnetaGoldPrimary = Color(0xFFF59E0B)
 val ArnetaGoldLight = Color(0xFFFDE047)
-val ArnetaCyanIncome = Color(0xFF00B4D8)   // Kartu Biru "Pendapatan hari ini"
-val ArnetaOrangeActive = Color(0xFFF38137) // Kartu Oranye "Aktif/Kedaluwarsa"
+val ArnetaCyanIncome = Color(0xFF00B4D8)
+val ArnetaOrangeActive = Color(0xFFF38137)
 val ArnetaGreenSuccess = Color(0xFF10B981)
 val ArnetaRedDanger = Color(0xFFEF4444)
 
@@ -88,7 +87,6 @@ fun ArnetaAdminTheme(
     val currentDensity = LocalDensity.current
     val configuration = LocalConfiguration.current
 
-    // Proteksi Custom DPI: Menjaga proporsi layar dan mengunci fontScale ekstrem agar UI tidak pernah pecah
     val safeFontScale = currentDensity.fontScale.coerceIn(0.85f, 1.08f)
     val screenWidthDp = configuration.screenWidthDp
     val adaptiveDensity = if (screenWidthDp in 1..339) {
@@ -111,8 +109,8 @@ fun ArnetaAdminTheme(
 }
 
 /**
- * Floating Safe-Area Bottom Navigation Bar dengan Tombol Tengah Emas "Aksi Cepat"
- * Otomatis naik di atas Navigasi 3 Tombol (||| O <) maupun Navigasi Gestur Android 15 & 16
+ * Floating Safe-Area Bottom Navigation Bar
+ * Menggunakan Box non-clipping setinggi 74.dp sehingga lingkaran emas & ikon petir tidak pernah terpotong
  */
 @Composable
 fun ArnetaBottomBar(
@@ -121,101 +119,97 @@ fun ArnetaBottomBar(
     onQuickActionClick: () -> Unit,
     unpaidBadgeCount: Int = 0
 ) {
-    Surface(
-        color = Color.Transparent,
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            // Wajib: Membaca tinggi sistem navigasi bawah HP secara dinamis
             .windowInsetsPadding(WindowInsets.navigationBars)
-            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .height(74.dp)
     ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            // Dock Latar Belakang
-            Surface(
-                shape = RoundedCornerShape(26.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-                tonalElevation = 12.dp,
-                shadowElevation = 14.dp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(66.dp)
-                    .border(
-                        width = 1.dp,
-                        brush = Brush.horizontalGradient(
-                            listOf(
-                                ArnetaGoldPrimary.copy(alpha = 0.35f),
-                                MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                                ArnetaGoldPrimary.copy(alpha = 0.35f)
-                            )
-                        ),
-                        shape = RoundedCornerShape(26.dp)
-                    )
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceAround,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    BottomNavItem(
-                        tab = AdminNavTab.DASHBOARD,
-                        selected = currentTab == AdminNavTab.DASHBOARD,
-                        onClick = { onTabSelected(AdminNavTab.DASHBOARD) },
-                        modifier = Modifier.weight(1f)
-                    )
-                    BottomNavItem(
-                        tab = AdminNavTab.CUSTOMERS,
-                        selected = currentTab == AdminNavTab.CUSTOMERS,
-                        onClick = { onTabSelected(AdminNavTab.CUSTOMERS) },
-                        modifier = Modifier.weight(1f)
-                    )
-
-                    // Ruang Tengah untuk Tombol Shortcut Emas Arneta
-                    Spacer(modifier = Modifier.width(64.dp))
-
-                    BottomNavItem(
-                        tab = AdminNavTab.SERVICES,
-                        selected = currentTab == AdminNavTab.SERVICES,
-                        onClick = { onTabSelected(AdminNavTab.SERVICES) },
-                        modifier = Modifier.weight(1f)
-                    )
-                    BottomNavItem(
-                        tab = AdminNavTab.MENU_HUB,
-                        selected = currentTab == AdminNavTab.MENU_HUB,
-                        badgeCount = unpaidBadgeCount,
-                        onClick = { onTabSelected(AdminNavTab.MENU_HUB) },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-
-            // Tombol Tengah Menonjol: Aksi Cepat (Luxury Gold Gradient)
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .offset(y = (-12).dp)
-                    .size(58.dp)
-                    .shadow(12.dp, CircleShape, spotColor = ArnetaGoldPrimary)
-                    .clip(CircleShape)
-                    .background(
-                        Brush.linearGradient(
-                            colors = listOf(ArnetaGoldLight, ArnetaGoldPrimary, Color(0xFFD97706))
+        // Dock Latar Belakang (Rata Bawah setinggi 62.dp)
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
+            tonalElevation = 12.dp,
+            shadowElevation = 12.dp,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(62.dp)
+                .border(
+                    width = 1.dp,
+                    brush = Brush.horizontalGradient(
+                        listOf(
+                            ArnetaGoldPrimary.copy(alpha = 0.35f),
+                            MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                            ArnetaGoldPrimary.copy(alpha = 0.35f)
                         )
-                    )
-                    .border(2.dp, MaterialTheme.colorScheme.background, CircleShape)
-                    .clickable { onQuickActionClick() }
+                    ),
+                    shape = RoundedCornerShape(24.dp)
+                )
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 6.dp),
+                horizontalArrangement = Arrangement.SpaceAround,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Bolt,
-                    contentDescription = "Aksi Cepat",
-                    tint = Color(0xFF0B0F19),
-                    modifier = Modifier.size(30.dp)
+                BottomNavItem(
+                    tab = AdminNavTab.DASHBOARD,
+                    selected = currentTab == AdminNavTab.DASHBOARD,
+                    onClick = { onTabSelected(AdminNavTab.DASHBOARD) },
+                    modifier = Modifier.weight(1f)
+                )
+                BottomNavItem(
+                    tab = AdminNavTab.CUSTOMERS,
+                    selected = currentTab == AdminNavTab.CUSTOMERS,
+                    onClick = { onTabSelected(AdminNavTab.CUSTOMERS) },
+                    modifier = Modifier.weight(1f)
+                )
+
+                // Ruang Tengah untuk Tombol Shortcut Petir Emas
+                Spacer(modifier = Modifier.width(62.dp))
+
+                BottomNavItem(
+                    tab = AdminNavTab.SERVICES,
+                    selected = currentTab == AdminNavTab.SERVICES,
+                    onClick = { onTabSelected(AdminNavTab.SERVICES) },
+                    modifier = Modifier.weight(1f)
+                )
+                BottomNavItem(
+                    tab = AdminNavTab.MENU_HUB,
+                    selected = currentTab == AdminNavTab.MENU_HUB,
+                    badgeCount = unpaidBadgeCount,
+                    onClick = { onTabSelected(AdminNavTab.MENU_HUB) },
+                    modifier = Modifier.weight(1f)
                 )
             }
+        }
+
+        // Tombol Tengah Menonjol: Aksi Cepat (Berada di Alignment.TopCenter di dalam ruang 74.dp sehingga 100% utuh tidak terpotong)
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 2.dp)
+                .size(56.dp)
+                .shadow(10.dp, CircleShape, spotColor = ArnetaGoldPrimary)
+                .clip(CircleShape)
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(ArnetaGoldLight, ArnetaGoldPrimary, Color(0xFFD97706))
+                    )
+                )
+                .border(2.dp, MaterialTheme.colorScheme.background, CircleShape)
+                .clickable { onQuickActionClick() }
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Bolt,
+                contentDescription = "Aksi Cepat",
+                tint = Color(0xFF0B0F19),
+                modifier = Modifier.size(28.dp)
+            )
         }
     }
 }
@@ -229,7 +223,7 @@ private fun BottomNavItem(
     modifier: Modifier = Modifier
 ) {
     val scale by animateFloatAsState(
-        targetValue = if (selected) 1.08f else 1.0f,
+        targetValue = if (selected) 1.06f else 1.0f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
         label = "nav_scale"
     )
@@ -263,10 +257,10 @@ private fun BottomNavItem(
                 imageVector = tab.icon,
                 contentDescription = tab.label,
                 tint = contentColor,
-                modifier = Modifier.size(22.dp)
+                modifier = Modifier.size(21.dp)
             )
         }
-        Spacer(modifier = Modifier.height(3.dp))
+        Spacer(modifier = Modifier.height(2.dp))
         Text(
             text = tab.label,
             color = contentColor,
