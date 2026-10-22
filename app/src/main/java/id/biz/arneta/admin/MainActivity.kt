@@ -22,7 +22,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -97,7 +96,7 @@ fun ArnetaAdminMainShell(
     var showQuickActionSheet by remember { mutableStateOf(false) }
     var quickShortcuts by remember { mutableStateOf(ApiClient.customQuickShortcuts) }
 
-    // Dropdown state di Sidebar Drawer (Persis Screenshot_20261019-175119)
+    // Dropdown state di Sidebar Drawer
     var expandLayananMenu by remember { mutableStateOf(true) }
 
     fun navigateTo(screenKey: String) {
@@ -108,7 +107,7 @@ fun ArnetaAdminMainShell(
                 currentBottomTab = AdminNavTab.CUSTOMERS
                 openAddCustomerDialog = (screenKey == "add_customer")
             }
-            "active_users", "vouchers", "data_usage", "coupons", "refill_voucher" -> {
+            "active_users", "recharge_plan", "deposit_balance", "vouchers", "data_usage", "coupons", "refill_voucher" -> {
                 currentBottomTab = AdminNavTab.SERVICES
                 servicesSubTabParam = screenKey
             }
@@ -125,7 +124,6 @@ fun ArnetaAdminMainShell(
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
-            // SIDEBAR DRAWER PERSIS TAMPILAN WEB ARNETA.ID (Screenshot 1)
             ModalDrawerSheet(
                 drawerContainerColor = Color(0xFF141B2D),
                 drawerContentColor = Color.White,
@@ -138,7 +136,6 @@ fun ArnetaAdminMainShell(
                         .verticalScroll(rememberScrollState())
                         .padding(vertical = 12.dp)
                 ) {
-                    // Item 1: Dasbor (Kotak Biru-Ungu Aktif seperti di Screenshot)
                     SidebarMainItem(
                         icon = Icons.Outlined.DesktopWindows,
                         label = "Dasbor",
@@ -146,7 +143,6 @@ fun ArnetaAdminMainShell(
                         onClick = { navigateTo("dashboard") }
                     )
 
-                    // Item 2: Pelanggan
                     SidebarMainItem(
                         icon = Icons.Filled.Person,
                         label = "Pelanggan",
@@ -154,7 +150,6 @@ fun ArnetaAdminMainShell(
                         onClick = { navigateTo("customers") }
                     )
 
-                    // Item 3: Add Customer
                     SidebarMainItem(
                         icon = Icons.Filled.PersonAdd,
                         label = "Add Customer",
@@ -162,7 +157,6 @@ fun ArnetaAdminMainShell(
                         onClick = { navigateTo("add_customer") }
                     )
 
-                    // Item 4: Layanan (Expandable dengan Garis Hijau di Kiri Persis Screenshot)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -191,7 +185,6 @@ fun ArnetaAdminMainShell(
                                 .fillMaxWidth()
                                 .background(Color(0xFF0F172A))
                         ) {
-                            // Garis Hijau Vertikal di Sisi Kiri Sub-Menu Layanan (Persis Screenshot)
                             Box(
                                 modifier = Modifier
                                     .width(4.dp)
@@ -203,15 +196,14 @@ fun ArnetaAdminMainShell(
                                 SidebarSubItem("Isi Ulang Voucher") { navigateTo("refill_voucher") }
                                 SidebarSubItem("Voucher") { navigateTo("vouchers") }
                                 SidebarSubItem("Kupon") { navigateTo("coupons") }
-                                SidebarSubItem("Isi Ulang Paket") { navigateTo("customers") }
-                                SidebarSubItem("Isi Ulang Saldo") { navigateTo("customers") }
+                                SidebarSubItem("Isi Ulang Paket") { navigateTo("recharge_plan") }
+                                SidebarSubItem("Isi Ulang Saldo") { navigateTo("deposit_balance") }
                                 SidebarSubItem("User Data Usage") { navigateTo("data_usage") }
                                 SidebarSubItem("Recharge Cards") { navigateTo("vouchers") }
                             }
                         }
                     }
 
-                    // Item 5: Paket Internet
                     SidebarMainItem(
                         icon = Icons.Filled.ViewInAr,
                         label = "Paket Internet",
@@ -220,7 +212,6 @@ fun ArnetaAdminMainShell(
                         onClick = { navigateTo("plans") }
                     )
 
-                    // Item 6: Peta
                     SidebarMainItem(
                         icon = Icons.Filled.LocationOn,
                         label = "Peta",
@@ -229,7 +220,6 @@ fun ArnetaAdminMainShell(
                         onClick = { navigateTo("map") }
                     )
 
-                    // Item 7: Laporan
                     SidebarMainItem(
                         icon = Icons.Filled.Assignment,
                         label = "Laporan",
@@ -238,7 +228,6 @@ fun ArnetaAdminMainShell(
                         onClick = { navigateTo("reports") }
                     )
 
-                    // Item 8: Mengirim pesan
                     SidebarMainItem(
                         icon = Icons.Filled.ChatBubble,
                         label = "Mengirim pesan",
@@ -247,7 +236,6 @@ fun ArnetaAdminMainShell(
                         onClick = { navigateTo("broadcast") }
                     )
 
-                    // Item 9: Asset Manager
                     SidebarMainItem(
                         icon = Icons.Filled.AccountTree,
                         label = "Asset Manager",
@@ -255,7 +243,6 @@ fun ArnetaAdminMainShell(
                         onClick = { navigateTo("assets") }
                     )
 
-                    // Item 10: Jaringan
                     SidebarMainItem(
                         icon = Icons.Filled.Hub,
                         label = "Jaringan",
@@ -264,7 +251,6 @@ fun ArnetaAdminMainShell(
                         onClick = { navigateTo("live_monitor") }
                     )
 
-                    // Item 11: Halaman Statis
                     SidebarMainItem(
                         icon = Icons.Filled.Description,
                         label = "Halaman Statis",
@@ -273,7 +259,6 @@ fun ArnetaAdminMainShell(
                         onClick = { navigateTo("pages") }
                     )
 
-                    // Item 12: Pengaturan
                     SidebarMainItem(
                         icon = Icons.Filled.Settings,
                         label = "Pengaturan",
@@ -282,7 +267,6 @@ fun ArnetaAdminMainShell(
                         onClick = { navigateTo("settings") }
                     )
 
-                    // Item 13: Buka Web Asli (?_route=admin) di Dalam Aplikasi
                     SidebarMainItem(
                         icon = Icons.Filled.Language,
                         label = "Web Admin (?_route=admin)",
@@ -314,7 +298,6 @@ fun ArnetaAdminMainShell(
                 }
             },
             bottomBar = {
-                // Floating Bottom Bar dengan Safe Area di atas Navigasi 3 Tombol (||| O <)
                 ArnetaBottomBar(
                     currentTab = currentBottomTab,
                     unpaidBadgeCount = unpaidBadgeCount,
@@ -326,7 +309,10 @@ fun ArnetaAdminMainShell(
                                 openAddCustomerDialog = false
                                 "customers"
                             }
-                            AdminNavTab.SERVICES -> "active_users"
+                            AdminNavTab.SERVICES -> {
+                                servicesSubTabParam = "active_users"
+                                "active_users"
+                            }
                             AdminNavTab.MENU_HUB -> "menu_hub"
                         }
                     },
@@ -337,10 +323,14 @@ fun ArnetaAdminMainShell(
                 )
             }
         ) { innerPadding ->
+            // PERBAIKAN UTAMA: Mengangkat batas bawah konten di atas Navigation Bar sistem (||| O <)
+            // ditambah ruang aman ekstra agar kartu/tombol paling bawah tidak pernah tertutup navigasi bawah
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(top = innerPadding.calculateTopPadding())
+                    .windowInsetsPadding(WindowInsets.navigationBars)
+                    .padding(bottom = 26.dp)
             ) {
                 when (activeScreenKey) {
                     "dashboard" -> AdminDashboardScreen(
@@ -353,26 +343,34 @@ fun ArnetaAdminMainShell(
                         onNavigateToSubScreen = { target -> navigateTo(target) },
                         onUnpaidCountLoaded = { cnt -> unpaidBadgeCount = cnt }
                     )
-                    "customers", "add_customer" -> AdminCustomersScreen(
-                        initialSearch = customerSearchParam,
-                        openAddDialogInitially = openAddCustomerDialog
-                    )
-                    "active_users", "vouchers", "data_usage", "coupons", "refill_voucher" -> AdminServicesScreen(
-                        initialSubTab = servicesSubTabParam
-                    )
+                    "customers", "add_customer" -> key(openAddCustomerDialog) {
+                        AdminCustomersScreen(
+                            initialSearch = customerSearchParam,
+                            openAddDialogInitially = openAddCustomerDialog
+                        )
+                    }
+                    "active_users", "recharge_plan", "deposit_balance", "vouchers", "data_usage", "coupons", "refill_voucher" -> key(servicesSubTabParam) {
+                        AdminServicesScreen(
+                            initialSubTab = servicesSubTabParam
+                        )
+                    }
                     "menu_hub" -> AdminMenuHubScreen(
                         unpaidQrisCount = unpaidBadgeCount,
                         onOpenScreen = { key -> navigateTo(key) }
                     )
-                    "live_monitor", "online_users", "routers", "pools" -> AdminNetworkAndOnlineScreen(
-                        initialTab = activeScreenKey
-                    )
+                    "live_monitor", "online_users", "routers", "pools" -> key(activeScreenKey) {
+                        AdminNetworkAndOnlineScreen(
+                            initialTab = activeScreenKey
+                        )
+                    }
                     "plans" -> AdminPlansScreen()
                     "map" -> AdminMapScreen()
                     "assets" -> AdminAssetsScreen()
-                    "reports", "payment_gateway" -> AdminReportsAndPgScreen(
-                        initialTab = activeScreenKey
-                    )
+                    "reports", "payment_gateway" -> key(activeScreenKey) {
+                        AdminReportsAndPgScreen(
+                            initialTab = activeScreenKey
+                        )
+                    }
                     "broadcast" -> AdminBroadcastMessageScreen()
                     "pages" -> AdminStaticPagesScreen()
                     "settings" -> AdminSettingsAndToolsScreen(
@@ -389,7 +387,6 @@ fun ArnetaAdminMainShell(
         }
     }
 
-    // BOTTOM SHEET AKSI CEPAT (SAAT TOMBOL TENGAH EMAS DITEKAN)
     if (showQuickActionSheet) {
         ModalBottomSheet(
             onDismissRequest = { showQuickActionSheet = false },
@@ -418,13 +415,13 @@ fun ArnetaAdminMainShell(
 
                 val shortcutDefinitions = listOf(
                     Triple("add_customer", "Add Customer Baru", "Tambah pelanggan Hotspot / PPPoE") to { navigateTo("add_customer") },
-                    Triple("recharge_plan", "Isi Ulang Paket", "Aktifkan paket pelanggan & cetak struk") to { navigateTo("customers") },
-                    Triple("deposit_balance", "Isi Ulang Saldo", "Top-up saldo deposit pelanggan") to { navigateTo("customers") },
+                    Triple("recharge_plan", "Isi Ulang Paket", "Aktifkan paket pelanggan & cetak struk") to { navigateTo("recharge_plan") },
+                    Triple("deposit_balance", "Isi Ulang Saldo", "Top-up saldo deposit pelanggan") to { navigateTo("deposit_balance") },
                     Triple("generate_voucher", "Generate & Cetak Voucher", "Buat kode voucher massal") to { navigateTo("vouchers") },
                     Triple("online_users", "User Online & Kick Sesi", "Pantau & putuskan sesi MikroTik") to { navigateTo("online_users") },
                     Triple("audit_qris", "Cek Pembayaran QRIS", "Verifikasi atau approve tagihan QRIS") to { navigateTo("payment_gateway") },
-                    Triple("live_monitor", "Live Diagram MikroTik", "Pantau CPU Load, RAM & Ping real-time") to { navigateTo("live_monitor") },
-                    Triple("broadcast_wa", "Broadcast WhatsApp", "Kirim pesan massal ke pelanggan") to { navigateTo("broadcast") },
+                    Triple("live_monitor", "Live Speed MikroTik", "Pantau Mbps Download/Upload & CPU real-time") to { navigateTo("live_monitor") },
+                    Triple("broadcast_wa", "Broadcast WhatsApp", "Kirim pesan ke pelanggan") to { navigateTo("broadcast") },
                     Triple("webview_admin", "Web Admin (?_route=admin)", "Buka halaman web asli di dalam aplikasi") to {
                         webViewRouteParam = "dashboard"
                         navigateTo("webview_admin")
