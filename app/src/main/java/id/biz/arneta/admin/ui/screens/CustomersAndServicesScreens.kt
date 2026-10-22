@@ -1,6 +1,7 @@
 package id.biz.arneta.admin.ui.screens
 
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -33,12 +34,190 @@ import id.biz.arneta.admin.network.ApiClient
 import id.biz.arneta.admin.network.formatRupiah
 import id.biz.arneta.admin.ui.theme.*
 import id.biz.arneta.admin.util.BluetoothPrinterHelper
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * LAYAR MANAJEMEN PELANGGAN + ADD CUSTOMER + DETAIL + SYNC MIKROTIK
+ * KOMPONEN REUSABLE: PENCARIAN & PEMILIH PELANGGAN OTOMATIS (LIVE SEARCH 1 HURUF + SCROLL)
+ * Dipakai di: Isi Ulang Paket, Isi Ulang Saldo, Isi Ulang Voucher, dan Kirim Pesan Single
+ */
+@Composable
+fun CustomerLiveSearchPicker(
+    selectedCustomer: JSONObject?,
+    onCustomerSelected: (JSONObject) -> Unit,
+    label: String = "Cari & Pilih Pelanggan (Ketik 1 huruf / Scroll)"
+) {
+    var allCustomers by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var searchText by remember { mutableStateOf("") }
+    var isExpanded by remember { mutableStateOf(selectedCustomer == null) }
+    var isLoading by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        isLoading = true
+        val res = ApiClient.request("admin_customers", mapOf("limit" to 300))
+        val arr = res.data?.optJSONArray("customers") ?: res.dataArray ?: JSONArray()
+        val list = mutableListOf<JSONObject>()
+        for (i in 0 until arr.length()) {
+            list.add(arr.getJSONObject(i))
+        }
+        allCustomers = list
+        isLoading = false
+    }
+
+    // Filter instan sejak ketik 1 huruf
+    val filteredCustomers = remember(allCustomers, searchText) {
+        val q = searchText.trim().lowercase()
+        if (q.isEmpty()) {
+            allCustomers
+        } else {
+            allCustomers.filter { c ->
+                c.optString("fullname", "").lowercase().contains(q) ||
+                    c.optString("username", "").lowercase().contains(q) ||
+                    c.optString("phonenumber", "").lowercase().contains(q) ||
+                    c.optString("pppoe_username", "").lowercase().contains(q) ||
+                    c.optString("address", "").lowercase().contains(q)
+            }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        // Jika sudah ada pelanggan yang dipilih, tampilkan kartu ringkasnya + tombol ganti
+        if (selectedCustomer != null && !isExpanded) {
+            Surface(
+                color = ArnetaGoldPrimary.copy(alpha = 0.16f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.5.dp, ArnetaGoldPrimary, RoundedCornerShape(12.dp))
+                    .clickable { isExpanded = true }
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.padding(12.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = ArnetaGoldPrimary)
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "${selectedCustomer.optString("fullname")} (@${selectedCustomer.optString("username")})",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                            Text(
+                                text = "${selectedCustomer.optString("service_type")} • Saldo: ${formatRupiah(selectedCustomer.optDouble("balance", 0.0))} • WA: ${selectedCustomer.optString("phonenumber", "-")}",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
+                    TextButton(onClick = { isExpanded = true }) {
+                        Text("Ganti", color = ArnetaGoldPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
+            }
+        } else {
+            OutlinedTextField(
+                value = searchText,
+                onValueChange = {
+                    searchText = it
+                    isExpanded = true
+                },
+                label = { Text(label, fontSize = 12.sp) },
+                placeholder = { Text("Ketik nama / username / WA...", fontSize = 12.sp) },
+                leadingIcon = { Icon(Icons.Filled.PersonSearch, contentDescription = null, tint = ArnetaGoldPrimary) },
+                trailingIcon = {
+                    if (searchText.isNotEmpty()) {
+                        IconButton(onClick = { searchText = "" }) {
+                            Icon(Icons.Filled.Clear, contentDescription = "Hapus")
+                        }
+                    } else if (selectedCustomer != null) {
+                        IconButton(onClick = { isExpanded = false }) {
+                            Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Tutup")
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Daftar Scrollable Pelanggan yang langsung bereaksi saat diketik 1 huruf
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 80.dp, max = 210.dp)
+                    .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+            ) {
+                if (isLoading) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth().padding(20.dp)) {
+                        CircularProgressIndicator(color = ArnetaGoldPrimary, modifier = Modifier.size(24.dp))
+                    }
+                } else if (filteredCustomers.isEmpty()) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                        Text("Pelanggan \"$searchText\" tidak ditemukan.", fontSize = 12.sp)
+                    }
+                } else {
+                    LazyColumn(
+                        contentPadding = PaddingValues(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(filteredCustomers) { cust ->
+                            val isSel = selectedCustomer?.optInt("id") == cust.optInt("id")
+                            Surface(
+                                color = if (isSel) ArnetaGoldPrimary.copy(alpha = 0.22f) else MaterialTheme.colorScheme.surface,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        onCustomerSelected(cust)
+                                        isExpanded = false
+                                    }
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = cust.optString("fullname"),
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = "@${cust.optString("username")} • ${cust.optString("service_type")} • ${cust.optString("phonenumber", "-")}",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                                        )
+                                    }
+                                    Text(
+                                        text = formatRupiah(cust.optDouble("balance", 0.0)),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = ArnetaGoldPrimary
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * LAYAR MANAJEMEN PELANGGAN + LIVE SEARCH 1 HURUF + ADD CUSTOMER + ISI PAKET / SALDO
  */
 @Composable
 fun AdminCustomersScreen(
@@ -51,41 +230,62 @@ fun AdminCustomersScreen(
     var searchQuery by remember { mutableStateOf(initialSearch) }
     var selectedType by remember { mutableStateOf("All") }
     var isLoading by remember { mutableStateOf(true) }
-    var totalCustomers by remember { mutableIntStateOf(0) }
-    var customerList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var allCustomers by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
 
     // Dialog Tambah / Edit Pelanggan
     var showFormDialog by remember { mutableStateOf(openAddDialogInitially) }
     var editingCustomer by remember { mutableStateOf<JSONObject?>(null) }
 
-    // Dialog Cepat Isi Ulang Paket / Saldo dari Kartu Pelanggan
+    // Dialog Cepat Isi Ulang Paket / Saldo
+    var showRechargeDialog by remember { mutableStateOf(false) }
     var quickActionCustomer by remember { mutableStateOf<JSONObject?>(null) }
     var quickActionMode by remember { mutableStateOf("recharge") } // recharge | deposit
 
-    fun loadCustomers() {
-        isLoading = true
+    fun loadCustomers(query: String = "") {
         scope.launch {
+            if (allCustomers.isEmpty()) isLoading = true
             val res = ApiClient.request(
                 "admin_customers",
                 mapOf(
-                    "search" to searchQuery,
+                    "search" to query,
                     "service_type" to if (selectedType == "All") "" else selectedType,
-                    "limit" to 60
+                    "limit" to 300
                 )
             )
             if (res.status && res.data != null) {
-                totalCustomers = res.data.optInt("total", 0)
                 val arr = res.data.optJSONArray("customers") ?: JSONArray()
                 val list = mutableListOf<JSONObject>()
                 for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
-                customerList = list
+                allCustomers = list
             }
             isLoading = false
         }
     }
 
     LaunchedEffect(selectedType) {
-        loadCustomers()
+        loadCustomers(searchQuery)
+    }
+
+    // Trigger pencarian ke server secara halus jika user mengetik
+    LaunchedEffect(searchQuery) {
+        delay(220)
+        loadCustomers(searchQuery)
+    }
+
+    // Filter Instan 0ms sejak huruf ke-1 diketik
+    val displayedCustomers = remember(allCustomers, searchQuery, selectedType) {
+        val q = searchQuery.trim().lowercase()
+        allCustomers.filter { c ->
+            val matchType = selectedType == "All" || c.optString("service_type", "").equals(selectedType, ignoreCase = true)
+            val matchQuery = q.isEmpty() ||
+                c.optString("fullname", "").lowercase().contains(q) ||
+                c.optString("username", "").lowercase().contains(q) ||
+                c.optString("phonenumber", "").lowercase().contains(q) ||
+                c.optString("pppoe_username", "").lowercase().contains(q) ||
+                c.optString("pppoe_ip", "").lowercase().contains(q) ||
+                c.optString("address", "").lowercase().contains(q)
+            matchType && matchQuery
+        }
     }
 
     Column(
@@ -93,7 +293,7 @@ fun AdminCustomersScreen(
             .fillMaxSize()
             .padding(horizontal = 14.dp)
     ) {
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         // Header + Tombol Add Customer
         Row(
@@ -103,13 +303,13 @@ fun AdminCustomersScreen(
         ) {
             Column {
                 Text(
-                    text = "Pelanggan ($totalCustomers)",
+                    text = "Pelanggan (${displayedCustomers.size})",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Kelola akun Hotspot, PPPoE & Saldo",
-                    fontSize = 12.sp,
+                    text = "Ketik 1 huruf untuk mencari otomatis",
+                    fontSize = 11.5.sp,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                 )
             }
@@ -131,43 +331,61 @@ fun AdminCustomersScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
-        // Bar Pencarian & Filter Tipe Layanan
+        // Pintasan Cepat Isi Ulang Paket & Isi Ulang Saldo
         Row(
-            verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                placeholder = { Text("Cari nama, username, WA, IP...", fontSize = 13.sp) },
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = {
-                            searchQuery = ""
-                            loadCustomers()
-                        }) {
-                            Icon(Icons.Filled.Clear, contentDescription = "Hapus")
-                        }
-                    }
+            FilledTonalButton(
+                onClick = {
+                    quickActionCustomer = null
+                    quickActionMode = "recharge"
+                    showRechargeDialog = true
                 },
-                singleLine = true,
-                shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.weight(1f)
-            )
-
-            FilledIconButton(
-                onClick = { loadCustomers() },
-                colors = IconButtonDefaults.filledIconButtonColors(containerColor = ArnetaIndigoAccent)
             ) {
-                Icon(Icons.Filled.Search, contentDescription = "Cari", tint = Color.White)
+                Icon(Icons.Filled.Bolt, contentDescription = null, tint = ArnetaGoldPrimary, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Isi Ulang Paket", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+
+            FilledTonalButton(
+                onClick = {
+                    quickActionCustomer = null
+                    quickActionMode = "deposit"
+                    showRechargeDialog = true
+                },
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Filled.AccountBalanceWallet, contentDescription = null, tint = ArnetaCyanIncome, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Isi Ulang Saldo", fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
         }
 
         Spacer(modifier = Modifier.height(8.dp))
+
+        // Kolom Pencarian Otomatis (Langsung memfilter sejak 1 huruf)
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            placeholder = { Text("Ketik nama, username, WA, atau alamat...", fontSize = 13.sp) },
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = ArnetaGoldPrimary) },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { searchQuery = "" }) {
+                        Icon(Icons.Filled.Clear, contentDescription = "Hapus")
+                    }
+                }
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(modifier = Modifier.height(6.dp))
 
         // Filter Chips: Semua | Hotspot | PPPoE
         Row(
@@ -189,13 +407,17 @@ fun AdminCustomersScreen(
             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                 CircularProgressIndicator(color = ArnetaGoldPrimary)
             }
+        } else if (displayedCustomers.isEmpty()) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                Text("Tidak ada pelanggan yang cocok dengan \"$searchQuery\"", fontSize = 13.sp)
+            }
         } else {
             LazyColumn(
                 contentPadding = PaddingValues(bottom = 110.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                items(customerList) { cust ->
+                items(displayedCustomers) { cust ->
                     val pkg = cust.optJSONObject("active_package")
                     val pkgStatus = pkg?.optString("status", "off") ?: "none"
                     val isOnlineOrActive = pkgStatus == "on"
@@ -282,32 +504,30 @@ fun AdminCustomersScreen(
                             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
                             Spacer(modifier = Modifier.height(8.dp))
 
-                            // Baris Tombol Tindakan Cepat per Pelanggan
                             Row(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                // 1. Isi Ulang Paket
                                 AssistChip(
                                     onClick = {
                                         quickActionCustomer = cust
                                         quickActionMode = "recharge"
+                                        showRechargeDialog = true
                                     },
                                     label = { Text("Isi Paket", fontSize = 11.sp) },
                                     leadingIcon = { Icon(Icons.Filled.Bolt, contentDescription = null, modifier = Modifier.size(15.dp)) }
                                 )
 
-                                // 2. Top-up Saldo
                                 AssistChip(
                                     onClick = {
                                         quickActionCustomer = cust
                                         quickActionMode = "deposit"
+                                        showRechargeDialog = true
                                     },
                                     label = { Text("+Saldo", fontSize = 11.sp) },
                                     leadingIcon = { Icon(Icons.Filled.AccountBalanceWallet, contentDescription = null, modifier = Modifier.size(15.dp)) }
                                 )
 
-                                // 3. Sync ke Router MikroTik
                                 IconButton(
                                     onClick = {
                                         scope.launch {
@@ -319,7 +539,6 @@ fun AdminCustomersScreen(
                                     Icon(Icons.Filled.Sync, contentDescription = "Sync Router", tint = ArnetaCyanIncome)
                                 }
 
-                                // 4. Edit Pelanggan
                                 IconButton(
                                     onClick = {
                                         editingCustomer = cust
@@ -329,13 +548,12 @@ fun AdminCustomersScreen(
                                     Icon(Icons.Filled.Edit, contentDescription = "Edit", tint = ArnetaGoldPrimary)
                                 }
 
-                                // 5. Hapus Pelanggan
                                 IconButton(
                                     onClick = {
                                         scope.launch {
                                             val dRes = ApiClient.request("admin_customer_delete", mapOf("id" to cust.optInt("id")))
                                             Toast.makeText(context, dRes.message, Toast.LENGTH_SHORT).show()
-                                            if (dRes.status) loadCustomers()
+                                            if (dRes.status) loadCustomers(searchQuery)
                                         }
                                     }
                                 ) {
@@ -349,27 +567,25 @@ fun AdminCustomersScreen(
         }
     }
 
-    // Dialog Add / Edit Customer
     if (showFormDialog) {
         CustomerFormDialog(
             initial = editingCustomer,
             onDismiss = { showFormDialog = false },
             onSaved = {
                 showFormDialog = false
-                loadCustomers()
+                loadCustomers(searchQuery)
             }
         )
     }
 
-    // Dialog Cepat Isi Paket / Isi Saldo
-    if (quickActionCustomer != null) {
+    if (showRechargeDialog) {
         QuickRechargeOrDepositDialog(
-            customer = quickActionCustomer!!,
+            initialCustomer = quickActionCustomer,
             mode = quickActionMode,
-            onDismiss = { quickActionCustomer = null },
+            onDismiss = { showRechargeDialog = false },
             onSuccess = {
-                quickActionCustomer = null
-                loadCustomers()
+                showRechargeDialog = false
+                loadCustomers(searchQuery)
             }
         )
     }
@@ -444,7 +660,6 @@ private fun CustomerFormDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // Pilihan Tipe Layanan: Hotspot | PPPoE | Others
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf("Hotspot", "PPPoE", "Others").forEach { t ->
                         FilterChip(
@@ -534,9 +749,12 @@ private fun CustomerFormDialog(
     )
 }
 
+/**
+ * DIALOG ISI ULANG PAKET & ISI ULANG SALDO (DENGAN LIVE SEARCH PELANGGAN 1 HURUF)
+ */
 @Composable
 fun QuickRechargeOrDepositDialog(
-    customer: JSONObject,
+    initialCustomer: JSONObject?,
     mode: String,
     onDismiss: () -> Unit,
     onSuccess: () -> Unit
@@ -544,9 +762,11 @@ fun QuickRechargeOrDepositDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
+    var selectedCustomer by remember { mutableStateOf(initialCustomer) }
     var plans by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
-    var selectedPlanId by remember { mutableIntStateOf(0) }
+    var selectedPlan by remember { mutableStateOf<JSONObject?>(null) }
     var customAmount by remember { mutableStateOf("") }
+    var filterPlanType by remember { mutableStateOf("All") } // All | Hotspot | PPPoE
     var isProcessing by remember { mutableStateOf(false) }
 
     LaunchedEffect(mode) {
@@ -564,7 +784,15 @@ fun QuickRechargeOrDepositDialog(
                 }
             }
             plans = list
-            if (list.isNotEmpty()) selectedPlanId = list.first().optInt("id")
+            if (list.isNotEmpty()) selectedPlan = list.first()
+        }
+    }
+
+    val displayedPlans = remember(plans, filterPlanType, mode) {
+        if (mode == "deposit" || filterPlanType == "All") {
+            plans
+        } else {
+            plans.filter { it.optString("type").equals(filterPlanType, ignoreCase = true) }
         }
     }
 
@@ -572,14 +800,24 @@ fun QuickRechargeOrDepositDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = if (mode == "deposit") "Isi Ulang Saldo: ${customer.optString("fullname")}"
-                else "Isi Ulang Paket: ${customer.optString("fullname")}",
+                text = if (mode == "deposit") "💰 Isi Ulang Saldo Pelanggan" else "⚡ Isi Ulang Paket Internet",
                 fontWeight = FontWeight.Bold,
                 fontSize = 16.sp
             )
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                // 1. Pemilih Pelanggan Otomatis (Ketik 1 Huruf / Scroll)
+                CustomerLiveSearchPicker(
+                    selectedCustomer = selectedCustomer,
+                    onCustomerSelected = { cust -> selectedCustomer = cust }
+                )
+
                 if (mode == "deposit") {
                     OutlinedTextField(
                         value = customAmount,
@@ -590,18 +828,26 @@ fun QuickRechargeOrDepositDialog(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Text("Atau pilih paket saldo:", fontSize = 12.sp)
+                    if (displayedPlans.isNotEmpty()) {
+                        Text("Atau pilih Paket Saldo:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("All" to "Semua Paket", "Hotspot" to "Hotspot", "PPPoE" to "PPPoE").forEach { (k, lbl) ->
+                            FilterChip(
+                                selected = filterPlanType == k,
+                                onClick = { filterPlanType = k },
+                                label = { Text(lbl, fontSize = 11.sp) }
+                            )
+                        }
+                    }
                 }
 
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier
-                        .heightIn(max = 260.dp)
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    plans.forEach { p ->
+                // 2. Daftar Paket yang Tersedia
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    displayedPlans.forEach { p ->
                         val pid = p.optInt("id")
-                        val isSel = selectedPlanId == pid && customAmount.isBlank()
+                        val isSel = selectedPlan?.optInt("id") == pid && customAmount.isBlank()
                         Surface(
                             color = if (isSel) ArnetaGoldPrimary.copy(alpha = 0.2f)
                             else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
@@ -614,20 +860,20 @@ fun QuickRechargeOrDepositDialog(
                                     shape = RoundedCornerShape(10.dp)
                                 )
                                 .clickable {
-                                    selectedPlanId = pid
+                                    selectedPlan = p
                                     customAmount = ""
                                 }
                         ) {
                             Row(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(12.dp)
+                                modifier = Modifier.padding(10.dp)
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(p.optString("name_plan"), fontWeight = FontWeight.Bold, fontSize = 13.sp)
                                     Text(
-                                        "${p.optString("type")} • ${p.optString("routers")}",
-                                        fontSize = 11.sp,
+                                        "${p.optString("type")} (${p.optString("billing_label", p.optString("prepaid"))}) • Router: ${p.optString("routers")}",
+                                        fontSize = 10.5.sp,
                                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                                     )
                                 }
@@ -645,18 +891,20 @@ fun QuickRechargeOrDepositDialog(
         },
         confirmButton = {
             Button(
-                enabled = !isProcessing,
+                enabled = !isProcessing && selectedCustomer != null,
                 onClick = {
+                    val cust = selectedCustomer ?: return@Button
                     isProcessing = true
                     scope.launch {
                         val endpoint = if (mode == "deposit") "admin_deposit" else "admin_prepaid_recharge"
                         val params = mutableMapOf<String, Any?>(
-                            "customer_id" to customer.optInt("id")
+                            "customer_id" to cust.optInt("id")
                         )
                         if (mode == "deposit" && customAmount.isNotBlank()) {
                             params["amount"] = customAmount.toDoubleOrNull() ?: 0.0
-                        } else {
-                            params["plan_id"] = selectedPlanId
+                        } else if (selectedPlan != null) {
+                            params["plan_id"] = selectedPlan!!.optInt("id")
+                            params["routers"] = selectedPlan!!.optString("routers")
                         }
 
                         val res = ApiClient.request(endpoint, params)
@@ -676,12 +924,14 @@ fun QuickRechargeOrDepositDialog(
 }
 
 /**
- * LAYAR LAYANAN LENGKAP (Mencakup Semua Sub-Menu "Layanan" di Sidebar Screenshot):
- * 1. Pelanggan Aktif
- * 2. Voucher & Recharge Cards (Generate, Filter, Cetak, Hapus)
- * 3. Isi Ulang Voucher (Refill)
- * 4. Kupon Diskon
- * 5. User Data Usage (Live Pemakaian Kuota dari MikroTik)
+ * LAYAR LAYANAN LENGKAP (Mencakup Seluruh Sub-Menu "Layanan" di Sidebar Web):
+ * 1. Pelanggan Aktif (Live Search 1 Huruf)
+ * 2. Isi Ulang Paket (Live Search Pelanggan + Pilih Paket Hotspot/PPPoE)
+ * 3. Isi Ulang Saldo (Live Search Pelanggan + Pilih Paket Saldo / Nominal)
+ * 4. Voucher & Recharge Cards (Live Search 1 Huruf + Generate Massal)
+ * 5. Isi Ulang Voucher (Live Search Pelanggan + Input Kode Voucher)
+ * 6. Kupon Promo
+ * 7. User Data Usage (Live Trafik MikroTik)
  */
 @Composable
 fun AdminServicesScreen(
@@ -692,14 +942,15 @@ fun AdminServicesScreen(
 
     val subTabs = listOf(
         "active_users" to "Pelanggan Aktif",
+        "recharge_plan" to "Isi Ulang Paket",
+        "deposit_balance" to "Isi Ulang Saldo",
         "vouchers" to "Voucher & Cards",
-        "data_usage" to "User Data Usage",
+        "refill_voucher" to "Isi Ulang Voucher",
         "coupons" to "Kupon",
-        "refill_voucher" to "Isi Ulang Voucher"
+        "data_usage" to "User Data Usage"
     )
     var currentSubTab by remember { mutableStateOf(initialSubTab) }
 
-    // State Data
     var isLoading by remember { mutableStateOf(false) }
     var activeList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var voucherList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
@@ -708,41 +959,56 @@ fun AdminServicesScreen(
     var couponList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var searchQuery by remember { mutableStateOf("") }
 
-    // Dialog Generate Voucher & Buat Kupon
+    // State untuk Tab Isi Ulang Paket, Saldo & Refill Voucher
+    var targetCustomer by remember { mutableStateOf<JSONObject?>(null) }
+    var allPlans by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var selectedPlan by remember { mutableStateOf<JSONObject?>(null) }
+    var customDepositAmount by remember { mutableStateOf("") }
+    var refillCode by remember { mutableStateOf("") }
+    var isSubmitting by remember { mutableStateOf(false) }
+
     var showGenVoucherDialog by remember { mutableStateOf(false) }
     var showCouponDialog by remember { mutableStateOf(false) }
-
-    // Form Refill Voucher
-    var refillCustomerId by remember { mutableStateOf("") }
-    var refillCode by remember { mutableStateOf("") }
 
     fun loadCurrentTab() {
         isLoading = true
         scope.launch {
             when (currentSubTab) {
                 "active_users" -> {
-                    val res = ApiClient.request("admin_prepaid_list", mapOf("search" to searchQuery, "limit" to 60))
-                    if (res.status && res.data != null) {
-                        val arr = res.data.optJSONArray("items") ?: JSONArray()
-                        val list = mutableListOf<JSONObject>()
-                        for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
-                        activeList = list
+                    val res = ApiClient.request("admin_prepaid_list", mapOf("limit" to 250))
+                    val arr = res.data?.optJSONArray("items") ?: res.dataArray ?: JSONArray()
+                    val list = mutableListOf<JSONObject>()
+                    for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
+                    activeList = list
+                }
+                "recharge_plan", "deposit_balance" -> {
+                    val res = ApiClient.request("admin_plans")
+                    val arr = res.data?.optJSONArray("plans") ?: JSONArray()
+                    val list = mutableListOf<JSONObject>()
+                    for (i in 0 until arr.length()) {
+                        val p = arr.getJSONObject(i)
+                        val pType = p.optString("type").uppercase()
+                        if (currentSubTab == "deposit_balance" && pType == "BALANCE") {
+                            list.add(p)
+                        } else if (currentSubTab == "recharge_plan" && pType != "BALANCE") {
+                            list.add(p)
+                        }
                     }
+                    allPlans = list
+                    selectedPlan = list.firstOrNull()
                 }
                 "vouchers" -> {
-                    val res = ApiClient.request("admin_vouchers", mapOf("search" to searchQuery, "limit" to 80))
-                    if (res.status && res.data != null) {
-                        val arr = res.data.optJSONArray("vouchers") ?: JSONArray()
-                        val list = mutableListOf<JSONObject>()
-                        for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
-                        voucherList = list
-                    }
+                    val res = ApiClient.request("admin_vouchers", mapOf("limit" to 200))
+                    val arr = res.data?.optJSONArray("vouchers") ?: res.dataArray ?: JSONArray()
+                    val list = mutableListOf<JSONObject>()
+                    for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
+                    voucherList = list
                 }
                 "data_usage" -> {
                     val res = ApiClient.request("admin_data_usage")
                     if (res.status && res.data != null) {
                         usageSummary = res.data.optJSONObject("summary")
-                        val arr = res.data.optJSONArray("items") ?: JSONArray()
+                        val arr = res.data.optJSONArray("items") ?: res.data.optJSONArray("users") ?: JSONArray()
                         val list = mutableListOf<JSONObject>()
                         for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
                         usageList = list
@@ -750,11 +1016,10 @@ fun AdminServicesScreen(
                 }
                 "coupons" -> {
                     val res = ApiClient.request("admin_coupons")
-                    if (res.status && res.dataArray != null) {
-                        val list = mutableListOf<JSONObject>()
-                        for (i in 0 until res.dataArray.length()) list.add(res.dataArray.getJSONObject(i))
-                        couponList = list
-                    }
+                    val arr = res.dataArray ?: res.data?.optJSONArray("coupons") ?: JSONArray()
+                    val list = mutableListOf<JSONObject>()
+                    for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
+                    couponList = list
                 }
             }
             isLoading = false
@@ -765,6 +1030,30 @@ fun AdminServicesScreen(
         loadCurrentTab()
     }
 
+    // Filter Instan 1 Huruf untuk Pelanggan Aktif
+    val filteredActiveList = remember(activeList, searchQuery) {
+        val q = searchQuery.trim().lowercase()
+        if (q.isEmpty()) activeList
+        else activeList.filter { item ->
+            item.optString("fullname", "").lowercase().contains(q) ||
+                item.optString("username", "").lowercase().contains(q) ||
+                item.optString("namebp", "").lowercase().contains(q) ||
+                item.optString("routers", "").lowercase().contains(q)
+        }
+    }
+
+    // Filter Instan 1 Huruf untuk Voucher
+    val filteredVoucherList = remember(voucherList, searchQuery) {
+        val q = searchQuery.trim().lowercase()
+        if (q.isEmpty()) voucherList
+        else voucherList.filter { v ->
+            v.optString("code", "").lowercase().contains(q) ||
+                v.optString("name_plan", "").lowercase().contains(q) ||
+                v.optString("routers", "").lowercase().contains(q) ||
+                v.optString("user", "").lowercase().contains(q)
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -772,7 +1061,6 @@ fun AdminServicesScreen(
     ) {
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Tab Horizontal untuk 5 Sub-Menu Layanan
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
@@ -792,23 +1080,22 @@ fun AdminServicesScreen(
 
         when (currentSubTab) {
             "active_users" -> {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Ketik 1 huruf nama / username / paket...", fontSize = 13.sp) },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = ArnetaGoldPrimary) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Filled.Clear, contentDescription = "Hapus")
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
-                ) {
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        placeholder = { Text("Cari pelanggan aktif / paket...", fontSize = 13.sp) },
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.weight(1f)
-                    )
-                    FilledIconButton(onClick = { loadCurrentTab() }) {
-                        Icon(Icons.Filled.Search, contentDescription = "Cari")
-                    }
-                }
+                )
 
                 Spacer(modifier = Modifier.height(8.dp))
 
@@ -816,12 +1103,16 @@ fun AdminServicesScreen(
                     Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                         CircularProgressIndicator(color = ArnetaGoldPrimary)
                     }
+                } else if (filteredActiveList.isEmpty()) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                        Text("Belum ada data pelanggan aktif yang cocok.", fontSize = 13.sp)
+                    }
                 } else {
                     LazyColumn(
                         contentPadding = PaddingValues(bottom = 110.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        items(activeList) { item ->
+                        items(filteredActiveList) { item ->
                             val isOn = item.optString("status") == "on"
                             Card(
                                 shape = RoundedCornerShape(14.dp),
@@ -868,7 +1159,6 @@ fun AdminServicesScreen(
                                         horizontalArrangement = Arrangement.End,
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        // Cetak Struk Bluetooth
                                         TextButton(
                                             onClick = {
                                                 scope.launch {
@@ -890,7 +1180,6 @@ fun AdminServicesScreen(
                                             Text("Cetak", fontSize = 12.sp)
                                         }
 
-                                        // Kirim WA
                                         TextButton(
                                             onClick = {
                                                 val msg = BluetoothPrinterHelper.buildInvoiceText(
@@ -909,7 +1198,6 @@ fun AdminServicesScreen(
                                             Text("WA", fontSize = 12.sp)
                                         }
 
-                                        // Hapus Paket
                                         IconButton(
                                             onClick = {
                                                 scope.launch {
@@ -925,6 +1213,122 @@ fun AdminServicesScreen(
                                 }
                             }
                         }
+                    }
+                }
+            }
+
+            "recharge_plan", "deposit_balance" -> {
+                val isDeposit = currentSubTab == "deposit_balance"
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(bottom = 110.dp)
+                ) {
+                    Text(
+                        text = if (isDeposit) "Isi Ulang Saldo Pelanggan" else "Isi Ulang Paket Internet",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp
+                    )
+
+                    CustomerLiveSearchPicker(
+                        selectedCustomer = targetCustomer,
+                        onCustomerSelected = { targetCustomer = it }
+                    )
+
+                    if (isDeposit) {
+                        OutlinedTextField(
+                            value = customDepositAmount,
+                            onValueChange = { customDepositAmount = it },
+                            label = { Text("Nominal Top-Up Manual (Rp)") },
+                            placeholder = { Text("Contoh: 50000") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    if (allPlans.isNotEmpty()) {
+                        Text(
+                            text = if (isDeposit) "Atau Pilih Paket Saldo:" else "Pilih Paket Internet (Hotspot / PPPoE):",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        allPlans.forEach { p ->
+                            val pid = p.optInt("id")
+                            val isSel = selectedPlan?.optInt("id") == pid && customDepositAmount.isBlank()
+                            Surface(
+                                color = if (isSel) ArnetaGoldPrimary.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surface,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(
+                                        width = if (isSel) 1.5.dp else 1.dp,
+                                        color = if (isSel) ArnetaGoldPrimary else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                    .clickable {
+                                        selectedPlan = p
+                                        customDepositAmount = ""
+                                    }
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(12.dp)
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(p.optString("name_plan"), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                        Text(
+                                            "${p.optString("type")} • ${p.optString("billing_label", "")} • Router: ${p.optString("routers")}",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                                        )
+                                    }
+                                    Text(
+                                        text = formatRupiah(p.optDouble("price", 0.0)),
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = ArnetaGoldPrimary,
+                                        fontSize = 14.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Button(
+                        enabled = !isSubmitting && targetCustomer != null,
+                        onClick = {
+                            val cust = targetCustomer ?: return@Button
+                            isSubmitting = true
+                            scope.launch {
+                                val endpoint = if (isDeposit) "admin_deposit" else "admin_prepaid_recharge"
+                                val params = mutableMapOf<String, Any?>("customer_id" to cust.optInt("id"))
+                                if (isDeposit && customDepositAmount.isNotBlank()) {
+                                    params["amount"] = customDepositAmount.toDoubleOrNull() ?: 0.0
+                                } else if (selectedPlan != null) {
+                                    params["plan_id"] = selectedPlan!!.optInt("id")
+                                    params["routers"] = selectedPlan!!.optString("routers")
+                                }
+                                val res = ApiClient.request(endpoint, params)
+                                isSubmitting = false
+                                Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
+                                if (res.status) {
+                                    customDepositAmount = ""
+                                    if (!isDeposit) currentSubTab = "active_users"
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                    ) {
+                        Text(
+                            text = if (isSubmitting) "MEMPROSES..." else if (isDeposit) "TAMBAH SALDO SEKARANG" else "AKTIFKAN PAKET SEKARANG",
+                            fontWeight = FontWeight.ExtraBold
+                        )
                     }
                 }
             }
@@ -959,11 +1363,23 @@ fun AdminServicesScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Cari kode voucher / nama paket...", fontSize = 13.sp) },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
                 LazyColumn(
                     contentPadding = PaddingValues(bottom = 110.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(voucherList) { v ->
+                    items(filteredVoucherList) { v ->
                         val used = v.optString("status") == "1"
                         Card(
                             shape = RoundedCornerShape(12.dp),
@@ -977,7 +1393,7 @@ fun AdminServicesScreen(
                                     .fillMaxWidth()
                                     .padding(12.dp)
                             ) {
-                                Column {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = v.optString("code"),
                                         fontFamily = FontFamily.Monospace,
@@ -1028,8 +1444,95 @@ fun AdminServicesScreen(
                 }
             }
 
+            "refill_voucher" -> {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Text("Isi Ulang Voucher ke Pelanggan", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+
+                        CustomerLiveSearchPicker(
+                            selectedCustomer = targetCustomer,
+                            onCustomerSelected = { targetCustomer = it }
+                        )
+
+                        OutlinedTextField(
+                            value = refillCode,
+                            onValueChange = { refillCode = it },
+                            label = { Text("Masukkan Kode Voucher") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Button(
+                            enabled = targetCustomer != null && refillCode.isNotBlank(),
+                            onClick = {
+                                val cust = targetCustomer ?: return@Button
+                                scope.launch {
+                                    val res = ApiClient.request(
+                                        "admin_voucher_refill",
+                                        mapOf("customer_id" to cust.optInt("id"), "code" to refillCode)
+                                    )
+                                    Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
+                                    if (res.status) refillCode = ""
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Aktifkan Voucher Sekarang", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            "coupons" -> {
+                Button(
+                    onClick = { showCouponDialog = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black)
+                ) {
+                    Icon(Icons.Filled.LocalOffer, contentDescription = null)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Tambah Kupon Promo", fontWeight = FontWeight.Bold)
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                LazyColumn(
+                    contentPadding = PaddingValues(bottom = 110.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(couponList) { c ->
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp)
+                            ) {
+                                Column {
+                                    Text(c.optString("code"), fontWeight = FontWeight.ExtraBold, color = ArnetaGoldPrimary, fontSize = 15.sp)
+                                    Text("Diskon: ${formatRupiah(c.optDouble("value", 0.0))} • Exp: ${c.optString("expired_date")}", fontSize = 12.sp)
+                                }
+                                IconButton(
+                                    onClick = {
+                                        scope.launch {
+                                            ApiClient.request("admin_coupon_delete", mapOf("id" to c.optInt("id")))
+                                            loadCurrentTab()
+                                        }
+                                    }
+                                ) {
+                                    Icon(Icons.Filled.DeleteOutline, contentDescription = null, tint = ArnetaRedDanger)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             "data_usage" -> {
-                // User Data Usage Live dari MikroTik
                 if (usageSummary != null) {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = ArnetaIndigoAccent),
@@ -1102,94 +1605,6 @@ fun AdminServicesScreen(
                     }
                 }
             }
-
-            "coupons" -> {
-                Button(
-                    onClick = { showCouponDialog = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black)
-                ) {
-                    Icon(Icons.Filled.LocalOffer, contentDescription = null)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Tambah Kupon Promo", fontWeight = FontWeight.Bold)
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                LazyColumn(
-                    contentPadding = PaddingValues(bottom = 110.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(couponList) { c ->
-                        Card(modifier = Modifier.fillMaxWidth()) {
-                            Row(
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(14.dp)
-                            ) {
-                                Column {
-                                    Text(c.optString("code"), fontWeight = FontWeight.ExtraBold, color = ArnetaGoldPrimary, fontSize = 15.sp)
-                                    Text("Diskon: ${c.optString("value")} (${c.optString("type")}) • Exp: ${c.optString("expired_date")}", fontSize = 12.sp)
-                                }
-                                IconButton(
-                                    onClick = {
-                                        scope.launch {
-                                            ApiClient.request("admin_coupon_delete", mapOf("id" to c.optInt("id")))
-                                            loadCurrentTab()
-                                        }
-                                    }
-                                ) {
-                                    Icon(Icons.Filled.DeleteOutline, contentDescription = null, tint = ArnetaRedDanger)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            "refill_voucher" -> {
-                Card(
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.padding(16.dp)
-                    ) {
-                        Text("Isi Ulang Voucher ke Pelanggan", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        OutlinedTextField(
-                            value = refillCustomerId,
-                            onValueChange = { refillCustomerId = it },
-                            label = { Text("ID Pelanggan") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        OutlinedTextField(
-                            value = refillCode,
-                            onValueChange = { refillCode = it },
-                            label = { Text("Kode Voucher") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Button(
-                            onClick = {
-                                scope.launch {
-                                    val res = ApiClient.request(
-                                        "admin_voucher_refill",
-                                        mapOf("customer_id" to refillCustomerId, "code" to refillCode)
-                                    )
-                                    Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
-                                    if (res.status) refillCode = ""
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Aktifkan Voucher Sekarang", fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
         }
     }
 
@@ -1242,9 +1657,12 @@ private fun GenerateVoucherDialog(
         onDismissRequest = onDismiss,
         title = { Text("Generate Voucher Hotspot", fontWeight = FontWeight.Bold) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Pilih Paket:", fontSize = 12.sp)
-                plans.take(5).forEach { p ->
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState())
+            ) {
+                Text("Pilih Paket Hotspot:", fontSize = 12.sp)
+                plans.forEach { p ->
                     val pid = p.optInt("id")
                     FilterChip(
                         selected = selectedPlanId == pid,
