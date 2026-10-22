@@ -2,20 +2,17 @@ package id.biz.arneta.admin.ui.screens
 
 import android.widget.Toast
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -59,10 +56,10 @@ fun AdminMenuHubScreen(
 ) {
     val hubItems = listOf(
         HubMenuItem("online_users", "User Online & Kick", "Pantau Hotspot/PPPoE aktif & putus sesi", Icons.Filled.WifiTethering, ArnetaGreenSuccess),
-        HubMenuItem("live_monitor", "Live Diagram MikroTik", "Grafik real-time CPU, RAM & Ping Router", Icons.Filled.ShowChart, ArnetaCyanIncome),
-        HubMenuItem("payment_gateway", "Audit QRIS (${unpaidQrisCount})", "Cek mutasi, approve manual & batal QRIS", Icons.Filled.QrCodeScanner, ArnetaGoldPrimary),
+        HubMenuItem("live_monitor", "Live Speed MikroTik", "Monitor Mbps Download/Upload, CPU & RAM", Icons.Filled.Speed, ArnetaCyanIncome),
+        HubMenuItem("payment_gateway", "Audit QRIS ($unpaidQrisCount)", "Cek mutasi, approve manual & batal QRIS", Icons.Filled.QrCodeScanner, ArnetaGoldPrimary),
         HubMenuItem("reports", "Laporan Keuangan", "Rekap pendapatan harian & periode", Icons.Filled.Assessment, Color(0xFF10B981)),
-        HubMenuItem("plans", "Paket Internet & BW", "Kelola paket Hotspot, PPPoE & Bandwidth", Icons.Filled.Inventory2, Color(0xFF8B5CF6)),
+        HubMenuItem("plans", "Paket Internet & BW", "Hotspot, PPPoE Postpaid, Saldo & Bandwidth", Icons.Filled.Inventory2, Color(0xFF8B5CF6)),
         HubMenuItem("map", "Peta Pelanggan & ODP", "Visualisasi titik koordinat & radius router", Icons.Filled.Map, ArnetaOrangeActive),
         HubMenuItem("broadcast", "Mengirim Pesan (WA)", "Broadcast WhatsApp, SMS & Inbox pelanggan", Icons.Filled.Forum, Color(0xFF06B6D4)),
         HubMenuItem("assets", "Asset Manager", "Inventaris ODP, ODC, ONT, Router & Kabel", Icons.Filled.Hub, Color(0xFFEC4899)),
@@ -147,7 +144,7 @@ fun AdminMenuHubScreen(
 }
 
 /**
- * 2. LAYAR LAPORAN KEUANGAN & AUDIT PAYMENT GATEWAY (VIAQRIS / DUITKU / MIDTRANS / XENDIT)
+ * 2. LAYAR LAPORAN KEUANGAN (LIVE SEARCH 1 HURUF) & AUDIT PAYMENT GATEWAY / QRIS
  */
 @Composable
 fun AdminReportsAndPgScreen(
@@ -159,18 +156,15 @@ fun AdminReportsAndPgScreen(
     var currentTab by remember { mutableStateOf(initialTab) } // reports | payment_gateway
     var isLoading by remember { mutableStateOf(false) }
 
-    // Filter Laporan
     val todayStr = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()) }
     val firstMonthStr = remember { SimpleDateFormat("yyyy-MM-01", Locale.US).format(Date()) }
     var startDate by remember { mutableStateOf(firstMonthStr) }
     var endDate by remember { mutableStateOf(todayStr) }
     var searchReport by remember { mutableStateOf("") }
     var totalIncome by remember { mutableDoubleStateOf(0.0) }
-    var totalTrxCount by remember { mutableIntStateOf(0) }
     var reportItems by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
 
-    // State Payment Gateway
-    var pgStatusFilter by remember { mutableStateOf("all") } // all | 1 (Unpaid) | 2 (Paid)
+    var pgStatusFilter by remember { mutableStateOf("all") }
     var pgItems by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
 
     fun loadData() {
@@ -182,30 +176,31 @@ fun AdminReportsAndPgScreen(
                     mapOf(
                         "start_date" to startDate,
                         "end_date" to endDate,
-                        "search" to searchReport,
-                        "limit" to 100
+                        "limit" to 250
                     )
                 )
-                if (res.status && res.data != null) {
-                    val sum = res.data.optJSONObject("summary")
-                    totalIncome = sum?.optDouble("total_income", 0.0) ?: 0.0
-                    totalTrxCount = sum?.optInt("total_transactions", 0) ?: 0
-                    val arr = res.data.optJSONArray("transactions") ?: JSONArray()
+                if (res.status) {
+                    val sum = res.data?.optJSONObject("summary")
+                    val arr = res.data?.optJSONArray("transactions") ?: res.dataArray ?: JSONArray()
                     val list = mutableListOf<JSONObject>()
-                    for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
+                    var calcSum = 0.0
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.getJSONObject(i)
+                        list.add(obj)
+                        calcSum += obj.optDouble("price", 0.0)
+                    }
                     reportItems = list
+                    totalIncome = sum?.optDouble("total_income", calcSum) ?: calcSum
                 }
             } else {
                 val res = ApiClient.request(
                     "admin_payment_gateways",
-                    mapOf("status" to pgStatusFilter, "limit" to 60)
+                    mapOf("status" to pgStatusFilter, "sub_action" to "list")
                 )
-                if (res.status && res.data != null) {
-                    val arr = res.data.optJSONArray("items") ?: JSONArray()
-                    val list = mutableListOf<JSONObject>()
-                    for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
-                    pgItems = list
-                }
+                val arr = res.data?.optJSONArray("items") ?: res.dataArray ?: JSONArray()
+                val list = mutableListOf<JSONObject>()
+                for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
+                pgItems = list
             }
             isLoading = false
         }
@@ -213,6 +208,24 @@ fun AdminReportsAndPgScreen(
 
     LaunchedEffect(currentTab, pgStatusFilter) {
         loadData()
+    }
+
+    // Filter Instan 1 Huruf pada Daftar Transaksi Laporan
+    val filteredReports = remember(reportItems, searchReport) {
+        val q = searchReport.trim().lowercase()
+        if (q.isEmpty()) reportItems
+        else reportItems.filter { trx ->
+            trx.optString("username", "").lowercase().contains(q) ||
+                trx.optString("invoice", "").lowercase().contains(q) ||
+                trx.optString("plan_name", "").lowercase().contains(q) ||
+                trx.optString("method", "").lowercase().contains(q) ||
+                trx.optString("routers", "").lowercase().contains(q)
+        }
+    }
+
+    val filteredTotalIncome = remember(filteredReports, searchReport, totalIncome) {
+        if (searchReport.isBlank()) totalIncome
+        else filteredReports.sumOf { it.optDouble("price", 0.0) }
     }
 
     Column(
@@ -238,7 +251,6 @@ fun AdminReportsAndPgScreen(
         Spacer(modifier = Modifier.height(8.dp))
 
         if (currentTab == "reports") {
-            // Filter Rentang Tanggal
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -259,13 +271,32 @@ fun AdminReportsAndPgScreen(
                     modifier = Modifier.weight(1f)
                 )
                 FilledIconButton(onClick = { loadData() }) {
-                    Icon(Icons.Filled.FilterAlt, contentDescription = "Filter")
+                    Icon(Icons.Filled.FilterAlt, contentDescription = "Filter Tanggal")
                 }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Kartu Total Pendapatan Periode
+            // Pencarian Otomatis 1 Huruf di Laporan
+            OutlinedTextField(
+                value = searchReport,
+                onValueChange = { searchReport = it },
+                placeholder = { Text("Ketik 1 huruf username / paket / invoice...", fontSize = 13.sp) },
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = ArnetaGoldPrimary) },
+                trailingIcon = {
+                    if (searchReport.isNotEmpty()) {
+                        IconButton(onClick = { searchReport = "" }) {
+                            Icon(Icons.Filled.Clear, contentDescription = "Hapus")
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF00CFA1)),
                 shape = RoundedCornerShape(14.dp),
@@ -280,11 +311,11 @@ fun AdminReportsAndPgScreen(
                 ) {
                     Column {
                         Text("Total Pendapatan ($startDate s/d $endDate)", fontSize = 11.sp, color = Color.White)
-                        Text(formatRupiah(totalIncome), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+                        Text(formatRupiah(filteredTotalIncome), fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
                     }
                     Surface(color = Color.Black.copy(alpha = 0.2f), shape = RoundedCornerShape(8.dp)) {
                         Text(
-                            "$totalTrxCount Trx",
+                            "${filteredReports.size} Trx",
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.sp,
@@ -296,62 +327,72 @@ fun AdminReportsAndPgScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            LazyColumn(
-                contentPadding = PaddingValues(bottom = 110.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(reportItems) { trx ->
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp)
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    "${trx.optString("username")} • ${trx.optString("plan_name")}",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp
-                                )
-                                Text(
-                                    "${trx.optString("invoice")} • ${trx.optString("recharged_on")} ${trx.optString("recharged_time")}",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
-                                )
-                                Text(
-                                    "Metode: ${trx.optString("method")} (${trx.optString("routers")})",
-                                    fontSize = 11.sp,
-                                    color = ArnetaCyanIncome
-                                )
-                            }
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text(
-                                    formatRupiah(trx.optDouble("price", 0.0)),
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = ArnetaGoldPrimary,
-                                    fontSize = 14.sp
-                                )
-                                IconButton(
-                                    onClick = {
-                                        scope.launch {
-                                            BluetoothPrinterHelper.printReceiptText(
-                                                context = context,
-                                                title = "STRUK PEMBAYARAN",
-                                                lines = listOf(
-                                                    "No. Invoice" to trx.optString("invoice"),
-                                                    "Pelanggan" to trx.optString("username"),
-                                                    "Paket" to trx.optString("plan_name"),
-                                                    "Harga" to formatRupiah(trx.optDouble("price", 0.0)),
-                                                    "Tanggal" to trx.optString("recharged_on"),
-                                                    "Aktif s/d" to trx.optString("expiration")
+            if (isLoading) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                    CircularProgressIndicator(color = ArnetaGoldPrimary)
+                }
+            } else if (filteredReports.isEmpty()) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                    Text("Tidak ada transaksi ditemukan pada periode ini.", fontSize = 13.sp)
+                }
+            } else {
+                LazyColumn(
+                    contentPadding = PaddingValues(bottom = 110.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(filteredReports) { trx ->
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp)
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        "${trx.optString("username")} • ${trx.optString("plan_name")}",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp
+                                    )
+                                    Text(
+                                        "${trx.optString("invoice")} • ${trx.optString("recharged_on")} ${trx.optString("recharged_time")}",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                                    )
+                                    Text(
+                                        "Metode: ${trx.optString("method")} (${trx.optString("routers")})",
+                                        fontSize = 11.sp,
+                                        color = ArnetaCyanIncome
+                                    )
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        formatRupiah(trx.optDouble("price", 0.0)),
+                                        fontWeight = FontWeight.ExtraBold,
+                                        color = ArnetaGoldPrimary,
+                                        fontSize = 14.sp
+                                    )
+                                    IconButton(
+                                        onClick = {
+                                            scope.launch {
+                                                BluetoothPrinterHelper.printReceiptText(
+                                                    context = context,
+                                                    title = "STRUK PEMBAYARAN",
+                                                    lines = listOf(
+                                                        "No. Invoice" to trx.optString("invoice"),
+                                                        "Pelanggan" to trx.optString("username"),
+                                                        "Paket" to trx.optString("plan_name"),
+                                                        "Harga" to formatRupiah(trx.optDouble("price", 0.0)),
+                                                        "Tanggal" to trx.optString("recharged_on"),
+                                                        "Aktif s/d" to trx.optString("expiration")
+                                                    )
                                                 )
-                                            )
+                                            }
                                         }
+                                    ) {
+                                        Icon(Icons.Filled.Print, contentDescription = "Cetak", tint = ArnetaCyanIncome)
                                     }
-                                ) {
-                                    Icon(Icons.Filled.Print, contentDescription = "Cetak", tint = ArnetaCyanIncome)
                                 }
                             }
                         }
@@ -359,7 +400,6 @@ fun AdminReportsAndPgScreen(
                 }
             }
         } else {
-            // Filter Status Payment Gateway
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("all" to "Semua", "1" to "Belum Bayar (Unpaid)", "2" to "Lunas (Paid)").forEach { (k, label) ->
                     FilterChip(
@@ -425,7 +465,6 @@ fun AdminReportsAndPgScreen(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    // 1. Cek Mutasi ke Gateway (ViaQRIS / dll)
                                     OutlinedButton(
                                         onClick = {
                                             scope.launch {
@@ -442,7 +481,6 @@ fun AdminReportsAndPgScreen(
                                         Text("Cek Status", fontSize = 11.sp)
                                     }
 
-                                    // 2. Approve Manual & Aktifkan Paket
                                     Button(
                                         onClick = {
                                             scope.launch {
@@ -460,7 +498,6 @@ fun AdminReportsAndPgScreen(
                                         Text("Approve", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                     }
 
-                                    // 3. Batalkan Tagihan
                                     IconButton(
                                         onClick = {
                                             scope.launch {
@@ -486,17 +523,17 @@ fun AdminReportsAndPgScreen(
 }
 
 /**
- * 3. LAYAR MENGIRIM PESAN (BROADCAST WHATSAPP / SMS / INBOX PELANGGAN)
+ * 3. LAYAR MENGIRIM PESAN (SINGLE DENGAN LIVE SEARCH PELANGGAN 1 HURUF & BULK MASSAL)
  */
 @Composable
 fun AdminBroadcastMessageScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var mode by remember { mutableStateOf("bulk") } // bulk | single
+    var mode by remember { mutableStateOf("single") } // single | bulk
+    var selectedCustomer by remember { mutableStateOf<JSONObject?>(null) }
     var group by remember { mutableStateOf("all") } // all | active | expired | hotspot | pppoe
     var via by remember { mutableStateOf("wa") } // wa | inbox | sms | both
-    var customerId by remember { mutableStateOf("") }
     var subject by remember { mutableStateOf("Informasi Layanan Internet ${ApiClient.companyName}") }
     var message by remember {
         mutableStateOf("Halo Kak *[[name]]* (@[[user_name]]),\n\nTerima kasih telah menggunakan layanan *[[company_name]]*. Saldo akun Anda saat ini: Rp [[balance]].\n\nSalam hangat,\nAdmin ${ApiClient.companyName}")
@@ -514,28 +551,26 @@ fun AdminBroadcastMessageScreen() {
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(
-                selected = mode == "bulk",
-                onClick = { mode = "bulk" },
-                label = { Text("Broadcast Massal (Grup)") }
-            )
-            FilterChip(
                 selected = mode == "single",
                 onClick = { mode = "single" },
-                label = { Text("Pelanggan Tertentu") }
+                label = { Text("Pelanggan Tertentu (Cari Nama)", fontWeight = FontWeight.SemiBold) }
+            )
+            FilterChip(
+                selected = mode == "bulk",
+                onClick = { mode = "bulk" },
+                label = { Text("Broadcast Massal (Grup)", fontWeight = FontWeight.SemiBold) }
             )
         }
 
         if (mode == "single") {
-            OutlinedTextField(
-                value = customerId,
-                onValueChange = { customerId = it },
-                label = { Text("Masukkan ID Pelanggan") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
+            // Pemilih Pelanggan Otomatis dengan Live Search 1 Huruf & Scroll
+            CustomerLiveSearchPicker(
+                selectedCustomer = selectedCustomer,
+                onCustomerSelected = { cust -> selectedCustomer = cust },
+                label = "Ketik 1 huruf nama/username pelanggan atau scroll daftar"
             )
         } else {
-            Text("Pilih Kelompok Penerima:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Text("Pilih Kelompok Penerima Broadcast:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.horizontalScroll(rememberScrollState())
@@ -557,11 +592,15 @@ fun AdminBroadcastMessageScreen() {
         }
 
         Text("Jalur Pengiriman:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.horizontalScroll(rememberScrollState())
+        ) {
             listOf(
                 "wa" to "WhatsApp Gateway",
-                "inbox" to "Inbox Aplikasi",
-                "both" to "WA + Inbox"
+                "inbox" to "Inbox Aplikasi Pelanggan",
+                "both" to "WA + Inbox Sekaligus",
+                "sms" to "SMS Gateway"
             ).forEach { (vKey, vLabel) ->
                 FilterChip(
                     selected = via == vKey,
@@ -579,7 +618,7 @@ fun AdminBroadcastMessageScreen() {
             modifier = Modifier.fillMaxWidth()
         )
 
-        // Tombol Sisip Placeholder Otomatis
+        Text("Ketuk untuk menyisipkan tag otomatis:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f))
         Row(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier.horizontalScroll(rememberScrollState())
@@ -595,14 +634,18 @@ fun AdminBroadcastMessageScreen() {
         OutlinedTextField(
             value = message,
             onValueChange = { message = it },
-            label = { Text("Isi Pesan Broadcast") },
+            label = { Text("Isi Pesan") },
             minLines = 6,
             modifier = Modifier.fillMaxWidth()
         )
 
         Button(
-            enabled = !isSending,
+            enabled = !isSending && (mode == "bulk" || selectedCustomer != null),
             onClick = {
+                if (mode == "single" && selectedCustomer == null) {
+                    Toast.makeText(context, "Pilih pelanggan terlebih dahulu.", Toast.LENGTH_SHORT).show()
+                    return@Button
+                }
                 isSending = true
                 scope.launch {
                     val res = ApiClient.request(
@@ -611,7 +654,8 @@ fun AdminBroadcastMessageScreen() {
                             "mode" to mode,
                             "group" to group,
                             "via" to via,
-                            "customer_id" to customerId,
+                            "customer_id" to (selectedCustomer?.optInt("id") ?: 0),
+                            "username" to (selectedCustomer?.optString("username") ?: ""),
                             "subject" to subject,
                             "message" to message
                         )
@@ -627,13 +671,18 @@ fun AdminBroadcastMessageScreen() {
         ) {
             Icon(Icons.Filled.Send, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
-            Text(if (isSending) "MENGIRIM PESAN..." else "KIRIM PESAN SEKARANG", fontWeight = FontWeight.ExtraBold)
+            Text(
+                text = if (isSending) "MENGIRIM PESAN..."
+                else if (mode == "single") "KIRIM KE ${selectedCustomer?.optString("fullname")?.uppercase() ?: "PELANGGAN"}"
+                else "KIRIM BROADCAST MASSAL",
+                fontWeight = FontWeight.ExtraBold
+            )
         }
     }
 }
 
 /**
- * 4. LAYAR HALAMAN STATIS (EDIT TEMPLATE HTML DI FOLDER pages/)
+ * 4. LAYAR HALAMAN STATIS (EDIT TEMPLATE HTML DI FOLDER pages/*.html)
  */
 @Composable
 fun AdminStaticPagesScreen() {
@@ -643,19 +692,29 @@ fun AdminStaticPagesScreen() {
     var pagesList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var selectedPageName by remember { mutableStateOf("") }
     var editorContent by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(true) }
     var isSaving by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        val res = ApiClient.request("admin_pages")
-        if (res.status && res.dataArray != null) {
+    fun loadStaticPages() {
+        isLoading = true
+        scope.launch {
+            val res = ApiClient.request("admin_pages")
+            val arr = res.dataArray ?: res.data?.optJSONArray("pages") ?: JSONArray()
             val list = mutableListOf<JSONObject>()
-            for (i in 0 until res.dataArray.length()) list.add(res.dataArray.getJSONObject(i))
+            for (i in 0 until arr.length()) {
+                list.add(arr.getJSONObject(i))
+            }
             pagesList = list
-            if (list.isNotEmpty()) {
+            if (list.isNotEmpty() && selectedPageName.isEmpty()) {
                 selectedPageName = list.first().optString("name")
                 editorContent = list.first().optString("content")
             }
+            isLoading = false
         }
+    }
+
+    LaunchedEffect(Unit) {
+        loadStaticPages()
     }
 
     Column(
@@ -664,61 +723,85 @@ fun AdminStaticPagesScreen() {
             .padding(horizontal = 14.dp)
     ) {
         Spacer(modifier = Modifier.height(10.dp))
-        Text("Editor Halaman Statis (pages/*.html)", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-        Spacer(modifier = Modifier.height(8.dp))
 
         Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.horizontalScroll(rememberScrollState())
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
         ) {
-            pagesList.forEach { p ->
-                val name = p.optString("name")
-                FilterChip(
-                    selected = selectedPageName == name,
-                    onClick = {
-                        selectedPageName = name
-                        editorContent = p.optString("content")
-                    },
-                    label = { Text(p.optString("title"), fontSize = 12.sp) }
-                )
+            Text("Editor Halaman Statis (pages/*.html)", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            IconButton(onClick = { loadStaticPages() }) {
+                Icon(Icons.Filled.Refresh, contentDescription = "Muat Ulang", tint = ArnetaGoldPrimary)
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
-        OutlinedTextField(
-            value = editorContent,
-            onValueChange = { editorContent = it },
-            label = { Text("Kode HTML: $selectedPageName.html") },
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        )
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        Button(
-            enabled = !isSaving && selectedPageName.isNotEmpty(),
-            onClick = {
-                isSaving = true
-                scope.launch {
-                    val res = ApiClient.request(
-                        "admin_page_save",
-                        mapOf("name" to selectedPageName, "content" to editorContent)
+        if (isLoading) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                CircularProgressIndicator(color = ArnetaGoldPrimary)
+            }
+        } else if (pagesList.isEmpty()) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                Text("Tidak ada file template .html di folder pages/", fontSize = 13.sp)
+            }
+        } else {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+            ) {
+                pagesList.forEach { p ->
+                    val name = p.optString("name")
+                    FilterChip(
+                        selected = selectedPageName == name,
+                        onClick = {
+                            selectedPageName = name
+                            editorContent = p.optString("content")
+                        },
+                        label = { Text(p.optString("title", name), fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
                     )
-                    isSaving = false
-                    Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
                 }
-            },
-            colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 100.dp)
-                .height(48.dp)
-        ) {
-            Icon(Icons.Filled.Save, contentDescription = null)
-            Spacer(modifier = Modifier.width(6.dp))
-            Text("SIMPAN HALAMAN HTML", fontWeight = FontWeight.Bold)
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedTextField(
+                value = editorContent,
+                onValueChange = { editorContent = it },
+                label = { Text("Kode HTML: $selectedPageName.html") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Button(
+                enabled = !isSaving && selectedPageName.isNotEmpty(),
+                onClick = {
+                    isSaving = true
+                    scope.launch {
+                        val res = ApiClient.request(
+                            "admin_page_save",
+                            mapOf("name" to selectedPageName, "content" to editorContent)
+                        )
+                        isSaving = false
+                        Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
+                        if (res.status) loadStaticPages()
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 100.dp)
+                    .height(48.dp)
+            ) {
+                Icon(Icons.Filled.Save, contentDescription = null)
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(if (isSaving) "MENYIMPAN..." else "SIMPAN HALAMAN HTML", fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
@@ -736,7 +819,6 @@ fun AdminSettingsAndToolsScreen(
 
     var currentSubTab by remember { mutableStateOf("general") } // general | shortcuts | staff | logs
 
-    // State Pengaturan Umum
     var companyName by remember { mutableStateOf(ApiClient.companyName) }
     var companyPhone by remember { mutableStateOf("") }
     var companyAddress by remember { mutableStateOf("") }
@@ -744,12 +826,12 @@ fun AdminSettingsAndToolsScreen(
     var paymentGateway by remember { mutableStateOf("viaqris") }
     var waGatewayUrl by remember { mutableStateOf("") }
 
-    // State Shortcut Navigasi Bawah
     var activeShortcuts by remember { mutableStateOf(ApiClient.customQuickShortcuts) }
 
-    // State Staf & Logs
     var staffList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var logsList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var logSearchQuery by remember { mutableStateOf("") }
+    var isLoadingLogs by remember { mutableStateOf(false) }
     var showAddStaffDialog by remember { mutableStateOf(false) }
 
     fun loadSettingsSubTab() {
@@ -768,19 +850,19 @@ fun AdminSettingsAndToolsScreen(
                 }
                 "staff" -> {
                     val res = ApiClient.request("admin_staff_list")
-                    if (res.status && res.dataArray != null) {
-                        val list = mutableListOf<JSONObject>()
-                        for (i in 0 until res.dataArray.length()) list.add(res.dataArray.getJSONObject(i))
-                        staffList = list
-                    }
+                    val arr = res.dataArray ?: res.data?.optJSONArray("staff") ?: JSONArray()
+                    val list = mutableListOf<JSONObject>()
+                    for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
+                    staffList = list
                 }
                 "logs" -> {
+                    isLoadingLogs = true
                     val res = ApiClient.request("admin_logs")
-                    if (res.status && res.dataArray != null) {
-                        val list = mutableListOf<JSONObject>()
-                        for (i in 0 until res.dataArray.length()) list.add(res.dataArray.getJSONObject(i))
-                        logsList = list
-                    }
+                    val arr = res.dataArray ?: res.data?.optJSONArray("logs") ?: JSONArray()
+                    val list = mutableListOf<JSONObject>()
+                    for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
+                    logsList = list
+                    isLoadingLogs = false
                 }
             }
         }
@@ -788,6 +870,17 @@ fun AdminSettingsAndToolsScreen(
 
     LaunchedEffect(currentSubTab) {
         loadSettingsSubTab()
+    }
+
+    val filteredLogs = remember(logsList, logSearchQuery) {
+        val q = logSearchQuery.trim().lowercase()
+        if (q.isEmpty()) logsList
+        else logsList.filter { log ->
+            log.optString("description", "").lowercase().contains(q) ||
+                log.optString("type", "").lowercase().contains(q) ||
+                log.optString("ip", "").lowercase().contains(q) ||
+                log.optString("date", "").lowercase().contains(q)
+        }
     }
 
     Column(
@@ -884,7 +977,7 @@ fun AdminSettingsAndToolsScreen(
                     "generate_voucher" to "🎟️ Buat / Cetak Voucher Massal",
                     "online_users" to "📡 Cek & Kick User Online MikroTik",
                     "audit_qris" to "🔍 Audit Pembayaran QRIS Masuk",
-                    "live_monitor" to "📈 Live Diagram CPU & Traffic MikroTik",
+                    "live_monitor" to "📈 Live Speed Monitor Mbps MikroTik",
                     "broadcast_wa" to "💬 Kirim Broadcast WhatsApp",
                     "webview_admin" to "🌐 Buka Web Admin (?_route=admin)"
                 )
@@ -924,10 +1017,7 @@ fun AdminSettingsAndToolsScreen(
                                     .padding(horizontal = 14.dp, vertical = 10.dp)
                             ) {
                                 Text(title, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                                Checkbox(
-                                    checked = checked,
-                                    onCheckedChange = null
-                                )
+                                Checkbox(checked = checked, onCheckedChange = null)
                             }
                         }
                     }
@@ -1011,19 +1101,41 @@ fun AdminSettingsAndToolsScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                LazyColumn(
-                    contentPadding = PaddingValues(bottom = 110.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    items(logsList) { log ->
-                        Card(modifier = Modifier.fillMaxWidth()) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                Text(log.optString("description"), fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                                Text(
-                                    "${log.optString("date")} • ${log.optString("type")} • IP: ${log.optString("ip")}",
-                                    fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                )
+                OutlinedTextField(
+                    value = logSearchQuery,
+                    onValueChange = { logSearchQuery = it },
+                    placeholder = { Text("Cari aktivitas log...", fontSize = 13.sp) },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                if (isLoadingLogs) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                        CircularProgressIndicator(color = ArnetaGoldPrimary)
+                    }
+                } else if (filteredLogs.isEmpty()) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                        Text("Belum ada catatan log aktivitas sistem.", fontSize = 13.sp)
+                    }
+                } else {
+                    LazyColumn(
+                        contentPadding = PaddingValues(bottom = 110.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        items(filteredLogs) { log ->
+                            Card(modifier = Modifier.fillMaxWidth()) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Text(log.optString("description"), fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                    Text(
+                                        "${log.optString("date")} • ${log.optString("type")} • IP: ${log.optString("ip")}",
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                    )
+                                }
                             }
                         }
                     }
