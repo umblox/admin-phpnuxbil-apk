@@ -25,6 +25,7 @@ data class ApiResult(
 object ApiClient {
     private const val PREF_NAME = "arneta_admin_prefs_v9"
     private const val DEFAULT_BASE_URL = "https://phpnuxbill.arneta.biz.id"
+
     private lateinit var prefs: SharedPreferences
 
     fun init(context: Context) {
@@ -43,6 +44,18 @@ object ApiClient {
         get() = prefs.getString("admin_name", "Administrator") ?: "Administrator"
         set(value) = prefs.edit().putString("admin_name", value).apply()
 
+    var adminUsername: String
+        get() = prefs.getString("admin_username", "admin") ?: "admin"
+        set(value) = prefs.edit().putString("admin_username", value).apply()
+
+    var adminRole: String
+        get() = prefs.getString("admin_role", "SuperAdmin") ?: "SuperAdmin"
+        set(value) = prefs.edit().putString("admin_role", value).apply()
+
+    var companyName: String
+        get() = prefs.getString("company_name", "Arneta.ID") ?: "Arneta.ID"
+        set(value) = prefs.edit().putString("company_name", value).apply()
+
     var currencyCode: String
         get() = prefs.getString("currency_code", "Rp.") ?: "Rp."
         set(value) = prefs.edit().putString("currency_code", value).apply()
@@ -52,85 +65,123 @@ object ApiClient {
         set(value) = prefs.edit().putBoolean("dark_mode", value).apply()
 
     var customQuickShortcuts: Set<String>
-        get() = prefs.getStringSet("quick_shortcuts", setOf("add_customer", "recharge_plan", "deposit_balance", "generate_voucher", "online_users", "audit_qris")) ?: emptySet()
+        get() = prefs.getStringSet(
+            "quick_shortcuts",
+            setOf("add_customer", "recharge_plan", "deposit_balance", "generate_voucher", "online_users", "audit_qris")
+        ) ?: setOf("add_customer", "recharge_plan", "deposit_balance", "generate_voucher", "online_users", "audit_qris")
         set(value) = prefs.edit().putStringSet("quick_shortcuts", value).apply()
 
     fun logout() {
         prefs.edit().remove("admin_token").apply()
     }
 
-    suspend fun callNativeApi(route: String, formParams: Map<String, Any?> = emptyMap()): ApiResult = withContext(Dispatchers.IO) {
+    /**
+     * Memanggil endpoint melalui /system/api.php?r=apiv1/<action>&token=<token>
+     * dengan fallback otomatis ke /?_route=apiv1/<action>
+     */
+    suspend fun request(
+        action: String,
+        params: Map<String, Any?> = emptyMap()
+    ): ApiResult = withContext(Dispatchers.IO) {
+        val cleanAction = action.removePrefix("apiv1/").trimStart('/')
+        val primaryUrl = "$baseUrl/system/api.php?r=apiv1/$cleanAction"
+        val res = executeHttpPost(primaryUrl, params)
+        if (res.code == 404 || (!res.status && res.message.contains("Command not found", ignoreCase = true))) {
+            val fallbackUrl = "$baseUrl/?_route=apiv1/$cleanAction"
+            return@withContext executeHttpPost(fallbackUrl, params)
+        }
+        res
+    }
+
+    private fun executeHttpPost(
+        baseEndpoint: String,
+        params: Map<String, Any?>
+    ): ApiResult {
         var conn: HttpURLConnection? = null
         try {
-            val cleanRoute = route.trimStart('/')
-            val encodedToken = URLEncoder.encode(token, "UTF-8")
-            val queryBuilder = StringBuilder("$baseUrl/system/api.php?r=$cleanRoute")
-            if (token.isNotEmpty()) queryBuilder.append("&token=$encodedToken")
-
-            val postPairs = mutableListOf<String>()
-            for ((k, v) in formParams) {
-                if (v == null) continue
-                val ek = URLEncoder.encode(k, "UTF-8")
-                val ev = URLEncoder.encode(v.toString(), "UTF-8")
-                postPairs.add("$ek=$ev")
-                if (ev.length < 100) queryBuilder.append("&$ek=$ev")
+            val queryBuilder = StringBuilder(baseEndpoint)
+            if (token.isNotEmpty()) {
+                val encTok = URLEncoder.encode(token, "UTF-8")
+                queryBuilder.append(if (queryBuilder.contains("?")) "&" else "?").append("token=$encTok")
             }
 
-            conn = (URL(queryBuilder.toString()).openConnection() as HttpURLConnection).apply {
+            // Siapkan parameter query string (untuk parameter pendek) sekaligus JSON body
+            val jsonBody = JSONObject()
+            for ((k, v) in params) {
+                if (v == null) continue
+                when (v) {
+                    is Map<*, *> -> {
+                        val subObj = JSONObject()
+                        for ((sk, sv) in v) {
+                            if (sk != null && sv != null) subObj.put(sk.toString(), sv)
+                        }
+                        jsonBody.put(k, subObj)
+                    }
+                    is List<*> -> jsonBody.put(k, JSONArray(v))
+                    else -> {
+                        jsonBody.put(k, v)
+                        val strVal = v.toString()
+                        if (strVal.length < 100 && !k.contains("password", ignoreCase = true) && !k.contains("content", ignoreCase = true) && !k.contains("message", ignoreCase = true)) {
+                            val ek = URLEncoder.encode(k, "UTF-8")
+                            val ev = URLEncoder.encode(strVal, "UTF-8")
+                            queryBuilder.append("&").append("$ek=$ev")
+                        }
+                    }
+                }
+            }
+
+            val url = URL(queryBuilder.toString())
+            conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = 15000
                 readTimeout = 20000
                 doInput = true
                 doOutput = true
-                setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+                setRequestProperty("Content-Type", "application/json; charset=utf-8")
                 setRequestProperty("Accept", "application/json")
+                if (token.isNotEmpty()) {
+                    setRequestProperty("Authorization", "Bearer $token")
+                }
             }
 
-            OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(postPairs.joinToString("&")); it.flush() }
-            val rawText = BufferedReader(InputStreamReader(if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream, Charsets.UTF_8)).use { it.readText() }.trim()
+            OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { writer ->
+                writer.write(jsonBody.toString())
+                writer.flush()
+            }
 
-            val jsonStart = rawText.indexOf('{')
-            val json = JSONObject(if (jsonStart >= 0) rawText.substring(jsonStart) else rawText)
-            val isSuccess = json.optBoolean("success", json.optBoolean("status", false))
-            val rawResult = if (json.has("result") && !json.isNull("result")) json.opt("result") else json.opt("data")
+            val responseCode = conn.responseCode
+            val stream = if (responseCode in 200..299) conn.inputStream else conn.errorStream
+            val rawResponse = BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use {
+                it.readText()
+            }.trim()
 
-            ApiResult(status = isSuccess, message = json.optString("message", "Selesai"), data = rawResult as? JSONObject, dataArray = rawResult as? JSONArray, rawData = rawResult, code = conn.responseCode)
+            val firstBrace = rawResponse.indexOf('{')
+            val cleanJson = if (firstBrace >= 0) rawResponse.substring(firstBrace) else rawResponse
+
+            val json = JSONObject(cleanJson)
+            val status = if (json.has("status")) json.optBoolean("status", false) else json.optBoolean("success", false)
+            val message = json.optString("message", if (status) "Berhasil" else "Permintaan gagal")
+            val rawPayload = if (json.has("data") && !json.isNull("data")) json.opt("data") else json.opt("result")
+
+            val dataObj = rawPayload as? JSONObject
+            val dataArr = rawPayload as? JSONArray
+
+            return ApiResult(
+                status = status,
+                message = message,
+                data = dataObj,
+                dataArray = dataArr,
+                rawData = rawPayload,
+                code = responseCode
+            )
         } catch (e: Exception) {
-            ApiResult(status = false, message = "Koneksi gagal: ${e.localizedMessage}")
+            return ApiResult(
+                status = false,
+                message = "Gangguan jaringan: ${e.localizedMessage ?: "Timeout"}",
+                code = 500
+            )
         } finally {
             conn?.disconnect()
-        }
-    }
-
-    suspend fun request(action: String, params: Map<String, Any?> = emptyMap()): ApiResult = withContext(Dispatchers.IO) {
-        when (action) {
-            "admin_login" -> callNativeApi("apiv1/auth", params)
-            "admin_dashboard" -> callNativeApi("apiv1/admin_dashboard", params)
-            "admin_customers" -> callNativeApi("apiv1/admin_customers", params)
-            "admin_customer_save" -> callNativeApi("apiv1/admin_customer_save", params)
-            "admin_customer_delete" -> callNativeApi("apiv1/admin_customer_delete", params)
-            "admin_prepaid_list" -> callNativeApi("apiv1/admin_prepaid_list", params)
-            "admin_prepaid_recharge" -> callNativeApi("apiv1/admin_prepaid_recharge", params)
-            "admin_deposit" -> callNativeApi("apiv1/admin_deposit", params)
-            "admin_vouchers" -> callNativeApi("apiv1/admin_vouchers", params)
-            "admin_voucher_generate" -> callNativeApi("apiv1/admin_voucher_generate", params)
-            "admin_voucher_delete" -> callNativeApi("apiv1/admin_voucher_delete", params)
-            "admin_plans" -> callNativeApi("apiv1/admin_plans", params)
-            "admin_reports" -> callNativeApi("apiv1/admin_reports", params)
-            "admin_send_message" -> callNativeApi("apiv1/admin_send_message", params)
-            "admin_pages" -> callNativeApi("apiv1/admin_pages", params)
-            "admin_page_save" -> callNativeApi("apiv1/admin_page_save", params)
-            "admin_system_tools" -> callNativeApi("apiv1/admin_system_tools", params)
-            "admin_map_data" -> callNativeApi("apiv1/admin_map_data", params)
-            "admin_router_status" -> callNativeApi("apiv1/admin_router_status", params)
-            "admin_online_users" -> callNativeApi("apiv1/admin_online_users", params)
-            "admin_coupons" -> callNativeApi("apiv1/admin_coupons", params)
-            "admin_coupon_save" -> callNativeApi("apiv1/admin_coupon_save", params)
-            "admin_coupon_delete" -> callNativeApi("apiv1/admin_coupon_delete", params)
-            "admin_assets" -> callNativeApi("apiv1/admin_assets", params)
-            "admin_asset_save" -> callNativeApi("apiv1/admin_asset_save", params)
-            "admin_asset_delete" -> callNativeApi("apiv1/admin_asset_delete", params)
-            else -> callNativeApi("apiv1/$action", params)
         }
     }
 }
