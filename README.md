@@ -18,9 +18,10 @@ Agar aplikasi APK ini dapat berkomunikasi dengan database dan sistem PHPNuxBill 
 ```php
 <?php
 /**
- * Custom Customer & Admin REST API v6 for PHPNuxBill (Arneta.ID Edition)
- * - 100% Backward Compatible dengan Customer API v5 (Anti-Double Recharge & Native QRIS)
- * - Full Admin Dashboard API (Tahap 1: Auth, Dashboard, Pelanggan, Layanan/Prepaid, Voucher, Kupon, Data Usage)
+ * PHPNuxBill Complete API & Companion Controller (v10 Final - Arneta.ID)
+ * - Fix Deposit Transaction Recording, Income Calculation & WA/Telegram Notifications
+ * - Role-Based Plan Visibility (SuperAdmin sees All Prepaid/Postpaid/Hidden plans)
+ * - Native Integration with mikrotik_monitor.php (/interface/monitor-traffic once, <pppoe-user>, health, logs, wlan)
  * Path: system/controllers/apiv1.php
  */
 
@@ -35,21 +36,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit();
 }
 
-$api_secret = !empty($config['tawkto']) ? $config['tawkto'] : 'Arneta_WiFi_Secret_Key_2026_#99';
-$action = isset($routes[1]) ? $routes[1] : 'index';
+$phpnux_root = dirname(__DIR__, 2);
+if (is_dir($phpnux_root . '/system') && getcwd() !== $phpnux_root) {
+    @chdir($phpnux_root);
+}
 
-function api_response($status, $message, $data = null, $code = 200) {
+if (empty($api_secret)) {
+    $api_secret = !empty($config['tawkto']) ? $config['tawkto'] : 'Arneta_WiFi_Secret_Key_2026_#99';
+}
+
+$raw_input = json_decode(file_get_contents('php://input'), true);
+if (is_array($raw_input)) {
+    $_POST = array_merge($_POST, $raw_input);
+    $_REQUEST = array_merge($_REQUEST, $raw_input);
+}
+
+$action = isset($routes[1]) && !empty($routes[1]) ? $routes[1] : (_req('action') ?: 'index');
+
+function api_out($success, $message, $result = null, $code = 200) {
     if (ob_get_length()) {
         ob_clean();
     }
     http_response_code($code);
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode([
-        'status'  => $status,
-        'message' => $message,
-        'data'    => $data
+        'success' => (bool)$success,
+        'status'  => (bool)$success,
+        'message' => (string)$message,
+        'result'  => $result,
+        'data'    => $result
     ], JSON_UNESCAPED_SLASHES);
     exit();
+}
+
+function create_native_token($prefix, $uid, $secret) {
+    $time = time();
+    return $prefix . '.' . $uid . '.' . $time . '.' . sha1($uid . '.' . $time . '.' . $secret);
 }
 
 function generate_customer_token($user, $secret) {
@@ -58,112 +80,129 @@ function generate_customer_token($user, $secret) {
     return base64_encode($payload . '|' . $sig);
 }
 
-function generate_admin_token($admin, $secret) {
-    $payload = 'ADMIN|' . $admin['id'] . '|' . $admin['username'];
-    $sig = hash_hmac('sha256', $payload . '|' . md5($admin['password']), $secret);
-    return base64_encode($payload . '|' . $sig);
-}
-
-function get_bearer_token() {
-    $headers = function_exists('apache_request_headers') ? apache_request_headers() : [];
-    $auth = '';
-    if (isset($headers['Authorization'])) {
-        $auth = $headers['Authorization'];
-    } elseif (isset($headers['authorization'])) {
-        $auth = $headers['authorization'];
-    } elseif (isset($_SERVER['HTTP_AUTHORIZATION'])) {
-        $auth = $_SERVER['HTTP_AUTHORIZATION'];
-    } elseif (isset($_GET['token'])) {
-        return $_GET['token'];
+function get_req_token() {
+    if (!empty($_REQUEST['token'])) {
+        return trim($_REQUEST['token']);
     }
-    if (preg_match('/Bearer\s(\S+)/', $auth, $matches)) {
-        return $matches[1];
+    $headers = function_exists('apache_request_headers') ? apache_request_headers() : [];
+    $auth = $headers['Authorization'] ?? ($headers['authorization'] ?? ($_SERVER['HTTP_AUTHORIZATION'] ?? ''));
+    if (preg_match('/Bearer\s(\S+)/', $auth, $m)) {
+        return trim($m[1]);
     }
     return '';
 }
 
-function authenticate_customer($secret) {
-    $token = get_bearer_token();
-    if (empty($token)) {
-        api_response(false, 'Token otorisasi tidak ditemukan.', null, 401);
-    }
+function require_admin_session($secret, $allowed_roles = []) {
+    global $config;
 
-    $decoded = base64_decode($token);
-    $parts = explode('|', $decoded);
-    if (count($parts) !== 3) {
-        api_response(false, 'Format token pelanggan tidak valid.', null, 401);
-    }
-
-    list($id, $username, $sig) = $parts;
-    $user = ORM::for_table('tbl_customers')->find_one($id);
-    if (!$user || $user['username'] !== $username) {
-        api_response(false, 'Akun tidak ditemukan.', null, 401);
-    }
-
-    $expected_sig = hash_hmac('sha256', $id . '|' . $username . '|' . md5($user['password']), $secret);
-    if (!hash_equals($expected_sig, $sig)) {
-        api_response(false, 'Sesi berakhir, silakan login ulang.', null, 401);
-    }
-
-    return $user;
-}
-
-function authenticate_admin($secret, $allowed_roles = []) {
-    $token = get_bearer_token();
-    if (empty($token)) {
-        api_response(false, 'Token otorisasi Admin tidak ditemukan.', null, 401);
-    }
-
-    $decoded = base64_decode($token);
-    $parts = explode('|', $decoded);
-    if (count($parts) !== 4 || $parts[0] !== 'ADMIN') {
-        api_response(false, 'Format token Admin tidak valid.', null, 401);
-    }
-
-    list($prefix, $id, $username, $sig) = $parts;
-    $admin = ORM::for_table('tbl_users')->find_one($id);
-    if (!$admin || $admin['username'] !== $username) {
-        api_response(false, 'Akun Admin tidak ditemukan.', null, 401);
-    }
-
-    if (!empty($admin['status']) && $admin['status'] !== 'Active') {
-        api_response(false, 'Akun Admin sedang dinonaktifkan (' . $admin['status'] . ').', null, 403);
-    }
-
-    $expected_sig = hash_hmac('sha256', 'ADMIN|' . $id . '|' . $username . '|' . md5($admin['password']), $secret);
-    if (!hash_equals($expected_sig, $sig)) {
-        api_response(false, 'Sesi Admin telah berakhir, silakan login ulang.', null, 401);
-    }
-
-    if (!empty($allowed_roles) && !in_array($admin['user_type'], $allowed_roles)) {
-        api_response(false, 'Akses ditolak untuk level ' . $admin['user_type'], null, 403);
-    }
-
-    // Set session aid agar fungsi internal PHPNuxBill berjalan mulus
-    $_SESSION['aid'] = $admin['id'];
-    return $admin;
-}
-
-function verify_admin_password($input_password, $hashed_password) {
-    if (class_exists('Password') && method_exists('Password', '_verify')) {
-        if (Password::_verify($input_password, $hashed_password)) {
-            return true;
+    if (!empty($_SESSION['aid'])) {
+        $adm = ORM::for_table('tbl_users')->find_one($_SESSION['aid']);
+        if ($adm) {
+            if (!empty($allowed_roles) && !in_array($adm['user_type'], $allowed_roles)) {
+                api_out(false, 'Akses ditolak untuk level ' . $adm['user_type'], null, 403);
+            }
+            return $adm;
         }
     }
-    if (password_verify($input_password, $hashed_password)) {
-        return true;
+
+    $token = get_req_token();
+    if (empty($token)) {
+        api_out(false, 'Token otorisasi Admin tidak ditemukan.', null, 401);
     }
-    if (sha1($input_password) === $hashed_password || md5($input_password) === $hashed_password || $input_password === $hashed_password) {
-        return true;
+
+    if (!empty($config['api_key']) && $token === $config['api_key']) {
+        $adm = ORM::for_table('tbl_users')->where_in('user_type', ['SuperAdmin', 'Admin'])->find_one();
+        if ($adm) {
+            $_SESSION['aid'] = $adm['id'];
+            return $adm;
+        }
     }
-    return false;
+
+    $dot_parts = explode('.', $token);
+    if (count($dot_parts) === 4 && $dot_parts[0] === 'a') {
+        list($tipe, $uid, $time, $hash) = $dot_parts;
+        if (trim($hash) === sha1($uid . '.' . $time . '.' . $secret)) {
+            $adm = ORM::for_table('tbl_users')->find_one($uid);
+            if ($adm) {
+                if (!empty($allowed_roles) && !in_array($adm['user_type'], $allowed_roles)) {
+                    api_out(false, 'Akses ditolak untuk level ' . $adm['user_type'], null, 403);
+                }
+                $_SESSION['aid'] = $adm['id'];
+                return $adm;
+            }
+        }
+    }
+
+    $decoded = base64_decode($token);
+    $pipe_parts = explode('|', $decoded);
+    if (count($pipe_parts) === 4 && $pipe_parts[0] === 'ADMIN') {
+        list($prefix, $id, $username, $sig) = $pipe_parts;
+        $adm = ORM::for_table('tbl_users')->find_one($id);
+        if ($adm && $adm['username'] === $username) {
+            $expected = hash_hmac('sha256', 'ADMIN|' . $id . '|' . $username . '|' . md5($adm['password']), $secret);
+            if (hash_equals($expected, $sig)) {
+                $_SESSION['aid'] = $adm['id'];
+                return $adm;
+            }
+        }
+    }
+
+    api_out(false, 'Sesi Admin tidak valid, silakan login ulang.', null, 401);
 }
 
-function hash_admin_password($plain_password) {
-    if (class_exists('Password') && method_exists('Password', '_crypt')) {
-        return Password::_crypt($plain_password);
+function require_customer_session($secret) {
+    if (!empty($_SESSION['uid'])) {
+        $cust = ORM::for_table('tbl_customers')->find_one($_SESSION['uid']);
+        if ($cust) return $cust;
     }
-    return password_hash($plain_password, PASSWORD_DEFAULT);
+
+    $token = get_req_token();
+    if (empty($token)) {
+        api_out(false, 'Token otorisasi Pelanggan tidak ditemukan.', null, 401);
+    }
+
+    $dot_parts = explode('.', $token);
+    if (count($dot_parts) === 4 && $dot_parts[0] === 'c') {
+        list($tipe, $uid, $time, $hash) = $dot_parts;
+        if (trim($hash) === sha1($uid . '.' . $time . '.' . $secret)) {
+            $cust = ORM::for_table('tbl_customers')->find_one($uid);
+            if ($cust) {
+                $_SESSION['uid'] = $cust['id'];
+                return $cust;
+            }
+        }
+    }
+
+    $decoded = base64_decode($token);
+    $pipe_parts = explode('|', $decoded);
+    if (count($pipe_parts) === 3) {
+        list($id, $username, $sig) = $pipe_parts;
+        $cust = ORM::for_table('tbl_customers')->find_one($id);
+        if ($cust && $cust['username'] === $username) {
+            $expected = hash_hmac('sha256', $id . '|' . $username . '|' . md5($cust['password']), $secret);
+            if (hash_equals($expected, $sig)) {
+                $_SESSION['uid'] = $cust['id'];
+                return $cust;
+            }
+        }
+    }
+
+    api_out(false, 'Sesi Pelanggan berakhir, silakan login ulang.', null, 401);
+}
+
+function check_user_password($plain, $hashed) {
+    if (class_exists('Password') && method_exists('Password', '_verify')) {
+        if (Password::_verify($plain, $hashed)) return true;
+    }
+    if (password_verify($plain, $hashed)) return true;
+    return ($plain === $hashed || sha1($plain) === $hashed || md5($plain) === $hashed);
+}
+
+function hash_user_password($plain) {
+    if (class_exists('Password') && method_exists('Password', '_crypt')) {
+        return Password::_crypt($plain);
+    }
+    return password_hash($plain, PASSWORD_DEFAULT);
 }
 
 function write_admin_log($admin, $desc) {
@@ -179,12 +218,29 @@ function write_admin_log($admin, $desc) {
             $log->ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
             $log->save();
         }
-    } catch (Exception $e) {
-        // Abaikan jika gagal tulis log
-    }
+    } catch (Exception $e) {}
 }
 
-function ensure_extra_admin_tables() {
+function notify_telegram_admin($text) {
+    try {
+        if (class_exists('Message') && method_exists('Message', 'sendTelegram')) {
+            @Message::sendTelegram($text);
+        } elseif (function_exists('sendTelegram')) {
+            @sendTelegram($text);
+        }
+    } catch (Exception $e) {}
+}
+
+function notify_whatsapp_customer($phone, $text) {
+    if (empty($phone)) return;
+    try {
+        if (class_exists('Message') && method_exists('Message', 'sendWhatsapp')) {
+            @Message::sendWhatsapp($phone, $text);
+        }
+    } catch (Exception $e) {}
+}
+
+function ensure_custom_tables() {
     try {
         $db = ORM::get_db();
         $db->exec("CREATE TABLE IF NOT EXISTS `tbl_coupons` (
@@ -207,7 +263,7 @@ function ensure_extra_admin_tables() {
         $db->exec("CREATE TABLE IF NOT EXISTS `tbl_assets` (
             `id` int(11) NOT NULL AUTO_INCREMENT,
             `name` varchar(120) NOT NULL,
-            `category` varchar(60) NOT NULL DEFAULT 'Router/ODP',
+            `category` varchar(60) NOT NULL DEFAULT 'ODP/ODC',
             `serial_number` varchar(100) DEFAULT '',
             `brand` varchar(80) DEFAULT '',
             `customer_id` int(11) DEFAULT 0,
@@ -220,44 +276,55 @@ function ensure_extra_admin_tables() {
             `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (`id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
-    } catch (Exception $e) {
-        // Abaikan jika user DB tidak punya akses CREATE
-    }
+    } catch (Exception $e) {}
 }
 
-function format_bytes_readable($bytes) {
-    $b = (float)$bytes;
+function fmt_bytes($bytes, $precision = 2) {
+    $b = max((float)$bytes, 0);
     if ($b <= 0) return '0 B';
-    $units = ['B', 'KB', 'MB', 'GB', 'TB'];
-    $i = (int)floor(log($b, 1024));
-    $i = max(0, min($i, count($units) - 1));
-    return round($b / pow(1024, $i), 2) . ' ' . $units[$i];
+    $u = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+    $pow = floor(($b ? log($b) : 0) / log(1024));
+    $pow = min($pow, count($u) - 1);
+    $b /= pow(1024, $pow);
+    return round($b, $precision) . ' ' . $u[$pow];
 }
 
-function get_mikrotik_ros_client($ip_port, $user, $pass) {
-    if (!class_exists('PEAR2\Net\RouterOS\Client')) {
-        if (class_exists('Mikrotik') && method_exists('Mikrotik', 'getClient')) {
-            return Mikrotik::getClient($ip_port, $user, $pass);
+function fmt_bps($bps) {
+    $b = max((float)$bps, 0);
+    if ($b <= 0) return '0 bps';
+    if ($b >= 1000000) {
+        return round($b / 1000000, 2) . ' Mbps';
+    }
+    if ($b >= 1000) {
+        return round($b / 1000, 1) . ' Kbps';
+    }
+    return round($b, 0) . ' bps';
+}
+
+function connect_ros($ip_port, $user, $pass) {
+    if (class_exists('Mikrotik') && method_exists('Mikrotik', 'getClient')) {
+        try {
+            $c = @Mikrotik::getClient($ip_port, $user, $pass);
+            if ($c) return $c;
+        } catch (Exception $e) {}
+    }
+    if (class_exists('PEAR2\Net\RouterOS\Client')) {
+        try {
+            $parts = explode(':', $ip_port);
+            return new PEAR2\Net\RouterOS\Client($parts[0], $user, $pass, isset($parts[1]) ? (int)$parts[1] : 8728, false, 4);
+        } catch (Exception $e) {
+            return null;
         }
-        return null;
     }
-    try {
-        $parts = explode(':', $ip_port);
-        $ip = $parts[0];
-        $port = isset($parts[1]) ? (int)$parts[1] : 8728;
-        return new PEAR2\Net\RouterOS\Client($ip, $user, $pass, $port, false, 4);
-    } catch (Exception $e) {
-        return null;
-    }
+    return null;
 }
 
+// ============================================================================
+// HELPER QRIS DINAMIS & ANTI-DOUBLE RECHARGE
+// ============================================================================
 function get_active_gateways($config) {
     $raw = !empty($config['payment_gateway']) ? $config['payment_gateway'] : 'viaqris';
-    $parts = array_filter(array_map('trim', explode(',', $raw)));
-    if (empty($parts)) {
-        $parts = ['viaqris'];
-    }
-
+    $parts = array_filter(array_map('trim', explode(',', $raw))) ?: ['viaqris'];
     $labels = [
         'viaqris'  => ['name' => 'QRIS Otomatis (ViaQRIS)', 'desc' => 'Scan / Upload QRIS ShopeePay, DANA, GoPay & M-Banking'],
         'duitku'   => ['name' => 'Duitku Payment', 'desc' => 'Virtual Account, QRIS & E-Wallet'],
@@ -266,14 +333,13 @@ function get_active_gateways($config) {
         'xendit'   => ['name' => 'Xendit Payment', 'desc' => 'Virtual Account, E-Wallet & QRIS'],
         'ipaymu'   => ['name' => 'iPaymu Payment', 'desc' => 'QRIS & Virtual Account'],
     ];
-
     $result = [];
     foreach ($parts as $gw) {
         $key = strtolower($gw);
         $result[] = [
             'id'          => $gw,
-            'name'        => isset($labels[$key]) ? $labels[$key]['name'] : strtoupper($gw),
-            'description' => isset($labels[$key]) ? $labels[$key]['desc'] : 'Pembayaran Otomatis via ' . ucfirst($gw),
+            'name'        => $labels[$key]['name'] ?? strtoupper($gw),
+            'description' => $labels[$key]['desc'] ?? ('Pembayaran Otomatis via ' . ucfirst($gw)),
         ];
     }
     return $result;
@@ -281,50 +347,34 @@ function get_active_gateways($config) {
 
 function qris_crc16($str) {
     $crc = 0xFFFF;
-    $strlen = strlen($str);
-    for ($c = 0; $c < $strlen; $c++) {
+    for ($c = 0, $len = strlen($str); $c < $len; $c++) {
         $crc ^= ord($str[$c]) << 8;
         for ($i = 0; $i < 8; $i++) {
-            if ($crc & 0x8000) {
-                $crc = (($crc << 1) ^ 0x1021) & 0xFFFF;
-            } else {
-                $crc = ($crc << 1) & 0xFFFF;
-            }
+            $crc = ($crc & 0x8000) ? ((($crc << 1) ^ 0x1021) & 0xFFFF) : (($crc << 1) & 0xFFFF);
         }
     }
     return strtoupper(str_pad(dechex($crc), 4, '0', STR_PAD_LEFT));
 }
 
-function convert_static_to_dynamic_qris($qris_raw, $amount) {
+function to_dynamic_qris($qris_raw, $amount) {
     $qris = trim($qris_raw);
-    if (strpos($qris, '000201') !== 0 || strpos($qris, '5802ID') === false) {
-        return $qris;
-    }
+    if (strpos($qris, '000201') !== 0 || strpos($qris, '5802ID') === false) return $qris;
     $amt_str = (string)((int)$amount);
     if ($amt_str <= 0) return $qris;
-
     $crc_pos = strrpos($qris, '6304');
-    if ($crc_pos !== false && $crc_pos >= strlen($qris) - 8) {
-        $qris_body = substr($qris, 0, $crc_pos);
-    } else {
-        return $qris;
-    }
-
-    $qris_body = preg_replace('/^000201010211/', '000201010212', $qris_body, 1);
-
-    $parts = explode('5802ID', $qris_body, 2);
+    if ($crc_pos === false || $crc_pos < strlen($qris) - 8) return $qris;
+    $body = preg_replace('/^000201010211/', '000201010212', substr($qris, 0, $crc_pos), 1);
+    $parts = explode('5802ID', $body, 2);
     if (count($parts) === 2) {
         $tag54 = '54' . str_pad(strlen($amt_str), 2, '0', STR_PAD_LEFT) . $amt_str;
-        if (strpos($parts[0], $tag54) === false) {
-            $qris_body = $parts[0] . $tag54 . '5802ID' . $parts[1];
-        }
+        if (strpos($parts[0], $tag54) === false) $body = $parts[0] . $tag54 . '5802ID' . $parts[1];
     }
-
-    $qris_body .= '6304';
-    return $qris_body . qris_crc16($qris_body);
+    $body .= '6304';
+    return $body . qris_crc16($body);
 }
 
-function extract_qris_details($unpaid, $config, $allow_loopback = true) {
+function parse_qris_trx($unpaid, $config) {
+    if (!$unpaid) return null;
     $total_amount = (float)$unpaid['price'];
     $qris_string  = '';
     $qris_image   = '';
@@ -332,13 +382,8 @@ function extract_qris_details($unpaid, $config, $allow_loopback = true) {
     foreach (['pg_request', 'pg_paid_response'] as $col) {
         if (empty($unpaid[$col])) continue;
         $raw = trim($unpaid[$col]);
-
-        if (preg_match('/(000201[0-9A-Za-z\.\-\s\/\+]{40,600})/', $raw, $m)) {
-            $qris_string = trim($m[1]);
-        }
-        if (preg_match('/(data:image\/[a-zA-Z0-9\+\/\=;:,]+)/', $raw, $m)) {
-            $qris_image = trim($m[1]);
-        }
+        if (preg_match('/(000201[0-9A-Za-z\.\-\s\/\+]{40,600})/', $raw, $m)) $qris_string = trim($m[1]);
+        if (preg_match('/(data:image\/[a-zA-Z0-9\+\/\=;:,]+)/', $raw, $m)) $qris_image = trim($m[1]);
 
         $json = json_decode($raw, true);
         if (is_array($json)) {
@@ -348,145 +393,47 @@ function extract_qris_details($unpaid, $config, $allow_loopback = true) {
                 if (in_array($k, ['amount', 'total', 'nominal', 'total_amount', 'amount_unique', 'bayar']) && is_numeric($v) && (float)$v > 0) {
                     $total_amount = (float)$v;
                 }
-                if (strpos($v, '000201') === 0 && strlen($v) > 40) {
-                    $qris_string = $v;
-                } elseif (strpos($v, 'data:image/') === 0) {
-                    $qris_image = $v;
-                } elseif ((strpos($k, 'qr') !== false || strpos($k, 'img') !== false || strpos($k, 'image') !== false) && strpos($v, 'http') === 0) {
-                    $qris_image = $v;
-                }
+                if (strpos($v, '000201') === 0 && strlen($v) > 40) $qris_string = $v;
+                elseif (strpos($v, 'data:image/') === 0) $qris_image = $v;
+                elseif ((strpos($k, 'qr') !== false || strpos($k, 'img') !== false || strpos($k, 'image') !== false) && strpos($v, 'http') === 0) $qris_image = $v;
             });
-        }
-    }
-
-    if (!empty($unpaid['pg_url_payment'])) {
-        $parsed_url = parse_url($unpaid['pg_url_payment']);
-        if (!empty($parsed_url['query'])) {
-            parse_str($parsed_url['query'], $qparams);
-            foreach ($qparams as $qk => $qv) {
-                if (is_string($qv)) {
-                    $decoded_qv = urldecode($qv);
-                    if (strpos($decoded_qv, '000201') === 0) {
-                        $qris_string = $decoded_qv;
-                    } elseif (strpos($decoded_qv, 'data:image/') === 0) {
-                        $qris_image = $decoded_qv;
-                    }
-                }
-            }
         }
     }
 
     foreach ($config as $k => $v) {
         if (!is_string($v)) continue;
-        $v_trim = trim($v);
-        if (empty($qris_string) && strpos($v_trim, '000201') === 0) {
-            $qris_string = convert_static_to_dynamic_qris($v_trim, $total_amount);
-        }
-        if (empty($qris_image) && stripos($k, 'qris') !== false && (stripos($v_trim, 'http') === 0 || preg_match('/\.(png|jpg|jpeg|webp)$/i', $v_trim))) {
-            $qris_image = (stripos($v_trim, 'http') === 0) ? $v_trim : rtrim(APP_URL, '/') . '/' . ltrim($v_trim, '/');
-        }
-    }
-
-    if (empty($qris_string) && empty($qris_image)) {
-        $scan_files = array_merge(
-            glob('system/paymentgateway/*qris*.php') ?: [],
-            glob('system/plugin/*.php') ?: [],
-            glob('ui/theme/*/*payment*.tpl') ?: [],
-            glob('system/plugin/ui/*.tpl') ?: []
-        );
-        foreach ($scan_files as $sf) {
-            $content = @file_get_contents($sf);
-            if (!$content) continue;
-            if (empty($qris_string) && preg_match('/["\'](000201[0-9A-Za-z\.\-\s\/\+]{40,500})["\']/', $content, $m)) {
-                $qris_string = convert_static_to_dynamic_qris($m[1], $total_amount);
-            }
-            if (empty($qris_image) && preg_match('/(data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9\+\/\=]+)/', $content, $m)) {
-                $qris_image = $m[1];
-            }
-        }
-    }
-
-    if ($allow_loopback && (int)$unpaid['status'] === 1 && empty($qris_string) && empty($qris_image) && !empty($unpaid['pg_url_payment']) && function_exists('curl_init')) {
-        $cust = ORM::for_table('tbl_customers')->where('username', $unpaid['username'])->find_one();
-        if ($cust) {
-            $_SESSION['uid'] = $cust['id'];
-        }
-        $sess_name = session_name();
-        $sess_id   = session_id();
-        session_write_close();
-
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $unpaid['pg_url_payment']);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 4);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        if ($sess_id) {
-            curl_setopt($ch, CURLOPT_COOKIE, $sess_name . '=' . $sess_id);
-        }
-        $html = @curl_exec($ch);
-        curl_close($ch);
-        @session_start();
-
-        if (!empty($html)) {
-            if (preg_match('/(000201[0-9A-Za-z\.\-\s\/\+]{40,600})/', $html, $m)) {
-                $qris_string = trim($m[1]);
-            }
-            if (preg_match('/(data:image\/[a-zA-Z0-9\+\/\=;:,]+)/', $html, $m)) {
-                $qris_image = trim($m[1]);
-            } elseif (preg_match_all('/<img[^>]+src=["\']([^"\']+)["\']/i', $html, $matches)) {
-                foreach ($matches[1] as $img_src) {
-                    if (stripos($img_src, 'logo') === false && stripos($img_src, 'avatar') === false && stripos($img_src, 'user') === false) {
-                        $qris_image = (stripos($img_src, 'http') === 0 || stripos($img_src, 'data:') === 0)
-                            ? $img_src
-                            : rtrim(APP_URL, '/') . '/' . ltrim($img_src, '/');
-                        break;
-                    }
-                }
-            }
+        $vt = trim($v);
+        if (empty($qris_string) && strpos($vt, '000201') === 0) $qris_string = to_dynamic_qris($vt, $total_amount);
+        if (empty($qris_image) && stripos($k, 'qris') !== false && (stripos($vt, 'http') === 0 || preg_match('/\.(png|jpg|jpeg|webp)$/i', $vt))) {
+            $qris_image = (stripos($vt, 'http') === 0) ? $vt : rtrim(APP_URL, '/') . '/' . ltrim($vt, '/');
         }
     }
 
     if (!empty($qris_string)) {
-        $qris_string = convert_static_to_dynamic_qris($qris_string, $total_amount);
+        $qris_string = to_dynamic_qris($qris_string, $total_amount);
         if (empty($qris_image)) {
             $qris_image = 'https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=20&data=' . urlencode($qris_string);
         }
     }
 
-    return [
-        'amount'      => $total_amount,
-        'qris_string' => $qris_string,
-        'qris_image'  => $qris_image
-    ];
-}
-
-function format_unpaid_data($unpaid, $token, $config, $allow_loopback = true) {
-    if (!$unpaid) return null;
-
-    $extracted = extract_qris_details($unpaid, $config, $allow_loopback);
-
-    $status_int = (int)$unpaid['status'];
-    $status_label = 'MENUNGGU PEMBAYARAN';
-    if ($status_int === 2) $status_label = 'LUNAS';
-    elseif ($status_int === 3) $status_label = 'GAGAL / EXPIRED';
-    elseif ($status_int === 4) $status_label = 'DIBATALKAN';
+    $st = (int)$unpaid['status'];
+    $st_label = ($st === 2) ? 'LUNAS' : (($st === 3) ? 'EXPIRED' : (($st === 4) ? 'DIBATALKAN' : 'MENUNGGU PEMBAYARAN'));
 
     return [
         'id'              => (int)$unpaid['id'],
         'username'        => $unpaid['username'],
         'plan_id'         => (int)$unpaid['plan_id'],
         'plan_name'       => $unpaid['plan_name'],
-        'price'           => $extracted['amount'],
+        'price'           => $total_amount,
         'base_price'      => (float)$unpaid['price'],
         'gateway'         => $unpaid['gateway'],
         'payment_method'  => $unpaid['payment_method'] ?: 'QRIS',
         'payment_channel' => $unpaid['payment_channel'] ?: strtoupper($unpaid['gateway']),
         'pg_url_payment'  => $unpaid['pg_url_payment'],
-        'qris_string'     => $extracted['qris_string'],
-        'qris_image'      => $extracted['qris_image'],
-        'status'          => $status_int,
-        'status_label'    => $status_label,
+        'qris_string'     => $qris_string,
+        'qris_image'      => $qris_image,
+        'status'          => $st,
+        'status_label'    => $st_label,
         'expired_date'    => $unpaid['expired_date'] ?: '-',
         'created_date'    => $unpaid['created_date'] ?: '-',
         'paid_date'       => $unpaid['paid_date'] ?: '-',
@@ -494,28 +441,22 @@ function format_unpaid_data($unpaid, $token, $config, $allow_loopback = true) {
     ];
 }
 
-function verify_if_already_recharged(&$trx) {
+function verify_already_recharged(&$trx) {
     if (!$trx) return false;
     if ((int)$trx['status'] === 2) return true;
-
     if (!empty($trx['created_date'])) {
         $created_ts = strtotime($trx['created_date']);
-        $recent_trx = ORM::for_table('tbl_transactions')
+        $recent = ORM::for_table('tbl_transactions')
             ->where('username', $trx['username'])
             ->where('plan_name', $trx['plan_name'])
             ->order_by_desc('id')
             ->find_one();
-
-        if ($recent_trx && !empty($recent_trx['recharged_on'])) {
-            $rech_ts = strtotime($recent_trx['recharged_on'] . ' ' . ($recent_trx['recharged_time'] ?: '00:00:00'));
+        if ($recent && !empty($recent['recharged_on'])) {
+            $rech_ts = strtotime($recent['recharged_on'] . ' ' . ($recent['recharged_time'] ?: '00:00:00'));
             if ($rech_ts >= ($created_ts - 5)) {
                 $trx->status = 2;
-                if (empty($trx->paid_date)) {
-                    $trx->paid_date = date('Y-m-d H:i:s');
-                }
-                if (empty($trx->trx_invoice) && !empty($recent_trx['invoice'])) {
-                    $trx->trx_invoice = $recent_trx['invoice'];
-                }
+                if (empty($trx->paid_date)) $trx->paid_date = date('Y-m-d H:i:s');
+                if (empty($trx->trx_invoice) && !empty($recent['invoice'])) $trx->trx_invoice = $recent['invoice'];
                 $trx->save();
                 return true;
             }
@@ -530,17 +471,13 @@ register_shutdown_function(function() {
         @fclose($GLOBALS['API_LOCK_HANDLE']);
         $GLOBALS['API_LOCK_HANDLE'] = null;
     }
-
     if (!empty($GLOBALS['API_INTERCEPT_TRX_ID'])) {
         $trx_id = $GLOBALS['API_INTERCEPT_TRX_ID'];
         $mode   = $GLOBALS['API_INTERCEPT_MODE'] ?? 'buy';
-        $token  = $GLOBALS['API_INTERCEPT_TOKEN'] ?? '';
         $cfg    = $GLOBALS['config'] ?? [];
         $GLOBALS['API_INTERCEPT_TRX_ID'] = null;
 
-        if (ob_get_length()) {
-            ob_clean();
-        }
+        if (ob_get_length()) ob_clean();
         if (!headers_sent()) {
             header_remove('Location');
             header_remove('location');
@@ -554,497 +491,89 @@ register_shutdown_function(function() {
         unset($_SESSION['notify'], $_SESSION['ntype']);
 
         if ($mode === 'check_payment') {
-            $is_paid = verify_if_already_recharged($trx);
-            $msg = $is_paid
-                ? 'Pembayaran telah diterima! Paket/Saldo Anda sudah aktif.'
-                : ($notify ?: 'Pembayaran belum masuk. Pastikan nominal transfer sesuai hingga 3 digit terakhir.');
+            $is_paid = verify_already_recharged($trx);
+            $payload = ['paid' => $is_paid, 'bill' => parse_qris_trx($trx, $cfg)];
             echo json_encode([
-                'status'  => true,
-                'message' => $msg,
-                'data'    => [
-                    'paid' => $is_paid,
-                    'bill' => format_unpaid_data($trx, $token, $cfg, false)
-                ]
+                'success' => true, 'status' => true,
+                'message' => $is_paid ? 'Pembayaran diterima! Paket sudah aktif.' : ($notify ?: 'Pembayaran belum masuk.'),
+                'result'  => $payload, 'data' => $payload
             ], JSON_UNESCAPED_SLASHES);
             return;
         }
 
         if ($trx && (!empty($trx['pg_url_payment']) || $ntype !== 'e')) {
+            $payload = parse_qris_trx($trx, $cfg);
             echo json_encode([
-                'status'  => true,
+                'success' => true, 'status' => true,
                 'message' => $notify ?: 'Tagihan pembayaran berhasil dibuat.',
-                'data'    => format_unpaid_data($trx, $token, $cfg, true)
+                'result'  => $payload, 'data' => $payload
             ], JSON_UNESCAPED_SLASHES);
         } else {
-            if ($trx && empty($trx['pg_url_payment'])) {
-                $trx->delete();
-            }
-            echo json_encode([
-                'status'  => false,
-                'message' => $notify ?: 'Gagal menghubungi Payment Gateway.',
-                'data'    => null
-            ], JSON_UNESCAPED_SLASHES);
+            if ($trx && empty($trx['pg_url_payment'])) $trx->delete();
+            echo json_encode(['success' => false, 'status' => false, 'message' => $notify ?: 'Gagal menghubungi Payment Gateway.', 'result' => null], JSON_UNESCAPED_SLASHES);
         }
     }
 });
 
-$raw_input = json_decode(file_get_contents('php://input'), true);
-if (is_array($raw_input)) {
-    $_POST = array_merge($_POST, $raw_input);
-}
-
 switch ($action) {
     // =========================================================================
-    // BAGIAN A: ENDPOINT DASHBOARD PELANGGAN (UTUH 100% DARI VERSI SEBELUMNYA)
+    // 1. AUTH ADMIN & CUSTOMER
     // =========================================================================
-    case 'login':
-        $username = _post('username');
-        $password = _post('password');
-
-        if (empty($username) || empty($password)) {
-            api_response(false, 'Username dan Password wajib diisi.', null, 400);
-        }
-
-        $user = ORM::for_table('tbl_customers')
-            ->where('username', $username)
-            ->find_one();
-
-        if (!$user || $user['password'] !== $password) {
-            api_response(false, 'Username atau Password salah.', null, 401);
-        }
-
-        if ($user['status'] !== 'Active' && !empty($user['status'])) {
-            api_response(false, 'Status akun Anda: ' . $user['status'], null, 403);
-        }
-
-        $token = generate_customer_token($user, $api_secret);
-        api_response(true, 'Login berhasil', [
-            'token' => $token
-        ]);
-        break;
-
-    case 'dashboard':
-        $user = authenticate_customer($api_secret);
-        $token = get_bearer_token();
-
-        $recharges = ORM::for_table('tbl_user_recharges')
-            ->where('customer_id', $user['id'])
-            ->order_by_desc('id')
-            ->find_array();
-
-        $unpaid_rows = ORM::for_table('tbl_payment_gateway')
-            ->where('username', $user['username'])
-            ->where('status', 1)
-            ->order_by_desc('id')
-            ->find_many();
-
-        $unpaid_bills = [];
-        foreach ($unpaid_rows as $ur) {
-            if (verify_if_already_recharged($ur)) {
-                continue;
-            }
-            $unpaid_bills[] = format_unpaid_data($ur, $token, $config, false);
-        }
-
-        api_response(true, 'Data beranda dimuat', [
-            'company' => [
-                'name'           => $config['CompanyName'] ?? 'Arneta.ID',
-                'phone'          => $config['phone'] ?? '',
-                'address'        => $config['address'] ?? '',
-                'currency'       => $config['currency_code'] ?? 'Rp',
-                'enable_balance' => ($config['enable_balance'] ?? 'yes') === 'yes'
-            ],
-            'customer' => [
-                'id'           => (int)$user['id'],
-                'username'     => $user['username'],
-                'fullname'     => $user['fullname'],
-                'phonenumber'  => $user['phonenumber'],
-                'email'        => $user['email'],
-                'address'      => $user['address'],
-                'balance'      => (float)$user['balance'],
-                'service_type' => $user['service_type'] ?: 'Others',
-                'auto_renewal' => (int)$user['auto_renewal']
-            ],
-            'payment_gateways' => get_active_gateways($config),
-            'active_packages'  => $recharges,
-            'unpaid_bills'     => $unpaid_bills,
-            'unpaid_bill'      => !empty($unpaid_bills) ? $unpaid_bills[0] : null
-        ]);
-        break;
-
-    case 'plans':
-        $user = authenticate_customer($api_secret);
-        $cust_type = strtoupper(trim($user['service_type'] ?: 'OTHERS'));
-
-        $plans = ORM::for_table('tbl_plans')
-            ->where('enabled', 1)
-            ->order_by_asc('price')
-            ->find_array();
-
-        $internet_plans = [];
-        $balance_plans  = [];
-        $included_ids   = [];
-
-        foreach ($plans as $p) {
-            $p_type  = strtoupper(trim($p['type']));
-            $prepaid = strtolower(trim($p['prepaid'] ?? 'yes'));
-
-            $display_type = ($p_type === 'PPPOE') ? 'PPPoE' : (($p_type === 'HOTSPOT') ? 'Hotspot' : $p['type']);
-            if ($prepaid !== 'yes' && $p_type === 'PPPOE') {
-                $display_type = 'PPPoE • Pascabayar';
-            }
-
-            $item = [
-                'id'        => (int)$p['id'],
-                'name_plan' => $p['name_plan'],
-                'price'     => (float)$p['price'],
-                'type'      => $display_type,
-                'prepaid'   => $p['prepaid'],
-                'validity'  => $p['validity'] . ' ' . $p['validity_unit'],
-                'routers'   => $p['routers']
-            ];
-
-            if ($p_type === 'BALANCE') {
-                if ($prepaid === 'yes') {
-                    $balance_plans[] = $item;
-                }
-                continue;
-            }
-
-            if ($p_type === 'HOTSPOT' && $prepaid !== 'yes') {
-                continue;
-            }
-
-            if ($cust_type === 'HOTSPOT' && $p_type === 'HOTSPOT') {
-                $internet_plans[] = $item;
-                $included_ids[] = (int)$p['id'];
-            } elseif ($cust_type === 'PPPOE' && $p_type === 'PPPOE') {
-                $internet_plans[] = $item;
-                $included_ids[] = (int)$p['id'];
-            } elseif ($cust_type !== 'HOTSPOT' && $cust_type !== 'PPPOE') {
-                if ($p_type === 'HOTSPOT' || $p_type === 'PPPOE') {
-                    $internet_plans[] = $item;
-                    $included_ids[] = (int)$p['id'];
-                }
-            }
-        }
-
-        $user_recharges = ORM::for_table('tbl_user_recharges')
-            ->where('customer_id', $user['id'])
-            ->find_many();
-
-        foreach ($user_recharges as $ur) {
-            $pid = (int)$ur['plan_id'];
-            if ($pid > 0 && !in_array($pid, $included_ids)) {
-                $assigned_plan = ORM::for_table('tbl_plans')->find_one($pid);
-                if ($assigned_plan && strtoupper(trim($assigned_plan['type'])) !== 'BALANCE') {
-                    array_unshift($internet_plans, [
-                        'id'        => (int)$assigned_plan['id'],
-                        'name_plan' => $assigned_plan['name_plan'],
-                        'price'     => (float)$assigned_plan['price'],
-                        'type'      => (strtoupper(trim($assigned_plan['type'])) === 'PPPOE') ? 'PPPoE' : $assigned_plan['type'],
-                        'prepaid'   => $assigned_plan['prepaid'],
-                        'validity'  => $assigned_plan['validity'] . ' ' . $assigned_plan['validity_unit'],
-                        'routers'   => $assigned_plan['routers']
-                    ]);
-                    $included_ids[] = $pid;
-                }
-            }
-        }
-
-        api_response(true, 'Daftar paket berhasil dimuat', [
-            'internet_plans'   => $internet_plans,
-            'balance_plans'    => $balance_plans,
-            'payment_gateways' => get_active_gateways($config)
-        ]);
-        break;
-
-    case 'transactions':
-        $user = authenticate_customer($api_secret);
-        $trx = ORM::for_table('tbl_transactions')
-            ->where('username', $user['username'])
-            ->order_by_desc('id')
-            ->limit(30)
-            ->find_array();
-
-        api_response(true, 'Riwayat transaksi', $trx);
-        break;
-
-    case 'toggle_renewal':
-        $user = authenticate_customer($api_secret);
-        $user->auto_renewal = ($user->auto_renewal == 1) ? 0 : 1;
-        $user->save();
-        api_response(true, 'Status perpanjangan otomatis diubah.', [
-            'auto_renewal' => (int)$user->auto_renewal
-        ]);
-        break;
-
-    case 'redeem_voucher':
-        $user = authenticate_customer($api_secret);
-        $code = trim(_post('code'));
-        if (empty($code)) {
-            api_response(false, 'Kode voucher tidak boleh kosong.', null, 400);
-        }
-
-        $v = ORM::for_table('tbl_voucher')
-            ->where('code', $code)
-            ->where('status', 0)
-            ->find_one();
-
-        if (!$v) {
-            api_response(false, 'Kode voucher tidak ditemukan atau sudah terpakai.', null, 404);
-        }
-
-        if (class_exists('Package') && Package::rechargeUser($user['id'], $v['routers'], $v['id_plan'], 'Voucher', $code)) {
-            $v->status = "1";
-            $v->user = $user['username'];
-            $v->save();
-            api_response(true, 'Voucher berhasil diaktifkan!');
-        } else {
-            api_response(false, 'Gagal mengaktifkan voucher.', null, 500);
-        }
-        break;
-
-    case 'buy':
-        $user = authenticate_customer($api_secret);
-        $token = get_bearer_token();
-        $plan_id = (int)_post('plan_id');
-        $gateway_choice = trim(_post('gateway') ?: _post('method'));
-
-        $plan = ORM::for_table('tbl_plans')->find_one($plan_id);
-
-        if (!$plan) {
-            api_response(false, 'Paket tidak ditemukan atau tidak tersedia.', null, 404);
-        }
-
-        if ($gateway_choice === 'balance') {
-            if (strtoupper(trim($plan['type'])) === 'BALANCE') {
-                api_response(false, 'Topup saldo tidak dapat dibayar menggunakan saldo.', null, 400);
-            }
-            if ((float)$user['balance'] < (float)$plan['price']) {
-                api_response(false, 'Saldo Anda tidak mencukupi untuk membeli paket ini.', null, 400);
-            }
-
-            if (class_exists('Package') && Package::rechargeUser($user['id'], $plan['routers'], $plan['id'], 'Customer', 'Balance')) {
-                if (class_exists('Balance')) {
-                    Balance::min($user['id'], $plan['price']);
-                } else {
-                    $user->balance = (float)$user->balance - (float)$plan['price'];
-                    $user->save();
-                }
-                api_response(true, 'Paket ' . $plan['name_plan'] . ' berhasil diaktifkan menggunakan Saldo!');
-            } else {
-                api_response(false, 'Gagal mengaktifkan paket ke router.', null, 500);
-            }
-        }
-
-        $existing = ORM::for_table('tbl_payment_gateway')
-            ->where('username', $user['username'])
-            ->where('status', 1)
-            ->find_one();
-
-        if ($existing) {
-            if (!verify_if_already_recharged($existing)) {
-                api_response(
-                    false,
-                    'Anda masih memiliki tagihan yang belum dibayar. Silakan selesaikan atau batalkan terlebih dahulu.',
-                    format_unpaid_data($existing, $token, $config, true),
-                    400
-                );
-            }
-        }
-
-        $active_gws = array_filter(array_map('trim', explode(',', $config['payment_gateway'] ?? 'viaqris')));
-        $gateway = $gateway_choice;
-        if (empty($gateway) || !in_array($gateway, $active_gws)) {
-            $gateway = !empty($active_gws) ? $active_gws[0] : 'viaqris';
-        }
-
-        $router_id = 0;
-        $router_name = $plan['routers'];
-        if (strtoupper(trim($plan['type'])) === 'BALANCE') {
-            $router_name = 'balance';
-        } elseif ($plan['routers'] !== 'radius') {
-            $r = ORM::for_table('tbl_routers')->where('name', $plan['routers'])->find_one();
-            if ($r) $router_id = (int)$r['id'];
-        }
-
-        $d = ORM::for_table('tbl_payment_gateway')->create();
-        $d->username = $user['username'];
-        $d->gateway = $gateway;
-        $d->plan_id = $plan['id'];
-        $d->plan_name = $plan['name_plan'];
-        $d->routers_id = $router_id;
-        $d->routers = $router_name;
-        $d->price = $plan['price'];
-        $d->created_date = date('Y-m-d H:i:s');
-        $d->status = 1;
-        $d->save();
-
-        $gw_file = 'system/paymentgateway/' . $gateway . '.php';
-        if (file_exists($gw_file)) {
-            include_once $gw_file;
-            $fn = $gateway . '_create_transaction';
-            if (function_exists($fn)) {
-                $GLOBALS['API_INTERCEPT_MODE']   = 'buy';
-                $GLOBALS['API_INTERCEPT_TRX_ID'] = $d->id();
-                $GLOBALS['API_INTERCEPT_TOKEN']  = $token;
-                $fn($d, $user);
-                $GLOBALS['API_INTERCEPT_TRX_ID'] = null;
-                $updated = ORM::for_table('tbl_payment_gateway')->find_one($d->id());
-                api_response(true, 'Tagihan berhasil dibuat.', format_unpaid_data($updated, $token, $config, true));
-            }
-        }
-
-        api_response(true, 'Tagihan berhasil dibuat.', format_unpaid_data($d, $token, $config, true));
-        break;
-
-    case 'payment_detail':
-        $user = authenticate_customer($api_secret);
-        $token = get_bearer_token();
-        $trx_id = (int)(_post('id') ?: _get('id'));
-        $need_qr = (bool)(_post('need_qr') ?: _get('need_qr'));
-
-        $trx = ORM::for_table('tbl_payment_gateway')
-            ->where('username', $user['username'])
-            ->find_one($trx_id);
-
-        if (!$trx) {
-            api_response(false, 'Data tagihan tidak ditemukan.', null, 404);
-        }
-
-        $is_paid = verify_if_already_recharged($trx);
-        $msg = $is_paid
-            ? 'Pembayaran telah diterima! Paket/Saldo Anda sudah aktif.'
-            : 'Menunggu pembayaran QRIS.';
-
-        api_response(true, $msg, [
-            'paid' => $is_paid,
-            'bill' => format_unpaid_data($trx, $token, $config, $need_qr)
-        ]);
-        break;
-
-    case 'check_payment':
-        $user = authenticate_customer($api_secret);
-        $token = get_bearer_token();
-        $trx_id = (int)(_post('id') ?: _get('id'));
-
-        $lock_file = sys_get_temp_dir() . '/arneta_paylock_' . $trx_id . '.lock';
-        $lock_fp = @fopen($lock_file, 'c+');
-        if ($lock_fp) {
-            if (!@flock($lock_fp, LOCK_EX | LOCK_NB)) {
-                @flock($lock_fp, LOCK_EX);
-                $trx_after = ORM::for_table('tbl_payment_gateway')
-                    ->where('username', $user['username'])
-                    ->find_one($trx_id);
-                @flock($lock_fp, LOCK_UN);
-                @fclose($lock_fp);
-
-                $is_paid_after = verify_if_already_recharged($trx_after);
-                api_response(true, $is_paid_after ? 'Pembayaran berhasil diverifikasi!' : 'Sedang memeriksa status pembayaran...', [
-                    'paid' => $is_paid_after,
-                    'bill' => format_unpaid_data($trx_after, $token, $config, false)
-                ]);
-            }
-            $GLOBALS['API_LOCK_HANDLE'] = $lock_fp;
-        }
-
-        $trx = ORM::for_table('tbl_payment_gateway')
-            ->where('username', $user['username'])
-            ->find_one($trx_id);
-
-        if (!$trx) {
-            api_response(false, 'Data tagihan tidak ditemukan.', null, 404);
-        }
-
-        if (!verify_if_already_recharged($trx) && (int)$trx['status'] === 1 && !empty($trx['gateway'])) {
-            $gw_file = 'system/paymentgateway/' . $trx['gateway'] . '.php';
-            if (file_exists($gw_file)) {
-                include_once $gw_file;
-                $status_fn = $trx['gateway'] . '_get_status';
-                if (function_exists($status_fn)) {
-                    $GLOBALS['API_INTERCEPT_MODE']   = 'check_payment';
-                    $GLOBALS['API_INTERCEPT_TRX_ID'] = $trx['id'];
-                    $GLOBALS['API_INTERCEPT_TOKEN']  = $token;
-                    @$status_fn($trx, $user);
-                    $GLOBALS['API_INTERCEPT_TRX_ID'] = null;
-                    $trx = ORM::for_table('tbl_payment_gateway')->find_one($trx_id);
-                }
-            }
-        }
-
-        $is_paid = verify_if_already_recharged($trx);
-        $msg = $is_paid
-            ? 'Pembayaran telah diterima! Paket/Saldo Anda sudah aktif.'
-            : 'Pembayaran belum masuk. Pastikan Anda mentransfer tepat sesuai nominal.';
-
-        api_response(true, $msg, [
-            'paid' => $is_paid,
-            'bill' => format_unpaid_data($trx, $token, $config, false)
-        ]);
-        break;
-
-    case 'cancel_payment':
-        $user = authenticate_customer($api_secret);
-        $trx_id = (int)_post('id');
-
-        $trx = ORM::for_table('tbl_payment_gateway')
-            ->where('username', $user['username'])
-            ->where('status', 1)
-            ->find_one($trx_id);
-
-        if ($trx && !verify_if_already_recharged($trx)) {
-            $trx->status = 4;
-            $trx->save();
-            api_response(true, 'Tagihan berhasil dibatalkan.');
-        }
-        api_response(true, 'Tagihan sudah diselesaikan atau dibatalkan.');
-        break;
-
-
-    // =========================================================================
-    // BAGIAN B: ENDPOINT DASHBOARD ADMIN - TAHAP 1
-    // (Auth, Dashboard, Pelanggan, Layanan/Prepaid, Voucher, Kupon, Data Usage)
-    // =========================================================================
-
+    case 'auth':
     case 'admin_login':
+    case 'customer_login':
+        $role = strtolower(trim(_post('role') ?: ($action === 'customer_login' ? 'customer' : 'admin')));
         $username = trim(_post('username'));
         $password = _post('password');
 
         if (empty($username) || empty($password)) {
-            api_response(false, 'Username dan Password Admin wajib diisi.', null, 400);
+            api_out(false, 'Username dan Password wajib diisi.', null, 400);
         }
 
-        $admin = ORM::for_table('tbl_users')
-            ->where('username', $username)
-            ->find_one();
+        if ($role === 'customer') {
+            $cust = ORM::for_table('tbl_customers')->where('username', $username)->find_one();
+            if (!$cust || !check_user_password($password, $cust['password'])) {
+                api_out(false, 'Username atau Password Pelanggan salah.', null, 401);
+            }
+            if (!empty($cust['status']) && $cust['status'] !== 'Active') {
+                api_out(false, 'Status akun Anda: ' . $cust['status'], null, 403);
+            }
+            $cust->last_login = date('Y-m-d H:i:s');
+            $cust->save();
 
-        if (!$admin || !verify_admin_password($password, $admin['password'])) {
-            api_response(false, 'Username atau Password Admin salah.', null, 401);
+            $token = create_native_token('c', $cust['id'], $api_secret);
+            $cust_arr = $cust->as_array();
+            unset($cust_arr['password']);
+            api_out(true, 'Login Pelanggan berhasil', [
+                'token'    => $token,
+                'customer' => $cust_arr,
+                'company'  => [
+                    'name'            => $config['CompanyName'] ?? 'Arneta.ID',
+                    'currency'        => $config['currency_code'] ?? 'Rp.',
+                    'phone'           => $config['phone'] ?? '',
+                    'address'         => $config['address'] ?? '',
+                    'payment_gateway' => $config['payment_gateway'] ?? 'viaqris'
+                ]
+            ]);
         }
 
+        $admin = ORM::for_table('tbl_users')->where('username', $username)->find_one();
+        if (!$admin || !check_user_password($password, $admin['password'])) {
+            api_out(false, 'Username atau Password Admin salah.', null, 401);
+        }
         if (!empty($admin['status']) && $admin['status'] !== 'Active') {
-            api_response(false, 'Akun Admin sedang dinonaktifkan (' . $admin['status'] . ').', null, 403);
+            api_out(false, 'Akun Admin sedang dinonaktifkan (' . $admin['status'] . ').', null, 403);
         }
 
         $admin->last_login = date('Y-m-d H:i:s');
         $admin->save();
 
-        write_admin_log($admin, $admin['username'] . ' Login via Aplikasi Android Admin');
-
-        $token = generate_admin_token($admin, $api_secret);
-        api_response(true, 'Selamat datang, ' . ($admin['fullname'] ?: $admin['username']), [
-            'token' => $token,
-            'admin' => [
-                'id'        => (int)$admin['id'],
-                'username'  => $admin['username'],
-                'fullname'  => $admin['fullname'],
-                'user_type' => $admin['user_type'],
-                'phone'     => $admin['phone'] ?? '',
-                'email'     => $admin['email'] ?? '',
-                'city'      => $admin['city'] ?? '',
-                'root'      => (int)($admin['root'] ?? 0)
-            ],
+        $token = create_native_token('a', $admin['id'], $api_secret);
+        $adm_arr = $admin->as_array();
+        unset($adm_arr['password']);
+        api_out(true, 'Selamat datang, ' . ($admin['fullname'] ?: $admin['username']), [
+            'token'   => $token,
+            'admin'   => $adm_arr,
             'company' => [
                 'name'     => $config['CompanyName'] ?? 'Arneta.ID',
                 'currency' => $config['currency_code'] ?? 'Rp.',
@@ -1054,147 +583,63 @@ switch ($action) {
         ]);
         break;
 
-    case 'admin_profile':
-        $admin = authenticate_admin($api_secret);
-        if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty(_post('fullname'))) {
-            $admin->fullname = trim(_post('fullname'));
-            if (_post('username') && _post('username') !== $admin->username) {
-                $exists = ORM::for_table('tbl_users')->where('username', trim(_post('username')))->find_one();
-                if ($exists) {
-                    api_response(false, 'Username sudah digunakan oleh pengguna lain.', null, 400);
-                }
-                $admin->username = trim(_post('username'));
-            }
-            if (_post('phone') !== '') $admin->phone = trim(_post('phone'));
-            if (_post('email') !== '') $admin->email = trim(_post('email'));
-            if (!empty(_post('new_password'))) {
-                $admin->password = hash_admin_password(_post('new_password'));
-            }
-            $admin->save();
-            write_admin_log($admin, 'Memperbarui profil Admin via Aplikasi');
-            api_response(true, 'Profil berhasil diperbarui.', [
-                'token' => generate_admin_token($admin, $api_secret),
-                'admin' => [
-                    'id'        => (int)$admin['id'],
-                    'username'  => $admin['username'],
-                    'fullname'  => $admin['fullname'],
-                    'user_type' => $admin['user_type'],
-                    'phone'     => $admin['phone'] ?? '',
-                    'email'     => $admin['email'] ?? ''
-                ]
-            ]);
-        }
-
-        api_response(true, 'Profil Admin', [
-            'id'        => (int)$admin['id'],
-            'username'  => $admin['username'],
-            'fullname'  => $admin['fullname'],
-            'user_type' => $admin['user_type'],
-            'phone'     => $admin['phone'] ?? '',
-            'email'     => $admin['email'] ?? '',
-            'last_login'=> $admin['last_login'] ?? '-'
-        ]);
-        break;
-
+    // =========================================================================
+    // 2. DASBOR ADMIN (TERMASUK PENDAPATAN DARI DEPOSIT SALDO)
+    // =========================================================================
     case 'admin_dashboard':
-        $admin = authenticate_admin($api_secret);
+    case 'dashboard_extras':
+        $admin = require_admin_session($api_secret);
         $today = date('Y-m-d');
-        $month_prefix = date('Y-m-');
-        $current_year = date('Y');
-        $start_month_date = date('Y-m-01');
+        $start_month = date('Y-m-01');
+        $yr = date('Y');
+        $months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-        // 1. Pendapatan Hari Ini (sesuai logika asli PHPNuxBill dashboard.php)
+        // Menghitung seluruh uang masuk (Termasuk Deposit Saldo, hanya mengecualikan pembayaran yang memotong saldo pelanggan)
         $income_today = ORM::for_table('tbl_transactions')
             ->where('recharged_on', $today)
             ->where_not_equal('method', 'Customer - Balance')
-            ->where_not_equal('type', 'Balance')
             ->sum('price') ?: 0;
 
-        // 2. Pendapatan Bulan Ini
         $income_month = ORM::for_table('tbl_transactions')
-            ->where_gte('recharged_on', $start_month_date)
+            ->where_gte('recharged_on', $start_month)
             ->where_lte('recharged_on', $today)
             ->where_not_equal('method', 'Customer - Balance')
-            ->where_not_equal('type', 'Balance')
             ->sum('price') ?: 0;
 
-        // 3. Aktif / Kedaluwarsa (seperti kartu oranye 19/7 di screenshot)
-        $active_recharges = ORM::for_table('tbl_user_recharges')->where('status', 'on')->count();
-        $expired_recharges = ORM::for_table('tbl_user_recharges')->where('status', 'off')->count();
+        $u_act = ORM::for_table('tbl_user_recharges')->where('status', 'on')->count();
+        $u_exp = ORM::for_table('tbl_user_recharges')->where('status', 'off')->count();
+        $c_all = ORM::for_table('tbl_customers')->count();
+        $cb    = ORM::for_table('tbl_customers')->sum('balance') ?: 0;
 
-        // 4. Total Pelanggan & Total Saldo Pelanggan
-        $total_customers = ORM::for_table('tbl_customers')->count();
-        $total_customer_balance = ORM::for_table('tbl_customers')->sum('balance') ?: 0;
-
-        // 5. Grafik Pendaftaran Pelanggan Perbulan (Jan - Des tahun berjalan)
-        $monthly_registered = [];
-        $month_labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        $reg = [];
+        $sales = [];
         for ($m = 1; $m <= 12; $m++) {
-            $ym = $current_year . '-' . str_pad($m, 2, '0', STR_PAD_LEFT);
-            $cnt = ORM::for_table('tbl_customers')
-                ->where_like('created_at', $ym . '%')
-                ->count();
-            $monthly_registered[] = [
-                'month' => $month_labels[$m - 1],
-                'count' => (int)$cnt
-            ];
-        }
-
-        // 6. Grafik Total Penjualan Perbulan (Jan - Des tahun berjalan)
-        $monthly_sales = [];
-        for ($m = 1; $m <= 12; $m++) {
-            $ym = $current_year . '-' . str_pad($m, 2, '0', STR_PAD_LEFT);
+            $ym = $yr . '-' . str_pad($m, 2, '0', STR_PAD_LEFT);
+            $cnt = ORM::for_table('tbl_customers')->where_like('created_at', $ym . '%')->count();
             $sum = ORM::for_table('tbl_transactions')
                 ->where_like('recharged_on', $ym . '%')
                 ->where_not_equal('method', 'Customer - Balance')
-                ->where_not_equal('type', 'Balance')
                 ->sum('price') ?: 0;
-            $monthly_sales[] = [
-                'month' => $month_labels[$m - 1],
-                'total' => (float)$sum
-            ];
+            $reg[]   = ['month' => $months[$m - 1], 'count' => (int)$cnt];
+            $sales[] = ['month' => $months[$m - 1], 'total' => (float)$sum];
         }
 
-        // 7. Stok Voucher & Penggunaan per Paket
-        $plans = ORM::for_table('tbl_plans')->where('enabled', 1)->find_array();
         $stocks = [];
-        $total_unused_vouchers = 0;
-        $total_used_vouchers = 0;
-        foreach ($plans as $p) {
-            if (strtoupper($p['type']) === 'BALANCE') continue;
-            $unused = ORM::for_table('tbl_voucher')->where('id_plan', $p['id'])->where('status', 0)->count();
-            $used   = ORM::for_table('tbl_voucher')->where('id_plan', $p['id'])->where('status', 1)->count();
-            $active_plan_users = ORM::for_table('tbl_user_recharges')->where('plan_id', $p['id'])->where('status', 'on')->count();
-            $total_unused_vouchers += $unused;
-            $total_used_vouchers += $used;
+        foreach (ORM::for_table('tbl_plans')->where('enabled', 1)->find_array() as $p) {
+            if (strtoupper(trim($p['type'])) === 'BALANCE') continue;
             $stocks[] = [
                 'plan_id'      => (int)$p['id'],
                 'name_plan'    => $p['name_plan'],
                 'type'         => $p['type'],
-                'unused'       => (int)$unused,
-                'used'         => (int)$used,
-                'active_users' => (int)$active_plan_users
+                'unused'       => (int)ORM::for_table('tbl_voucher')->where('id_plan', $p['id'])->where('status', 0)->count(),
+                'used'         => (int)ORM::for_table('tbl_voucher')->where('id_plan', $p['id'])->where('status', 1)->count(),
+                'active_users' => (int)ORM::for_table('tbl_user_recharges')->where('plan_id', $p['id'])->where('status', 'on')->count()
             ];
         }
 
-        // 8. Transaksi Terakhir & Antrean QRIS Unpaid
-        $recent_trx = ORM::for_table('tbl_transactions')
-            ->order_by_desc('id')
-            ->limit(8)
-            ->find_array();
+        $unpaid_cnt = (int)ORM::for_table('tbl_payment_gateway')->where('status', 1)->count();
 
-        $unpaid_qris_count = ORM::for_table('tbl_payment_gateway')
-            ->where('status', 1)
-            ->count();
-
-        // 9. Pelanggan yang akan segera expired / baru expired
-        $expiring_list = ORM::for_table('tbl_user_recharges')
-            ->where_lte('expiration', date('Y-m-d', strtotime('+2 days')))
-            ->order_by_desc('expiration')
-            ->limit(10)
-            ->find_array();
-
-        api_response(true, 'Dashboard Admin berhasil dimuat', [
+        api_out(true, 'Dashboard berhasil dimuat', [
             'company' => [
                 'name'        => $config['CompanyName'] ?? 'Arneta.ID',
                 'currency'    => $config['currency_code'] ?? 'Rp.',
@@ -1203,33 +648,33 @@ switch ($action) {
             'cards' => [
                 'income_today'           => (float)$income_today,
                 'income_month'           => (float)$income_month,
-                'active_users'           => (int)$active_recharges,
-                'expired_users'          => (int)$expired_recharges,
-                'active_expired_label'   => $active_recharges . '/' . $expired_recharges,
-                'total_customers'        => (int)$total_customers,
-                'total_customer_balance' => (float)$total_customer_balance,
-                'unused_vouchers'        => (int)$total_unused_vouchers,
-                'used_vouchers'          => (int)$total_used_vouchers,
-                'unpaid_qris_count'      => (int)$unpaid_qris_count
+                'active_users'           => (int)$u_act,
+                'expired_users'          => (int)$u_exp,
+                'active_expired_label'   => $u_act . '/' . $u_exp,
+                'total_customers'        => (int)$c_all,
+                'total_customer_balance' => (float)$cb,
+                'unpaid_qris_count'      => $unpaid_cnt
             ],
             'charts' => [
-                'monthly_registered' => $monthly_registered,
-                'monthly_sales'      => $monthly_sales
+                'monthly_registered' => $reg,
+                'monthly_sales'      => $sales
             ],
-            'stocks'              => $stocks,
-            'recent_transactions' => $recent_trx,
-            'expiring_users'      => $expiring_list
+            'unpaid_qris_count'  => $unpaid_cnt,
+            'monthly_registered' => $reg,
+            'monthly_sales'      => $sales,
+            'stocks'             => $stocks,
+            'expiring_users'     => ORM::for_table('tbl_user_recharges')->where_lte('expiration', date('Y-m-d', strtotime('+2 days')))->order_by_desc('expiration')->limit(15)->find_array()
         ]);
         break;
 
+    // =========================================================================
+    // 3. PELANGGAN & LIVE SEARCH
+    // =========================================================================
     case 'admin_customers':
-        $admin = authenticate_admin($api_secret);
-        $search = trim(_get('search') ?: _post('search'));
-        $service_type = trim(_get('service_type') ?: _post('service_type'));
-        $status = trim(_get('status') ?: _post('status'));
-        $page = max(1, (int)(_get('page') ?: _post('page') ?: 1));
-        $limit = max(10, min(100, (int)(_get('limit') ?: _post('limit') ?: 25)));
-        $offset = ($page - 1) * $limit;
+        $admin = require_admin_session($api_secret);
+        $search = trim(_req('search'));
+        $service_type = trim(_req('service_type'));
+        $limit = max(10, min(300, (int)(_req('limit') ?: 150)));
 
         $q = ORM::for_table('tbl_customers');
         if ($search !== '') {
@@ -1239,30 +684,18 @@ switch ($action) {
         if ($service_type !== '' && strtolower($service_type) !== 'all') {
             $q->where('service_type', $service_type);
         }
-        if ($status !== '' && strtolower($status) !== 'all') {
-            $q->where('status', $status);
-        }
 
         $total_q = clone $q;
         $total = $total_q->count();
+        $rows = $q->order_by_desc('id')->limit($limit)->find_array();
 
-        $rows = $q->order_by_desc('id')
-            ->limit($limit)
-            ->offset($offset)
-            ->find_array();
-
-        // Perkaya dengan status paket aktif masing-masing pelanggan
-        $customer_ids = array_column($rows, 'id');
-        $recharges_map = [];
-        if (!empty($customer_ids)) {
-            $rech_rows = ORM::for_table('tbl_user_recharges')
-                ->where_in('customer_id', $customer_ids)
-                ->order_by_desc('id')
-                ->find_array();
-            foreach ($rech_rows as $r) {
+        $cids = array_column($rows, 'id');
+        $rech_map = [];
+        if (!empty($cids)) {
+            foreach (ORM::for_table('tbl_user_recharges')->where_in('customer_id', $cids)->order_by_desc('id')->find_array() as $r) {
                 $cid = (int)$r['customer_id'];
-                if (!isset($recharges_map[$cid])) {
-                    $recharges_map[$cid] = $r;
+                if (!isset($rech_map[$cid]) || $r['status'] === 'on') {
+                    $rech_map[$cid] = $r;
                 }
             }
         }
@@ -1270,14 +703,14 @@ switch ($action) {
         $customers = [];
         foreach ($rows as $row) {
             $cid = (int)$row['id'];
-            $rech = $recharges_map[$cid] ?? null;
+            $rech = $rech_map[$cid] ?? null;
             $customers[] = [
                 'id'             => $cid,
-                'username'       => $row['username'],
-                'fullname'       => $row['fullname'],
-                'phonenumber'    => $row['phonenumber'],
-                'email'          => $row['email'],
-                'address'        => $row['address'],
+                'username'       => $row['username'] ?: '',
+                'fullname'       => $row['fullname'] ?: $row['username'],
+                'phonenumber'    => $row['phonenumber'] ?: '',
+                'email'          => $row['email'] ?: '',
+                'address'        => $row['address'] ?: '',
                 'balance'        => (float)$row['balance'],
                 'service_type'   => $row['service_type'] ?: 'Hotspot',
                 'account_type'   => $row['account_type'] ?? 'Personal',
@@ -1287,7 +720,6 @@ switch ($action) {
                 'pppoe_password' => $row['pppoe_password'] ?? '',
                 'pppoe_ip'       => $row['pppoe_ip'] ?? '',
                 'coordinates'    => $row['coordinates'] ?? '',
-                'created_at'     => $row['created_at'] ?? '',
                 'active_package' => $rech ? [
                     'id'         => (int)$rech['id'],
                     'namebp'     => $rech['namebp'],
@@ -1300,90 +732,41 @@ switch ($action) {
             ];
         }
 
-        api_response(true, 'Daftar pelanggan berhasil dimuat', [
+        api_out(true, 'Daftar pelanggan berhasil dimuat', [
             'total'     => (int)$total,
-            'page'      => $page,
-            'limit'     => $limit,
             'customers' => $customers
         ]);
         break;
 
-    case 'admin_customer_detail':
-        $admin = authenticate_admin($api_secret);
-        $id = (int)(_get('id') ?: _post('id'));
-        $cust = ORM::for_table('tbl_customers')->find_one($id);
-        if (!$cust) {
-            api_response(false, 'Pelanggan tidak ditemukan.', null, 404);
-        }
-
-        $recharges = ORM::for_table('tbl_user_recharges')
-            ->where('customer_id', $cust['id'])
-            ->order_by_desc('id')
-            ->find_array();
-
-        $transactions = ORM::for_table('tbl_transactions')
-            ->where('username', $cust['username'])
-            ->order_by_desc('id')
-            ->limit(30)
-            ->find_array();
-
-        $custom_fields = [];
-        try {
-            $custom_fields = ORM::for_table('tbl_customers_fields')
-                ->where('customer_id', $cust['id'])
-                ->find_array();
-        } catch (Exception $e) {}
-
-        api_response(true, 'Detail pelanggan dimuat', [
-            'customer'      => $cust->as_array(),
-            'recharges'     => $recharges,
-            'transactions'  => $transactions,
-            'custom_fields' => $custom_fields
-        ]);
-        break;
-
     case 'admin_customer_save':
-        // Mendukung Add Customer & Edit Customer
-        $admin = authenticate_admin($api_secret);
+        $admin = require_admin_session($api_secret);
         $id = (int)_post('id');
         $username = trim(_post('username'));
         $fullname = trim(_post('fullname'));
         $password = _post('password');
 
         if (empty($username) || empty($fullname)) {
-            api_response(false, 'Username dan Nama Lengkap wajib diisi.', null, 400);
+            api_out(false, 'Username dan Nama Lengkap wajib diisi.', null, 400);
         }
 
         if ($id > 0) {
             $cust = ORM::for_table('tbl_customers')->find_one($id);
-            if (!$cust) {
-                api_response(false, 'Pelanggan tidak ditemukan.', null, 404);
-            }
-            $dup = ORM::for_table('tbl_customers')
-                ->where('username', $username)
-                ->where_not_equal('id', $id)
-                ->find_one();
-            if ($dup) {
-                api_response(false, 'Username sudah digunakan oleh pelanggan lain.', null, 400);
-            }
+            if (!$cust) api_out(false, 'Pelanggan tidak ditemukan.', null, 404);
+            $dup = ORM::for_table('tbl_customers')->where('username', $username)->where_not_equal('id', $id)->find_one();
+            if ($dup) api_out(false, 'Username sudah digunakan oleh pelanggan lain.', null, 400);
         } else {
             $dup = ORM::for_table('tbl_customers')->where('username', $username)->find_one();
-            if ($dup) {
-                api_response(false, 'Username sudah terdaftar.', null, 400);
-            }
+            if ($dup) api_out(false, 'Username sudah terdaftar.', null, 400);
             $cust = ORM::for_table('tbl_customers')->create();
             $cust->created_by = $admin['id'];
             $cust->created_at = date('Y-m-d H:i:s');
-            $cust->balance = (float)(_post('balance') ?: 0);
+            $cust->balance    = (float)(_post('balance') ?: 0);
         }
 
         $cust->username       = $username;
         $cust->fullname       = $fullname;
-        if (!empty($password)) {
-            $cust->password   = $password;
-        } elseif ($id === 0) {
-            $cust->password   = '123456';
-        }
+        if (!empty($password)) $cust->password = $password;
+        elseif ($id === 0) $cust->password = '123456';
         $cust->phonenumber    = trim(_post('phonenumber'));
         $cust->email          = trim(_post('email'));
         $cust->address        = trim(_post('address'));
@@ -1395,388 +778,396 @@ switch ($action) {
         $cust->pppoe_password = _post('pppoe_password');
         $cust->pppoe_ip       = trim(_post('pppoe_ip'));
         $cust->coordinates    = trim(_post('coordinates'));
-        $cust->city           = trim(_post('city'));
-        $cust->subdistrict    = trim(_post('subdistrict'));
-        $cust->ward           = trim(_post('ward'));
         $cust->save();
 
         write_admin_log($admin, ($id > 0 ? 'Mengubah' : 'Menambah') . ' pelanggan: ' . $username);
-
-        api_response(true, ($id > 0 ? 'Data pelanggan berhasil diperbarui.' : 'Pelanggan baru berhasil ditambahkan.'), [
-            'customer' => $cust->as_array()
-        ]);
+        api_out(true, 'Data pelanggan ' . $fullname . ' berhasil disimpan.', $cust->as_array());
         break;
 
     case 'admin_customer_delete':
-        $admin = authenticate_admin($api_secret, ['SuperAdmin', 'Admin']);
-        $id = (int)_post('id');
+        $admin = require_admin_session($api_secret, ['SuperAdmin', 'Admin']);
+        $id = (int)_req('id');
         $cust = ORM::for_table('tbl_customers')->find_one($id);
-        if (!$cust) {
-            api_response(false, 'Pelanggan tidak ditemukan.', null, 404);
-        }
-
+        if (!$cust) api_out(false, 'Pelanggan tidak ditemukan.', null, 404);
         $uname = $cust['username'];
         ORM::for_table('tbl_user_recharges')->where('customer_id', $id)->delete_many();
-        try {
-            ORM::for_table('tbl_customers_fields')->where('customer_id', $id)->delete_many();
-        } catch (Exception $e) {}
         $cust->delete();
-
         write_admin_log($admin, 'Menghapus pelanggan: ' . $uname);
-        api_response(true, 'Pelanggan ' . $uname . ' berhasil dihapus.');
+        api_out(true, 'Pelanggan ' . $uname . ' berhasil dihapus.');
         break;
 
     case 'admin_customer_sync':
-        $admin = authenticate_admin($api_secret);
-        $id = (int)_post('id');
+        $admin = require_admin_session($api_secret);
+        $id = (int)_req('id');
         $cust = ORM::for_table('tbl_customers')->find_one($id);
-        if (!$cust) {
-            api_response(false, 'Pelanggan tidak ditemukan.', null, 404);
-        }
+        if (!$cust) api_out(false, 'Pelanggan tidak ditemukan.', null, 404);
 
-        $recharges = ORM::for_table('tbl_user_recharges')
-            ->where('customer_id', $id)
-            ->where('status', 'on')
-            ->find_many();
-
+        $recharges = ORM::for_table('tbl_user_recharges')->where('customer_id', $id)->where('status', 'on')->find_many();
         $synced = 0;
         foreach ($recharges as $r) {
             $plan = ORM::for_table('tbl_plans')->find_one($r['plan_id']);
-            if ($plan && class_exists('Package')) {
-                $device_file = class_exists('Package') && method_exists('Package', 'getDevice')
-                    ? Package::getDevice($plan)
-                    : ('system/devices/' . $plan['device'] . '.php');
-                if (file_exists($device_file)) {
-                    require_once $device_file;
-                    $d_class = $plan['device'];
-                    if (class_exists($d_class)) {
-                        $dev = new $d_class();
+            if ($plan && class_exists('Package') && method_exists('Package', 'getDevice')) {
+                $dev_file = Package::getDevice($plan);
+                if (file_exists($dev_file)) {
+                    require_once $dev_file;
+                    $d_cls = $plan['device'];
+                    if (class_exists($d_cls)) {
+                        $dev = new $d_cls();
                         if (method_exists($dev, 'add_customer')) {
-                            $dev->add_customer($cust, $plan);
+                            @$dev->add_customer($cust, $plan);
                             $synced++;
                         }
                     }
                 }
             }
         }
-
-        api_response(true, $synced > 0
-            ? 'Berhasil menyinkronkan ' . $synced . ' layanan aktif milik ' . $cust['username'] . ' ke Router.'
-            : 'Tidak ada paket berstatus ON untuk disinkronkan pada pelanggan ini.');
+        api_out(true, $synced > 0 ? 'Berhasil sinkronisasi ' . $synced . ' paket ke Router.' : 'Pelanggan belum memiliki paket berstatus ON.');
         break;
 
+    // =========================================================================
+    // 4. LAYANAN: PELANGGAN AKTIF, ISI ULANG PAKET, ISI ULANG SALDO, VOUCHER
+    // =========================================================================
     case 'admin_prepaid_list':
-        // Menu: Layanan -> Pelanggan Aktif
-        $admin = authenticate_admin($api_secret);
-        $search = trim(_get('search') ?: _post('search'));
-        $status = trim(_get('status') ?: _post('status'));
-        $type   = trim(_get('type') ?: _post('type'));
-        $router = trim(_get('router') ?: _post('router'));
-        $page   = max(1, (int)(_get('page') ?: _post('page') ?: 1));
-        $limit  = max(10, min(100, (int)(_get('limit') ?: _post('limit') ?: 25)));
-        $offset = ($page - 1) * $limit;
+        $admin = require_admin_session($api_secret);
+        $search = trim(_req('search'));
+        $status = trim(_req('status'));
+        $limit  = max(10, min(300, (int)(_req('limit') ?: 120)));
+
+        $cust_map = [];
+        foreach (ORM::for_table('tbl_customers')->find_array() as $c) {
+            $cust_map[(int)$c['id']] = $c;
+        }
 
         $q = ORM::for_table('tbl_user_recharges');
-        if ($search !== '') {
-            $like = '%' . $search . '%';
-            $q->where_raw('(username LIKE ? OR namebp LIKE ? OR routers LIKE ?)', [$like, $like, $like]);
-        }
         if ($status !== '' && strtolower($status) !== 'all') {
             $q->where('status', $status);
         }
-        if ($type !== '' && strtolower($type) !== 'all') {
-            $q->where('type', $type);
-        }
-        if ($router !== '' && strtolower($router) !== 'all') {
-            $q->where('routers', $router);
-        }
-
-        $total_q = clone $q;
-        $total = $total_q->count();
-
-        $rows = $q->order_by_desc('id')
-            ->limit($limit)
-            ->offset($offset)
-            ->find_array();
-
-        $cust_ids = array_column($rows, 'customer_id');
-        $cust_map = [];
-        if (!empty($cust_ids)) {
-            $c_rows = ORM::for_table('tbl_customers')->where_in('id', $cust_ids)->find_array();
-            foreach ($c_rows as $c) {
-                $cust_map[(int)$c['id']] = $c;
-            }
-        }
+        $rows = $q->order_by_desc('id')->limit($limit)->find_array();
 
         $items = [];
+        $s_lower = strtolower($search);
         foreach ($rows as $r) {
             $c = $cust_map[(int)$r['customer_id']] ?? null;
             $r['fullname']    = $c['fullname'] ?? $r['username'];
             $r['phonenumber'] = $c['phonenumber'] ?? '';
+
+            if ($s_lower !== '') {
+                $haystack = strtolower($r['username'] . ' ' . $r['fullname'] . ' ' . $r['namebp'] . ' ' . $r['routers'] . ' ' . $r['phonenumber']);
+                if (strpos($haystack, $s_lower) === false) continue;
+            }
             $items[] = $r;
         }
 
-        api_response(true, 'Daftar pelanggan aktif berhasil dimuat', [
-            'total' => (int)$total,
-            'page'  => $page,
-            'limit' => $limit,
+        api_out(true, 'Daftar pelanggan aktif dimuat', [
+            'total' => count($items),
             'items' => $items
         ]);
         break;
 
     case 'admin_prepaid_recharge':
-        // Menu: Layanan -> Isi Ulang Paket
-        $admin = authenticate_admin($api_secret);
-        $customer_id = (int)_post('customer_id');
-        $plan_id     = (int)_post('plan_id');
+        $admin = require_admin_session($api_secret);
+        $customer_id = (int)(_post('customer_id') ?: _post('id_customer'));
+        $plan_id     = (int)(_post('plan_id') ?: _post('plan'));
         $using       = trim(_post('using') ?: 'Cash');
 
         $cust = ORM::for_table('tbl_customers')->find_one($customer_id);
-        if (!$cust) {
-            api_response(false, 'Pelanggan tidak ditemukan.', null, 404);
-        }
+        if (!$cust) api_out(false, 'Pelanggan tidak ditemukan.', null, 404);
 
         $plan = ORM::for_table('tbl_plans')->find_one($plan_id);
-        if (!$plan) {
-            api_response(false, 'Paket tidak ditemukan.', null, 404);
+        if (!$plan) api_out(false, 'Paket internet tidak ditemukan.', null, 404);
+
+        // Jika bukan SuperAdmin, cegah pengaktifan paket Hidden
+        if ($admin['user_type'] !== 'SuperAdmin' && (int)$plan['enabled'] !== 1) {
+            api_out(false, 'Paket ini berstatus Hidden dan hanya dapat diakses oleh SuperAdmin.', null, 403);
         }
 
-        $router_name = _post('routers') ?: $plan['routers'];
+        $router_name = $plan['routers'] ?: (_post('routers') ?: 'radius');
 
-        if (class_exists('Package') && Package::rechargeUser($cust['id'], $router_name, $plan['id'], $admin['fullname'] ?: 'Admin', $using)) {
-            $last_trx = ORM::for_table('tbl_transactions')
-                ->where('username', $cust['username'])
-                ->order_by_desc('id')
-                ->find_one();
+        $ok = false;
+        if (class_exists('Package') && method_exists('Package', 'rechargeUser')) {
+            $ok = @Package::rechargeUser($cust['id'], $router_name, $plan['id'], $admin['fullname'] ?: 'Admin', $using);
+        }
 
-            write_admin_log($admin, 'Isi ulang paket ' . $plan['name_plan'] . ' untuk ' . $cust['username']);
-            api_response(true, 'Paket ' . $plan['name_plan'] . ' berhasil diaktifkan untuk ' . $cust['fullname'] . '!', [
+        if ($ok) {
+            $last_trx = ORM::for_table('tbl_transactions')->where('username', $cust['username'])->order_by_desc('id')->find_one();
+            $log_msg = '[' . ($admin['fullname'] ?: $admin['username']) . '] Isi Ulang Paket ' . $plan['name_plan'] . ' (' . ($config['currency_code'] ?? 'Rp.') . ' ' . number_format((float)$plan['price'], 0, ',', '.') . ') untuk ' . $cust['fullname'] . ' (@' . $cust['username'] . ')';
+            write_admin_log($admin, $log_msg);
+            notify_telegram_admin("⚡ *ISI ULANG PAKET BERHASIL*\nPelanggan: *" . $cust['fullname'] . "* (@" . $cust['username'] . ")\nPaket: *" . $plan['name_plan'] . "*\nHarga: *" . ($config['currency_code'] ?? 'Rp.') . " " . number_format((float)$plan['price'], 0, ',', '.') . "*\nOleh: " . ($admin['fullname'] ?: $admin['username']));
+
+            api_out(true, 'Paket ' . $plan['name_plan'] . ' berhasil diaktifkan untuk ' . $cust['fullname'] . '!', [
                 'invoice' => $last_trx ? $last_trx->as_array() : null
             ]);
         } else {
-            $err = isset($_SESSION['notify']) ? strip_tags($_SESSION['notify']) : 'Gagal menghubungi Router MikroTik.';
+            $err = isset($_SESSION['notify']) ? trim(strip_tags($_SESSION['notify'])) : 'Gagal mengaktifkan paket ke Router ' . $router_name . '. Pastikan Router MikroTik sedang Online.';
             unset($_SESSION['notify'], $_SESSION['ntype']);
-            api_response(false, $err, null, 500);
+            api_out(false, $err, null, 500);
         }
-        break;
-
-    case 'admin_prepaid_edit':
-        // Edit Masa Aktif / Paket pada Pelanggan Aktif
-        $admin = authenticate_admin($api_secret);
-        $id = (int)_post('id');
-        $ur = ORM::for_table('tbl_user_recharges')->find_one($id);
-        if (!$ur) {
-            api_response(false, 'Data langganan tidak ditemukan.', null, 404);
-        }
-
-        if (!empty(_post('expiration'))) {
-            $ur->expiration = trim(_post('expiration'));
-        }
-        if (!empty(_post('time'))) {
-            $ur->time = trim(_post('time'));
-        }
-        if (!empty(_post('status'))) {
-            $ur->status = trim(_post('status'));
-        }
-        if (!empty(_post('plan_id')) && (int)_post('plan_id') !== (int)$ur->plan_id) {
-            $new_plan = ORM::for_table('tbl_plans')->find_one((int)_post('plan_id'));
-            if ($new_plan) {
-                $ur->plan_id = $new_plan['id'];
-                $ur->namebp  = $new_plan['name_plan'];
-            }
-        }
-        $ur->save();
-
-        write_admin_log($admin, 'Mengedit masa aktif paket pelanggan ' . $ur['username'] . ' ke ' . $ur['expiration']);
-        api_response(true, 'Masa aktif pelanggan berhasil diperbarui.', $ur->as_array());
         break;
 
     case 'admin_prepaid_delete':
-        $admin = authenticate_admin($api_secret, ['SuperAdmin', 'Admin']);
-        $id = (int)_post('id');
+        $admin = require_admin_session($api_secret, ['SuperAdmin', 'Admin']);
+        $id = (int)_req('id');
         $ur = ORM::for_table('tbl_user_recharges')->find_one($id);
-        if (!$ur) {
-            api_response(false, 'Data paket pelanggan tidak ditemukan.', null, 404);
-        }
+        if (!$ur) api_out(false, 'Data langganan tidak ditemukan.', null, 404);
 
         $plan = ORM::for_table('tbl_plans')->find_one($ur['plan_id']);
         $cust = ORM::for_table('tbl_customers')->find_one($ur['customer_id']);
         if ($plan && $cust && class_exists('Package') && method_exists('Package', 'getDevice')) {
-            $device_file = Package::getDevice($plan);
-            if (file_exists($device_file)) {
-                require_once $device_file;
-                $d_class = $plan['device'];
-                if (class_exists($d_class)) {
-                    $dev = new $d_class();
-                    if (method_exists($dev, 'remove_customer')) {
-                        @$dev->remove_customer($cust, $plan);
-                    }
+            $dev_file = Package::getDevice($plan);
+            if (file_exists($dev_file)) {
+                require_once $dev_file;
+                $d_cls = $plan['device'];
+                if (class_exists($d_cls)) {
+                    $dev = new $d_cls();
+                    if (method_exists($dev, 'remove_customer')) @$dev->remove_customer($cust, $plan);
                 }
             }
         }
-
         $uname = $ur['username'];
         $ur->delete();
         write_admin_log($admin, 'Menghapus paket aktif milik ' . $uname);
-        api_response(true, 'Paket pelanggan ' . $uname . ' berhasil dihapus.');
+        api_out(true, 'Paket pelanggan ' . $uname . ' berhasil dihapus.');
         break;
 
     case 'admin_deposit':
-        // Menu: Layanan -> Isi Ulang Saldo
-        $admin = authenticate_admin($api_secret);
-        $customer_id = (int)_post('customer_id');
-        $plan_id     = (int)_post('plan_id');
+        // PERBAIKAN PENUH: Mencatat ke tbl_transactions, Menambah Pendapatan, & Memicu Notifikasi WA Pelanggan + Telegram Admin
+        $admin = require_admin_session($api_secret);
+        $customer_id = (int)(_post('customer_id') ?: _post('id_customer'));
+        $plan_id     = (int)(_post('plan_id') ?: _post('id_plan'));
         $custom_amt  = (float)_post('amount');
-        $note        = trim(_post('note') ?: 'Deposit via Admin');
+        $note        = trim(_post('note') ?: 'Deposit Saldo');
 
         $cust = ORM::for_table('tbl_customers')->find_one($customer_id);
-        if (!$cust) {
-            api_response(false, 'Pelanggan tidak ditemukan.', null, 404);
-        }
+        if (!$cust) api_out(false, 'Pelanggan tidak ditemukan.', null, 404);
 
-        if ($plan_id > 0) {
+        $old_balance = (float)$cust['balance'];
+        $admin_name  = $admin['fullname'] ?: $admin['username'];
+        $currency    = $config['currency_code'] ?? 'Rp.';
+        $comp_name   = $config['CompanyName'] ?? 'Arneta.ID';
+
+        // KASUS 1: Menggunakan Paket Saldo (plan_id > 0 dan tidak mengisi nominal manual)
+        if ($custom_amt <= 0 && $plan_id > 0) {
             $plan = ORM::for_table('tbl_plans')->find_one($plan_id);
-            if (!$plan) {
-                api_response(false, 'Paket Saldo tidak ditemukan.', null, 404);
+            if (!$plan) api_out(false, 'Paket Saldo tidak ditemukan.', null, 404);
+
+            $before_trx = ORM::for_table('tbl_transactions')->where('username', $cust['username'])->order_by_desc('id')->find_one();
+            $before_trx_id = $before_trx ? (int)$before_trx['id'] : 0;
+
+            $recharged_ok = false;
+            if (class_exists('Package') && method_exists('Package', 'rechargeUser')) {
+                // Memanggil fungsi asli PHPNuxBill (otomatis tambah saldo, insert tbl_transactions, & kirim WA/Telegram jika diatur di sistem)
+                $recharged_ok = @Package::rechargeUser($cust['id'], 'balance', $plan['id'], 'Deposit', $admin_name);
             }
-            if (class_exists('Package') && Package::rechargeUser($cust['id'], 'balance', $plan['id'], $admin['fullname'] ?: 'Admin', 'Deposit')) {
-                $cust_updated = ORM::for_table('tbl_customers')->find_one($customer_id);
-                write_admin_log($admin, 'Isi ulang saldo ' . $plan['name_plan'] . ' untuk ' . $cust['username']);
-                api_response(true, 'Saldo ' . $cust['fullname'] . ' berhasil ditambah!', [
-                    'balance' => (float)$cust_updated['balance']
-                ]);
+
+            $cust_fresh = ORM::for_table('tbl_customers')->find_one($customer_id);
+            $new_balance = (float)$cust_fresh['balance'];
+            $price_amt = (float)$plan['price'];
+
+            // Jika karena konfigurasi tertentu Package::rechargeUser belum menambah saldo, tambahkan secara eksplisit
+            if (!$recharged_ok && abs($new_balance - $old_balance) < 0.01) {
+                if (class_exists('Balance') && method_exists('Balance', 'plus')) {
+                    Balance::plus($cust['id'], $price_amt);
+                } else {
+                    $cust_fresh->balance = $old_balance + $price_amt;
+                    $cust_fresh->save();
+                }
+                $cust_fresh = ORM::for_table('tbl_customers')->find_one($customer_id);
+                $new_balance = (float)$cust_fresh['balance'];
             }
+
+            // Pastikan tercatat di tbl_transactions agar selalu masuk ke Pendapatan & Laporan
+            $after_trx = ORM::for_table('tbl_transactions')->where('username', $cust['username'])->order_by_desc('id')->find_one();
+            $after_trx_id = $after_trx ? (int)$after_trx['id'] : 0;
+
+            if ($after_trx_id <= $before_trx_id) {
+                $inv = 'INV-' . date('ymdHis') . rand(10, 99);
+                $t = ORM::for_table('tbl_transactions')->create();
+                $t->invoice        = $inv;
+                $t->username       = $cust['username'];
+                $t->user_id        = $cust['id'];
+                $t->plan_name      = $plan['name_plan'];
+                $t->price          = $price_amt;
+                $t->recharged_on   = date('Y-m-d');
+                $t->recharged_time = date('H:i:s');
+                $t->expiration     = date('Y-m-d');
+                $t->time           = date('H:i:s');
+                $t->method         = 'Deposit - ' . $admin_name;
+                $t->routers        = 'balance';
+                $t->type           = 'Balance';
+                $t->admin_id       = $admin['id'];
+                try {
+                    $t->save();
+                } catch (Exception $e) {
+                    // Fallback jika tabel tbl_transactions di server menggunakan skema kolom standar tanpa user_id/admin_id
+                    $t2 = ORM::for_table('tbl_transactions')->create();
+                    $t2->invoice        = $inv;
+                    $t2->username       = $cust['username'];
+                    $t2->plan_name      = $plan['name_plan'];
+                    $t2->price          = $price_amt;
+                    $t2->recharged_on   = date('Y-m-d');
+                    $t2->recharged_time = date('H:i:s');
+                    $t2->expiration     = date('Y-m-d');
+                    $t2->time           = date('H:i:s');
+                    $t2->method         = 'Deposit - ' . $admin_name;
+                    $t2->routers        = 'balance';
+                    $t2->type           = 'Balance';
+                    $t2->save();
+                }
+
+                // Kirim WA & Telegram jika tadi belum terkirim oleh Package::rechargeUser
+                $wa_msg = "Halo *" . $cust_fresh['fullname'] . "* (@" . $cust_fresh['username'] . "),\n\n"
+                    . "Isi ulang saldo Anda sebesar *" . $currency . " " . number_format($price_amt, 0, ',', '.') . "* (" . $plan['name_plan'] . ") telah berhasil diproses.\n"
+                    . "Saldo Sebelumnya: " . $currency . " " . number_format($old_balance, 0, ',', '.') . "\n"
+                    . "Saldo Saat Ini: *" . $currency . " " . number_format($new_balance, 0, ',', '.') . "*\n\n"
+                    . "Terima kasih,\n*" . $comp_name . "*";
+                notify_whatsapp_customer($cust_fresh['phonenumber'], $wa_msg);
+
+                if (class_exists('Message') && method_exists('Message', 'addToInbox')) {
+                    @Message::addToInbox($cust_fresh['id'], 'Top-Up Saldo Berhasil (' . $plan['name_plan'] . ')', $wa_msg, $admin_name);
+                }
+            }
+
+            $tg_msg = "💰 *TOP-UP SALDO PELANGGAN*\n"
+                . "Pelanggan: *" . $cust_fresh['fullname'] . "* (@" . $cust_fresh['username'] . ")\n"
+                . "Paket: *" . $plan['name_plan'] . "*\n"
+                . "Nominal: *" . $currency . " " . number_format($price_amt, 0, ',', '.') . "*\n"
+                . "Total Saldo: *" . $currency . " " . number_format($new_balance, 0, ',', '.') . "*\n"
+                . "Admin: " . $admin_name;
+            notify_telegram_admin($tg_msg);
+            write_admin_log($admin, '[' . $admin_name . '] Isi ulang saldo ' . $plan['name_plan'] . ' (' . $currency . ' ' . number_format($price_amt, 0, ',', '.') . ') ke ' . $cust['username']);
+
+            unset($_SESSION['notify'], $_SESSION['ntype']);
+            api_out(true, 'Saldo ' . $cust_fresh['fullname'] . ' berhasil ditambah menjadi ' . $currency . ' ' . number_format($new_balance, 0, ',', '.'), [
+                'balance' => $new_balance
+            ]);
         }
 
-        if ($custom_amt != 0) {
-            $old_bal = (float)$cust['balance'];
-            $new_bal = $old_bal + $custom_amt;
-            $cust->balance = $new_bal;
-            $cust->save();
+        // KASUS 2: Menggunakan Nominal Manual (custom_amt != 0)
+        if ($custom_amt == 0) {
+            api_out(false, 'Pilih paket saldo atau masukkan nominal saldo terlebih dahulu.', null, 400);
+        }
 
-            // Catat di tbl_transactions agar masuk laporan
+        if (class_exists('Balance') && method_exists('Balance', 'plus') && $custom_amt > 0) {
+            Balance::plus($cust['id'], $custom_amt);
+        } else {
+            $cust->balance = $old_balance + $custom_amt;
+            $cust->save();
+        }
+
+        $cust_fresh = ORM::for_table('tbl_customers')->find_one($customer_id);
+        $new_balance = (float)$cust_fresh['balance'];
+        $inv = 'DEP-' . date('ymdHis') . rand(10, 99);
+
+        try {
             $t = ORM::for_table('tbl_transactions')->create();
-            $t->invoice        = 'DEP-' . date('ymdHis');
-            $t->username       = $cust['username'];
-            $t->plan_name      = $note;
+            $t->invoice        = $inv;
+            $t->username       = $cust_fresh['username'];
+            $t->plan_name      = $note . ' (' . $currency . ' ' . number_format($custom_amt, 0, ',', '.') . ')';
             $t->price          = $custom_amt;
             $t->recharged_on   = date('Y-m-d');
             $t->recharged_time = date('H:i:s');
             $t->expiration     = date('Y-m-d');
             $t->time           = date('H:i:s');
-            $t->method         = ($admin['fullname'] ?: 'Admin') . ' - Deposit';
+            $t->method         = 'Deposit - ' . $admin_name;
             $t->routers        = 'balance';
             $t->type           = 'Balance';
             $t->save();
+        } catch (Exception $e) {}
 
-            write_admin_log($admin, 'Topup saldo manual Rp ' . number_format($custom_amt, 0, ',', '.') . ' ke ' . $cust['username']);
-            api_response(true, 'Saldo berhasil diperbarui menjadi Rp ' . number_format($new_bal, 0, ',', '.'), [
-                'balance' => $new_bal
-            ]);
+        // Kirim WhatsApp & Inbox ke Pelanggan
+        $wa_msg = "Halo *" . $cust_fresh['fullname'] . "* (@" . $cust_fresh['username'] . "),\n\n"
+            . "Top-up saldo Anda sebesar *" . $currency . " " . number_format($custom_amt, 0, ',', '.') . "* telah berhasil ditambahkan.\n"
+            . "No. Invoice: " . $inv . "\n"
+            . "Saldo Sebelumnya: " . $currency . " " . number_format($old_balance, 0, ',', '.') . "\n"
+            . "Saldo Saat Ini: *" . $currency . " " . number_format($new_balance, 0, ',', '.') . "*\n\n"
+            . "Terima kasih,\n*" . $comp_name . "*";
+        notify_whatsapp_customer($cust_fresh['phonenumber'], $wa_msg);
+
+        if (class_exists('Message') && method_exists('Message', 'addToInbox')) {
+            @Message::addToInbox($cust_fresh['id'], 'Top-Up Saldo ' . $currency . ' ' . number_format($custom_amt, 0, ',', '.'), $wa_msg, $admin_name);
         }
 
-        api_response(false, 'Pilih paket saldo atau masukkan nominal saldo.', null, 400);
+        // Kirim Notifikasi Telegram ke Admin
+        $tg_msg = "💰 *TOP-UP SALDO MANUAL*\n"
+            . "Invoice: `" . $inv . "`\n"
+            . "Pelanggan: *" . $cust_fresh['fullname'] . "* (@" . $cust_fresh['username'] . ")\n"
+            . "Nominal: *" . $currency . " " . number_format($custom_amt, 0, ',', '.') . "*\n"
+            . "Total Saldo: *" . $currency . " " . number_format($new_balance, 0, ',', '.') . "*\n"
+            . "Oleh: " . $admin_name;
+        notify_telegram_admin($tg_msg);
+        write_admin_log($admin, '[' . $admin_name . '] Top-up saldo manual ' . $currency . ' ' . number_format($custom_amt, 0, ',', '.') . ' ke ' . $cust_fresh['username']);
+
+        api_out(true, 'Saldo ' . $cust_fresh['fullname'] . ' berhasil ditambah menjadi ' . $currency . ' ' . number_format($new_balance, 0, ',', '.'), [
+            'balance' => $new_balance,
+            'invoice' => $inv
+        ]);
         break;
 
     case 'admin_vouchers':
-        // Menu: Layanan -> Voucher & Recharge Cards
-        $admin = authenticate_admin($api_secret);
-        $search  = trim(_get('search') ?: _post('search'));
-        $router  = trim(_get('router') ?: _post('router'));
-        $plan_id = (int)(_get('plan_id') ?: _post('plan_id'));
-        $status  = _get('status') !== '' ? _get('status') : _post('status');
-        $page    = max(1, (int)(_get('page') ?: _post('page') ?: 1));
-        $limit   = max(10, min(200, (int)(_get('limit') ?: _post('limit') ?: 30)));
-        $offset  = ($page - 1) * $limit;
+        $admin = require_admin_session($api_secret);
+        $search = trim(_req('search'));
+        $status = _req('status');
+        $limit  = max(10, min(200, (int)(_req('limit') ?: 100)));
+
+        $plans_map = [];
+        foreach (ORM::for_table('tbl_plans')->find_array() as $p) {
+            $plans_map[(int)$p['id']] = $p;
+        }
 
         $q = ORM::for_table('tbl_voucher');
         if ($search !== '') {
             $like = '%' . $search . '%';
             $q->where_raw('(code LIKE ? OR user LIKE ? OR routers LIKE ?)', [$like, $like, $like]);
         }
-        if ($router !== '' && strtolower($router) !== 'all') {
-            $q->where('routers', $router);
-        }
-        if ($plan_id > 0) {
-            $q->where('id_plan', $plan_id);
-        }
         if ($status !== '' && $status !== null && strtolower((string)$status) !== 'all') {
             $q->where('status', (string)$status);
         }
 
-        $total_q = clone $q;
-        $total = $total_q->count();
-
-        $rows = $q->order_by_desc('id')
-            ->limit($limit)
-            ->offset($offset)
-            ->find_array();
-
-        $plans_map = [];
-        $all_plans = ORM::for_table('tbl_plans')->find_array();
-        foreach ($all_plans as $p) {
-            $plans_map[(int)$p['id']] = $p;
-        }
-
+        $rows = $q->order_by_desc('id')->limit($limit)->find_array();
         $vouchers = [];
         foreach ($rows as $r) {
             $p = $plans_map[(int)$r['id_plan']] ?? null;
-            $r['name_plan'] = $p['name_plan'] ?? ('Plan #' . $r['id_plan']);
-            $r['price']     = (float)($p['price'] ?? 0);
+            $r['name_plan'] = $p ? $p['name_plan'] : ('Plan #' . $r['id_plan']);
+            $r['price']     = $p ? (float)$p['price'] : 0.0;
             $r['validity']  = $p ? ($p['validity'] . ' ' . $p['validity_unit']) : '-';
             $vouchers[] = $r;
         }
 
-        api_response(true, 'Daftar voucher berhasil dimuat', [
-            'total'    => (int)$total,
-            'page'     => $page,
-            'limit'    => $limit,
+        api_out(true, 'Daftar voucher berhasil dimuat', [
+            'total'    => count($vouchers),
             'vouchers' => $vouchers
         ]);
         break;
 
     case 'admin_voucher_generate':
-        $admin = authenticate_admin($api_secret);
-        $type        = _post('type') ?: 'Hotspot';
-        $routers     = _post('routers');
-        $plan_id     = (int)_post('plan_id');
-        $count       = max(1, min(500, (int)(_post('count') ?: 10)));
-        $length_code = max(4, min(16, (int)(_post('length_code') ?: 8)));
+        $admin = require_admin_session($api_secret);
+        $plan_id     = (int)(_post('plan_id') ?: _post('plan'));
+        $count       = max(1, min(500, (int)(_post('count') ?: _post('numbervoucher') ?: 10)));
+        $length_code = max(4, min(16, (int)(_post('length_code') ?: _post('lengthcode') ?: 6)));
         $prefix      = trim(_post('prefix'));
-        $format      = _post('voucher_format') ?: 'up'; // up, low, rand, numbers
+        $format      = _post('voucher_format') ?: 'up';
 
         $plan = ORM::for_table('tbl_plans')->find_one($plan_id);
-        if (!$plan) {
-            api_response(false, 'Paket voucher tidak ditemukan.', null, 404);
-        }
-        if (empty($routers)) {
-            $routers = $plan['routers'];
-        }
+        if (!$plan) api_out(false, 'Pilih paket voucher terlebih dahulu.', null, 404);
 
+        $routers = $plan['routers'] ?: (_post('routers') ?: 'radius');
         $chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-        if ($format === 'low') {
-            $chars = 'abcdefghjkmnpqrstuvwxyz23456789';
-        } elseif ($format === 'rand') {
-            $chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
-        } elseif ($format === 'numbers') {
-            $chars = '0123456789';
-        }
+        if ($format === 'low') $chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+        elseif ($format === 'rand') $chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+        elseif ($format === 'numbers') $chars = '0123456789';
 
         $generated = [];
+        $max_idx = strlen($chars) - 1;
         for ($i = 0; $i < $count; $i++) {
             $rand_str = '';
-            $max_idx = strlen($chars) - 1;
             for ($j = 0; $j < $length_code; $j++) {
                 $rand_str .= $chars[random_int(0, $max_idx)];
             }
             $code = $prefix . $rand_str;
-
-            if (ORM::for_table('tbl_voucher')->where('code', $code)->find_one()) {
-                continue;
-            }
+            if (ORM::for_table('tbl_voucher')->where('code', $code)->find_one()) continue;
 
             $v = ORM::for_table('tbl_voucher')->create();
-            $v->type         = $type;
+            $v->type         = $plan['type'] ?: 'Hotspot';
             $v->routers      = $routers;
             $v->id_plan      = $plan['id'];
             $v->code         = $code;
@@ -1795,272 +1186,87 @@ switch ($action) {
             ];
         }
 
-        write_admin_log($admin, 'Membuat ' . count($generated) . ' voucher untuk paket ' . $plan['name_plan']);
-        api_response(true, count($generated) . ' Voucher berhasil dibuat!', [
-            'generated' => $generated
-        ]);
+        write_admin_log($admin, 'Generate ' . count($generated) . ' voucher paket ' . $plan['name_plan']);
+        api_out(true, count($generated) . ' Voucher berhasil dibuat!', ['generated' => $generated]);
         break;
 
     case 'admin_voucher_refill':
-        // Menu: Layanan -> Isi Ulang Voucher
-        $admin = authenticate_admin($api_secret);
-        $customer_id = (int)_post('customer_id');
+        $admin = require_admin_session($api_secret);
+        $customer_id = (int)(_post('customer_id') ?: _post('id_customer'));
         $code        = trim(_post('code'));
 
         $cust = ORM::for_table('tbl_customers')->find_one($customer_id);
-        if (!$cust) {
-            api_response(false, 'Pelanggan tidak ditemukan.', null, 404);
-        }
+        if (!$cust) api_out(false, 'Pilih pelanggan terlebih dahulu.', null, 404);
 
-        $v = ORM::for_table('tbl_voucher')
-            ->where('code', $code)
-            ->where('status', 0)
-            ->find_one();
-
-        if (!$v) {
-            api_response(false, 'Kode voucher tidak ditemukan atau sudah terpakai.', null, 404);
-        }
+        $v = ORM::for_table('tbl_voucher')->where('code', $code)->where('status', 0)->find_one();
+        if (!$v) api_out(false, 'Kode voucher tidak ditemukan atau sudah terpakai.', null, 404);
 
         if (class_exists('Package') && Package::rechargeUser($cust['id'], $v['routers'], $v['id_plan'], 'Voucher', $code)) {
             $v->status = '1';
             $v->user   = $cust['username'];
             $v->save();
-            write_admin_log($admin, 'Mengaktifkan voucher ' . $code . ' untuk pelanggan ' . $cust['username']);
-            api_response(true, 'Voucher ' . $code . ' berhasil diaktifkan ke akun ' . $cust['fullname'] . '!');
-        } else {
-            api_response(false, 'Gagal mengaktifkan voucher ke Router.', null, 500);
+            write_admin_log($admin, 'Refill voucher ' . $code . ' ke ' . $cust['username']);
+            api_out(true, 'Voucher ' . $code . ' berhasil diaktifkan ke ' . $cust['fullname'] . '!');
         }
+        api_out(false, 'Gagal mengaktifkan voucher ke Router.', null, 500);
         break;
 
     case 'admin_voucher_delete':
-        $admin = authenticate_admin($api_secret);
-        $id = (int)_post('id');
-        $delete_used = (int)_post('delete_used');
-
-        if ($delete_used === 1) {
+        $admin = require_admin_session($api_secret);
+        if ((int)_req('delete_used') === 1) {
             $cnt = ORM::for_table('tbl_voucher')->where('status', '1')->count();
             ORM::for_table('tbl_voucher')->where('status', '1')->delete_many();
-            write_admin_log($admin, 'Menghapus massal ' . $cnt . ' voucher yang sudah terpakai');
-            api_response(true, $cnt . ' voucher terpakai berhasil dibersihkan.');
+            api_out(true, $cnt . ' voucher terpakai berhasil dihapus.');
         }
-
-        $v = ORM::for_table('tbl_voucher')->find_one($id);
-        if (!$v) {
-            api_response(false, 'Voucher tidak ditemukan.', null, 404);
-        }
-        $v->delete();
-        api_response(true, 'Voucher berhasil dihapus.');
+        $v = ORM::for_table('tbl_voucher')->find_one((int)_req('id'));
+        if ($v) $v->delete();
+        api_out(true, 'Voucher berhasil dihapus.');
         break;
 
-    case 'admin_coupons':
-        // Menu: Layanan -> Kupon
-        $admin = authenticate_admin($api_secret);
-        ensure_extra_admin_tables();
-        $coupons = ORM::for_table('tbl_coupons')->order_by_desc('id')->find_array();
-        api_response(true, 'Daftar kupon dimuat', $coupons);
-        break;
-
-    case 'admin_coupon_save':
-        $admin = authenticate_admin($api_secret);
-        ensure_extra_admin_tables();
-        $id   = (int)_post('id');
-        $code = strtoupper(trim(_post('code')));
-
-        if (empty($code)) {
-            api_response(false, 'Kode kupon wajib diisi.', null, 400);
-        }
-
-        if ($id > 0) {
-            $c = ORM::for_table('tbl_coupons')->find_one($id);
-            if (!$c) api_response(false, 'Kupon tidak ditemukan.', null, 404);
-        } else {
-            $dup = ORM::for_table('tbl_coupons')->where('code', $code)->find_one();
-            if ($dup) api_response(false, 'Kode kupon sudah ada.', null, 400);
-            $c = ORM::for_table('tbl_coupons')->create();
-        }
-
-        $c->code         = $code;
-        $c->type         = _post('type') === 'percent' ? 'percent' : 'fixed';
-        $c->value        = (float)_post('value');
-        $c->min_order    = (float)(_post('min_order') ?: 0);
-        $c->max_discount = (float)(_post('max_discount') ?: 0);
-        $c->max_usage    = (int)(_post('max_usage') ?: 100);
-        $c->status       = _post('status') === 'inactive' ? 'inactive' : 'active';
-        $c->expired_date = _post('expired_date') ?: date('Y-m-d', strtotime('+30 days'));
-        $c->description  = trim(_post('description'));
-        $c->save();
-
-        write_admin_log($admin, 'Menyimpan kupon promo: ' . $code);
-        api_response(true, 'Kupon ' . $code . ' berhasil disimpan.', $c->as_array());
-        break;
-
-    case 'admin_coupon_delete':
-        $admin = authenticate_admin($api_secret);
-        ensure_extra_admin_tables();
-        $id = (int)_post('id');
-        $c = ORM::for_table('tbl_coupons')->find_one($id);
-        if ($c) {
-            $c->delete();
-        }
-        api_response(true, 'Kupon berhasil dihapus.');
-        break;
-
-    case 'admin_data_usage':
-        // Menu: Layanan -> User Data Usage (Tarik Live dari MikroTik + Tabel Lokal)
-        $admin = authenticate_admin($api_secret);
-        $router_filter = trim(_get('router') ?: _post('router'));
-
-        $routers_q = ORM::for_table('tbl_routers')->where('enabled', 1);
-        if ($router_filter !== '' && strtolower($router_filter) !== 'all') {
-            $routers_q->where('name', $router_filter);
-        }
-        $routers = $routers_q->find_array();
-
-        $usage_list = [];
-        $total_rx = 0;
-        $total_tx = 0;
-
-        foreach ($routers as $r) {
-            $client = get_mikrotik_ros_client($r['ip_address'], $r['username'], $r['password']);
-            if (!$client) continue;
-
-            try {
-                // 1. Hotspot Active Users
-                $hs_req = new PEAR2\Net\RouterOS\Request('/ip/hotspot/active/print');
-                $hs_res = $client->sendSync($hs_req);
-                foreach ($hs_res as $item) {
-                    if ($item->getType() === PEAR2\Net\RouterOS\Response::TYPE_DATA) {
-                        $user = $item->getProperty('user');
-                        $rx   = (float)($item->getProperty('bytes-in') ?: 0);
-                        $tx   = (float)($item->getProperty('bytes-out') ?: 0);
-                        $total_rx += $rx;
-                        $total_tx += $tx;
-                        $usage_list[] = [
-                            'username'    => $user,
-                            'service'     => 'Hotspot',
-                            'router'      => $r['name'],
-                            'ip_address'  => $item->getProperty('address') ?: '-',
-                            'mac_address' => $item->getProperty('mac-address') ?: '-',
-                            'uptime'      => $item->getProperty('uptime') ?: '0s',
-                            'upload_raw'  => $rx,
-                            'download_raw'=> $tx,
-                            'total_raw'   => $rx + $tx,
-                            'upload'      => format_bytes_readable($rx),
-                            'download'    => format_bytes_readable($tx),
-                            'total'       => format_bytes_readable($rx + $tx),
-                            'is_online'   => true
-                        ];
-                    }
-                }
-
-                // 2. Simple Queues (Untuk melacak pemakaian kuota PPPoE & Static)
-                $q_req = new PEAR2\Net\RouterOS\Request('/queue/simple/print');
-                $q_res = $client->sendSync($q_req);
-                $ppp_active_map = [];
-
-                $ppp_req = new PEAR2\Net\RouterOS\Request('/ppp/active/print');
-                $ppp_res = $client->sendSync($ppp_req);
-                foreach ($ppp_res as $p_item) {
-                    if ($p_item->getType() === PEAR2\Net\RouterOS\Response::TYPE_DATA) {
-                        $pname = $p_item->getProperty('name');
-                        $ppp_active_map[$pname] = [
-                            'ip'     => $p_item->getProperty('address') ?: '-',
-                            'mac'    => $p_item->getProperty('caller-id') ?: '-',
-                            'uptime' => $p_item->getProperty('uptime') ?: '-'
-                        ];
-                    }
-                }
-
-                foreach ($q_res as $q_item) {
-                    if ($q_item->getType() === PEAR2\Net\RouterOS\Response::TYPE_DATA) {
-                        $qname = $q_item->getProperty('name');
-                        $clean_name = trim(str_replace(['<pppoe-', '<hotspot-', '>'], '', $qname));
-                        $bytes_str = $q_item->getProperty('bytes') ?: '0/0';
-                        $b_parts = explode('/', $bytes_str);
-                        $rx = (float)($b_parts[0] ?? 0);
-                        $tx = (float)($b_parts[1] ?? 0);
-                        if ($rx == 0 && $tx == 0 && !isset($ppp_active_map[$clean_name])) continue;
-
-                        $p_info = $ppp_active_map[$clean_name] ?? null;
-                        $total_rx += $rx;
-                        $total_tx += $tx;
-                        $usage_list[] = [
-                            'username'    => $clean_name,
-                            'service'     => isset($ppp_active_map[$clean_name]) ? 'PPPoE' : 'Queue',
-                            'router'      => $r['name'],
-                            'ip_address'  => $p_info['ip'] ?? ($q_item->getProperty('target') ?: '-'),
-                            'mac_address' => $p_info['mac'] ?? '-',
-                            'uptime'      => $p_info['uptime'] ?? '-',
-                            'upload_raw'  => $rx,
-                            'download_raw'=> $tx,
-                            'total_raw'   => $rx + $tx,
-                            'upload'      => format_bytes_readable($rx),
-                            'download'    => format_bytes_readable($tx),
-                            'total'       => format_bytes_readable($rx + $tx),
-                            'is_online'   => isset($ppp_active_map[$clean_name])
-                        ];
-                    }
-                }
-            } catch (Exception $e) {
-                // Lanjut ke router berikutnya jika timeout
-            }
-        }
-
-        // Urutkan dari pemakaian kuota terbesar
-        usort($usage_list, function($a, $b) {
-            return $b['total_raw'] <=> $a['total_raw'];
-        });
-
-        api_response(true, 'Data pemakaian kuota berhasil dimuat', [
-            'summary' => [
-                'total_users'    => count($usage_list),
-                'total_upload'   => format_bytes_readable($total_rx),
-                'total_download' => format_bytes_readable($total_tx),
-                'total_traffic'  => format_bytes_readable($total_rx + $total_tx)
-            ],
-            'items' => $usage_list
-        ]);
-        break;
-
-        // =========================================================================
-    // BAGIAN C: ENDPOINT DASHBOARD ADMIN - TAHAP 2
-    // (Paket, Bandwidth, Jaringan/MikroTik, Peta, Asset Manager, Laporan,
-    //  Audit QRIS, Broadcast Pesan, Halaman Statis, Pengaturan & System Tools)
     // =========================================================================
-
+    // 5. PAKET INTERNET (SUPERADMIN: TAMPIL SEMUA PREPAID/POSTPAID/HIDDEN;
+    //    STAF SELAIN SUPERADMIN: TETAP FILTER NON-HIDDEN & HOTSPOT PREPAID)
+    // =========================================================================
     case 'admin_plans':
-        // Menu: Paket Internet -> Hotspot / PPPoE / Balance
-        $admin = authenticate_admin($api_secret);
-        $type   = trim(_get('type') ?: _post('type'));
-        $search = trim(_get('search') ?: _post('search'));
-        $router = trim(_get('router') ?: _post('router'));
+        $admin = require_admin_session($api_secret);
+        $is_superadmin = ($admin['user_type'] === 'SuperAdmin');
+        $type_filter = trim(_req('type'));
 
-        $q = ORM::for_table('tbl_plans');
-        if ($type !== '' && strtolower($type) !== 'all') {
-            $q->where('type', $type);
-        }
-        if ($router !== '' && strtolower($router) !== 'all') {
-            $q->where('routers', $router);
-        }
-        if ($search !== '') {
-            $q->where_like('name_plan', '%' . $search . '%');
-        }
-
-        $rows = $q->order_by_desc('id')->find_array();
-
+        $bw_rows = ORM::for_table('tbl_bandwidth')->order_by_desc('id')->find_array();
         $bw_map = [];
-        $bws = ORM::for_table('tbl_bandwidth')->find_array();
-        foreach ($bws as $b) {
+        foreach ($bw_rows as $b) {
             $bw_map[(int)$b['id']] = $b;
         }
 
+        $q = ORM::for_table('tbl_plans');
+        // Jika BUKAN SuperAdmin, hanya tampilkan yang enabled = 1 (Non-Hidden)
+        if (!$is_superadmin) {
+            $q->where('enabled', 1);
+        }
+        if ($type_filter !== '' && strtolower($type_filter) !== 'all') {
+            $q->where('type', $type_filter);
+        }
+
+        $rows = $q->order_by_asc('price')->find_array();
         $plans = [];
         foreach ($rows as $r) {
+            $p_type    = strtoupper(trim($r['type']));
+            $prepaid   = strtolower(trim($r['prepaid'] ?? 'yes'));
+            $is_hidden = ((int)($r['enabled'] ?? 1) === 0);
+
+            // Jika staf selain SuperAdmin: sembunyikan Hotspot Postpaid
+            if (!$is_superadmin && $p_type === 'HOTSPOT' && $prepaid === 'no') {
+                continue;
+            }
+
             $bw = $bw_map[(int)$r['id_bw']] ?? null;
             $r['name_bw'] = $bw ? $bw['name_bw'] : '-';
             $r['rate_label'] = $bw
-                ? ($bw['rate_down'] . $bw['rate_down_unit'] . ' / ' . $bw['rate_up'] . $bw['rate_up_unit'])
-                : '-';
+                ? ($bw['rate_down'] . ' ' . $bw['rate_down_unit'] . ' / ' . $bw['rate_up'] . ' ' . $bw['rate_up_unit'])
+                : ($p_type === 'BALANCE' ? 'Paket Deposit Saldo' : '-');
+            $r['is_hidden'] = $is_hidden;
+            $r['billing_label'] = (($prepaid === 'no') ? 'Postpaid (Pascabayar)' : 'Prepaid (Prabayar)')
+                . ($is_hidden ? ' • [HIDDEN]' : '');
             $r['active_users'] = (int)ORM::for_table('tbl_user_recharges')
                 ->where('plan_id', $r['id'])
                 ->where('status', 'on')
@@ -2068,121 +1274,74 @@ switch ($action) {
             $plans[] = $r;
         }
 
-        api_response(true, 'Daftar paket internet dimuat', [
-            'plans'      => $plans,
-            'bandwidths' => $bws,
-            'routers'    => ORM::for_table('tbl_routers')->find_array(),
-            'pools'      => ORM::for_table('tbl_pool')->find_array()
+        api_out(true, 'Daftar paket internet & bandwidth dimuat', [
+            'is_superadmin' => $is_superadmin,
+            'plans'         => $plans,
+            'bandwidths'    => $bw_rows,
+            'routers'       => ORM::for_table('tbl_routers')->find_array(),
+            'pools'         => ORM::for_table('tbl_pool')->find_array()
         ]);
         break;
 
     case 'admin_plan_save':
-        $admin = authenticate_admin($api_secret, ['SuperAdmin', 'Admin']);
+        $admin = require_admin_session($api_secret, ['SuperAdmin', 'Admin']);
         $id        = (int)_post('id');
         $name_plan = trim(_post('name_plan'));
-        $type      = _post('type') ?: 'Hotspot'; // Hotspot, PPPoE, Balance
+        $type      = _post('type') ?: 'Hotspot';
         $price     = (float)_post('price');
 
-        if (empty($name_plan)) {
-            api_response(false, 'Nama paket wajib diisi.', null, 400);
-        }
+        if (empty($name_plan)) api_out(false, 'Nama paket wajib diisi.', null, 400);
 
-        if ($id > 0) {
-            $plan = ORM::for_table('tbl_plans')->find_one($id);
-            if (!$plan) {
-                api_response(false, 'Paket tidak ditemukan.', null, 404);
-            }
-        } else {
-            $plan = ORM::for_table('tbl_plans')->create();
-        }
+        $plan = ($id > 0) ? ORM::for_table('tbl_plans')->find_one($id) : ORM::for_table('tbl_plans')->create();
+        if (!$plan) api_out(false, 'Paket tidak ditemukan.', null, 404);
 
         $plan->name_plan     = $name_plan;
         $plan->id_bw         = (int)(_post('id_bw') ?: 1);
         $plan->price         = $price;
-        $plan->price_old     = (float)(_post('price_old') ?: 0);
         $plan->type          = $type;
-        $plan->typebp        = _post('typebp') ?: 'Unlimited'; // Unlimited / Limited
-        $plan->limit_type    = _post('limit_type') ?: 'Time_Limit'; // Time_Limit, Data_Limit, Both_Limit
+        $plan->typebp        = _post('typebp') ?: 'Unlimited';
+        $plan->limit_type    = _post('limit_type') ?: 'Time_Limit';
         $plan->time_limit    = (int)(_post('time_limit') ?: 0);
         $plan->time_unit     = _post('time_unit') ?: 'Hrs';
         $plan->data_limit    = (int)(_post('data_limit') ?: 0);
         $plan->data_unit     = _post('data_unit') ?: 'MB';
         $plan->validity      = max(1, (int)(_post('validity') ?: 30));
-        $plan->validity_unit = _post('validity_unit') ?: 'Days'; // Mins, Hrs, Days, Months, Period
+        $plan->validity_unit = _post('validity_unit') ?: 'Days';
         $plan->shared_users  = max(1, (int)(_post('shared_users') ?: 1));
         $plan->routers       = _post('routers') ?: 'radius';
-        $plan->is_radius     = ($plan->routers === 'radius') ? 1 : (int)(_post('is_radius') ?: 0);
+        $plan->is_radius     = ($plan->routers === 'radius') ? 1 : 0;
         $plan->pool          = trim(_post('pool') ?: '');
-        $plan->pool_expired  = trim(_post('pool_expired') ?: '');
-        $plan->plan_expired  = (int)(_post('plan_expired') ?: 0);
         $plan->enabled       = (int)(_post('enabled') ?? 1);
-        $plan->prepaid       = _post('prepaid') === 'no' ? 'no' : 'yes';
+        $default_prepaid     = (strtoupper($type) === 'PPPOE') ? 'no' : 'yes';
+        $plan->prepaid       = _post('prepaid') ?: $default_prepaid;
         $plan->plan_type     = _post('plan_type') ?: 'Personal';
         if (empty($plan->device)) {
             $plan->device = ($type === 'PPPoE') ? 'MikrotikPppoe' : (($type === 'Hotspot') ? 'MikrotikHotspot' : 'Radius');
         }
-        if (_post('device')) {
-            $plan->device = _post('device');
-        }
         $plan->save();
 
-        // Sinkronkan profil paket ke MikroTik jika bukan paket Balance
-        if (strtoupper($type) !== 'BALANCE' && class_exists('Package') && method_exists('Package', 'getDevice')) {
-            try {
-                $dev_file = Package::getDevice($plan);
-                if (file_exists($dev_file)) {
-                    require_once $dev_file;
-                    $d_cls = $plan->device;
-                    if (class_exists($d_cls)) {
-                        $dev = new $d_cls();
-                        if ($id > 0 && method_exists($dev, 'update_plan')) {
-                            @$dev->update_plan($plan, $plan);
-                        } elseif (method_exists($dev, 'add_plan')) {
-                            @$dev->add_plan($plan);
-                        }
-                    }
-                }
-            } catch (Exception $e) {}
-        }
-
-        write_admin_log($admin, ($id > 0 ? 'Mengubah' : 'Menambah') . ' paket ' . $type . ': ' . $name_plan);
-        api_response(true, 'Paket ' . $name_plan . ' berhasil disimpan.', $plan->as_array());
+        write_admin_log($admin, 'Menyimpan paket ' . $type . ': ' . $name_plan);
+        api_out(true, 'Paket ' . $name_plan . ' berhasil disimpan.', $plan->as_array());
         break;
 
     case 'admin_plan_delete':
-        $admin = authenticate_admin($api_secret, ['SuperAdmin', 'Admin']);
-        $id = (int)_post('id');
-        $plan = ORM::for_table('tbl_plans')->find_one($id);
-        if (!$plan) {
-            api_response(false, 'Paket tidak ditemukan.', null, 404);
-        }
-        $pname = $plan['name_plan'];
+        $admin = require_admin_session($api_secret, ['SuperAdmin', 'Admin']);
+        $plan = ORM::for_table('tbl_plans')->find_one((int)_req('id'));
+        if (!$plan) api_out(false, 'Paket tidak ditemukan.', null, 404);
         $plan->delete();
-        write_admin_log($admin, 'Menghapus paket: ' . $pname);
-        api_response(true, 'Paket ' . $pname . ' berhasil dihapus.');
+        api_out(true, 'Paket berhasil dihapus.');
         break;
 
     case 'admin_bandwidths':
-        $admin = authenticate_admin($api_secret);
-        $bws = ORM::for_table('tbl_bandwidth')->order_by_desc('id')->find_array();
-        api_response(true, 'Daftar profil bandwidth dimuat', $bws);
+        require_admin_session($api_secret);
+        api_out(true, 'Daftar bandwidth dimuat', ORM::for_table('tbl_bandwidth')->order_by_desc('id')->find_array());
         break;
 
     case 'admin_bandwidth_save':
-        $admin = authenticate_admin($api_secret, ['SuperAdmin', 'Admin']);
-        $id      = (int)_post('id');
+        require_admin_session($api_secret, ['SuperAdmin', 'Admin']);
         $name_bw = trim(_post('name_bw'));
-        if (empty($name_bw)) {
-            api_response(false, 'Nama bandwidth wajib diisi.', null, 400);
-        }
-
-        if ($id > 0) {
-            $bw = ORM::for_table('tbl_bandwidth')->find_one($id);
-            if (!$bw) api_response(false, 'Data bandwidth tidak ditemukan.', null, 404);
-        } else {
-            $bw = ORM::for_table('tbl_bandwidth')->create();
-        }
-
+        if (empty($name_bw)) api_out(false, 'Nama bandwidth wajib diisi.', null, 400);
+        $bw = ORM::for_table('tbl_bandwidth')->create();
         $bw->name_bw        = $name_bw;
         $bw->rate_down      = max(1, (int)_post('rate_down'));
         $bw->rate_down_unit = _post('rate_down_unit') === 'Kbps' ? 'Kbps' : 'Mbps';
@@ -2190,555 +1349,533 @@ switch ($action) {
         $bw->rate_up_unit   = _post('rate_up_unit') === 'Kbps' ? 'Kbps' : 'Mbps';
         $bw->burst          = trim(_post('burst') ?: '');
         $bw->save();
-
-        write_admin_log($admin, 'Menyimpan profil bandwidth: ' . $name_bw);
-        api_response(true, 'Profil bandwidth ' . $name_bw . ' berhasil disimpan.', $bw->as_array());
+        api_out(true, 'Bandwidth ' . $name_bw . ' berhasil disimpan.', $bw->as_array());
         break;
 
     case 'admin_bandwidth_delete':
-        $admin = authenticate_admin($api_secret, ['SuperAdmin', 'Admin']);
-        $id = (int)_post('id');
-        $bw = ORM::for_table('tbl_bandwidth')->find_one($id);
-        if (!$bw) {
-            api_response(false, 'Profil bandwidth tidak ditemukan.', null, 404);
-        }
-        $bw->delete();
-        api_response(true, 'Profil bandwidth berhasil dihapus.');
+        require_admin_session($api_secret, ['SuperAdmin', 'Admin']);
+        $bw = ORM::for_table('tbl_bandwidth')->find_one((int)_req('id'));
+        if ($bw) $bw->delete();
+        api_out(true, 'Bandwidth berhasil dihapus.');
         break;
 
+    // =========================================================================
+    // 6. JARINGAN & MIKROTIK MONITOR (100% MENGADOPSI PLUGIN mikrotik_monitor.php)
+    // =========================================================================
     case 'admin_routers':
-        // Menu: Jaringan -> Routers
-        $admin = authenticate_admin($api_secret);
-        $routers = ORM::for_table('tbl_routers')->order_by_asc('id')->find_array();
-        api_response(true, 'Daftar router dimuat', $routers);
+        require_admin_session($api_secret);
+        api_out(true, 'Daftar router dimuat', ORM::for_table('tbl_routers')->order_by_asc('id')->find_array());
         break;
 
     case 'admin_router_save':
-        $admin = authenticate_admin($api_secret, ['SuperAdmin', 'Admin']);
+        require_admin_session($api_secret, ['SuperAdmin', 'Admin']);
         $id   = (int)_post('id');
         $name = trim(_post('name'));
         $ip   = trim(_post('ip_address'));
         $user = trim(_post('username'));
         $pass = _post('password');
+        if (empty($name) || empty($ip) || empty($user)) api_out(false, 'Nama, IP, dan Username Router wajib diisi.', null, 400);
 
-        if (empty($name) || empty($ip) || empty($user)) {
-            api_response(false, 'Nama Router, IP Address, dan Username MikroTik wajib diisi.', null, 400);
-        }
-
-        if ($id > 0) {
-            $r = ORM::for_table('tbl_routers')->find_one($id);
-            if (!$r) api_response(false, 'Router tidak ditemukan.', null, 404);
-        } else {
-            $r = ORM::for_table('tbl_routers')->create();
-        }
-
+        $r = ($id > 0) ? ORM::for_table('tbl_routers')->find_one($id) : ORM::for_table('tbl_routers')->create();
+        if (!$r) api_out(false, 'Router tidak ditemukan.', null, 404);
         $r->name        = $name;
         $r->ip_address  = $ip;
         $r->username    = $user;
-        if ($pass !== '' || $id === 0) {
-            $r->password = $pass;
-        }
-        $r->description = trim(_post('description'));
+        if ($pass !== '' || $id === 0) $r->password = $pass;
         $r->coordinates = trim(_post('coordinates'));
-        $r->coverage    = trim(_post('coverage') ?: '500');
-        $r->enabled     = (int)(_post('enabled') ?? 1);
+        $r->coverage    = trim(_post('coverage') ?: '350');
+        $r->enabled     = 1;
         $r->save();
-
-        write_admin_log($admin, 'Menyimpan konfigurasi router: ' . $name);
-        api_response(true, 'Router ' . $name . ' berhasil disimpan.', $r->as_array());
+        api_out(true, 'Router ' . $name . ' berhasil disimpan.', $r->as_array());
         break;
 
     case 'admin_router_delete':
-        $admin = authenticate_admin($api_secret, ['SuperAdmin', 'Admin']);
-        $id = (int)_post('id');
-        $r = ORM::for_table('tbl_routers')->find_one($id);
-        if (!$r) {
-            api_response(false, 'Router tidak ditemukan.', null, 404);
-        }
-        $rname = $r['name'];
-        $r->delete();
-        write_admin_log($admin, 'Menghapus router: ' . $rname);
-        api_response(true, 'Router ' . $rname . ' berhasil dihapus.');
+        require_admin_session($api_secret, ['SuperAdmin', 'Admin']);
+        $r = ORM::for_table('tbl_routers')->find_one((int)_req('id'));
+        if ($r) $r->delete();
+        api_out(true, 'Router berhasil dihapus.');
         break;
 
+    case 'admin_pools':
+        require_admin_session($api_secret);
+        api_out(true, 'Daftar IP Pool dimuat', ORM::for_table('tbl_pool')->order_by_desc('id')->find_array());
+        break;
+
+    case 'admin_pool_save':
+        require_admin_session($api_secret, ['SuperAdmin', 'Admin']);
+        $id        = (int)_post('id');
+        $pool_name = trim(_post('pool_name'));
+        $range_ip  = trim(_post('range_ip'));
+        if (empty($pool_name) || empty($range_ip)) api_out(false, 'Nama Pool dan Rentang IP wajib diisi.', null, 400);
+        $p = ($id > 0) ? ORM::for_table('tbl_pool')->find_one($id) : ORM::for_table('tbl_pool')->create();
+        $p->pool_name = $pool_name;
+        $p->range_ip  = $range_ip;
+        $p->routers   = trim(_post('routers'));
+        $p->save();
+        api_out(true, 'IP Pool berhasil disimpan.', $p->as_array());
+        break;
+
+    case 'admin_pool_delete':
+        require_admin_session($api_secret, ['SuperAdmin', 'Admin']);
+        $p = ORM::for_table('tbl_pool')->find_one((int)_req('id'));
+        if ($p) $p->delete();
+        api_out(true, 'IP Pool berhasil dihapus.');
+        break;
+
+    case 'mikrotik_live':
     case 'admin_router_status':
-        // Live MikroTik Resource Monitor (CPU, RAM, Uptime, Interface Traffic, Active Sessions)
-        $admin = authenticate_admin($api_secret);
-        $router_id = (int)(_get('id') ?: _post('id'));
+        // Implementasi persis mikrotik_monitor.php:
+        // Menggunakan /interface/monitor-traffic (interface + once) untuk mendapatkan tx-bits-per-second & rx-bits-per-second murni!
+        require_admin_session($api_secret);
+        $req_router_id = (int)_req('router_id');
+        $req_iface     = trim(_req('interface'));
 
         $q = ORM::for_table('tbl_routers')->where('enabled', 1);
-        if ($router_id > 0) {
-            $q->where('id', $router_id);
+        if ($req_router_id > 0) {
+            $q->where('id', $req_router_id);
         }
         $routers = $q->find_array();
-
         $results = [];
+
         foreach ($routers as $r) {
-            $start_ms = microtime(true);
-            $client = get_mikrotik_ros_client($r['ip_address'], $r['username'], $r['password']);
-            $ping_ms = round((microtime(true) - $start_ms) * 1000);
+            $t0 = microtime(true);
+            $client = connect_ros($r['ip_address'], $r['username'], $r['password']);
+            $ping = round((microtime(true) - $t0) * 1000);
 
             if (!$client) {
                 $results[] = [
-                    'id'          => (int)$r['id'],
-                    'name'        => $r['name'],
-                    'ip_address'  => $r['ip_address'],
-                    'online'      => false,
-                    'ping_ms'     => 0,
-                    'cpu_load'    => 0,
-                    'free_memory' => '0 B',
-                    'total_memory'=> '0 B',
-                    'ram_percent' => 0,
-                    'uptime'      => 'Offline',
-                    'board_name'  => '-',
-                    'version'     => '-',
-                    'hotspot_online' => 0,
-                    'pppoe_online'   => 0
+                    'id' => (int)$r['id'], 'name' => $r['name'], 'ip_address' => $r['ip_address'],
+                    'online' => false, 'ping_ms' => 0, 'cpu_load' => 0, 'ram_percent' => 0,
+                    'free_memory' => '0 B', 'total_memory' => '0 B', 'uptime' => 'Offline',
+                    'board_name' => '-', 'version' => '-', 'hotspot_online' => 0, 'pppoe_online' => 0,
+                    'monitored_interface' => '-', 'interfaces_list' => [], 'interfaces_traffic' => [],
+                    'rx_bps' => 0, 'tx_bps' => 0, 'download_mbps' => 0.0, 'upload_mbps' => 0.0,
+                    'download_speed_label' => '0 bps', 'upload_speed_label' => '0 bps',
+                    'rx_speed_label' => '0 bps', 'tx_speed_label' => '0 bps'
                 ];
                 continue;
             }
 
             try {
-                $res_req = new PEAR2\Net\RouterOS\Request('/system/resource/print');
-                $res_resp = $client->sendSync($res_req);
-                $cpu = 0;
-                $free_mem = 0;
-                $total_mem = 0;
-                $uptime = '-';
-                $board = '-';
-                $ver = '-';
+                // 1. Resource & Health (/system/resource/print & /system/health/print)
+                $res_resp = $client->sendSync(new PEAR2\Net\RouterOS\Request('/system/resource/print'));
+                $cpu = 0; $free_mem = 0; $total_mem = 0; $up = '-'; $board = '-'; $ver = '-';
+                $platform = '-'; $arch = '-'; $cpu_model = '-'; $cpu_count = '1'; $cpu_freq = '-';
+                $free_hdd = 0; $total_hdd = 0;
 
                 foreach ($res_resp as $item) {
                     if ($item->getType() === PEAR2\Net\RouterOS\Response::TYPE_DATA) {
                         $cpu       = (int)($item->getProperty('cpu-load') ?: 0);
                         $free_mem  = (float)($item->getProperty('free-memory') ?: 0);
                         $total_mem = (float)($item->getProperty('total-memory') ?: 0);
-                        $uptime    = $item->getProperty('uptime') ?: '-';
+                        $up        = $item->getProperty('uptime') ?: '-';
                         $board     = $item->getProperty('board-name') ?: '-';
                         $ver       = $item->getProperty('version') ?: '-';
+                        $platform  = $item->getProperty('platform') ?: 'MikroTik';
+                        $arch      = $item->getProperty('architecture-name') ?: '-';
+                        $cpu_model = $item->getProperty('cpu') ?: '-';
+                        $cpu_count = $item->getProperty('cpu-count') ?: '1';
+                        $cpu_freq  = $item->getProperty('cpu-frequency') ?: '-';
+                        $free_hdd  = (float)($item->getProperty('free-hdd-space') ?: 0);
+                        $total_hdd = (float)($item->getProperty('total-hdd-space') ?: 0);
                         break;
                     }
                 }
 
-                $hs_cnt = 0;
-                $hs_resp = $client->sendSync(new PEAR2\Net\RouterOS\Request('/ip/hotspot/active/print'));
-                foreach ($hs_resp as $h) {
-                    if ($h->getType() === PEAR2\Net\RouterOS\Response::TYPE_DATA) $hs_cnt++;
+                $temperature = 'N/A';
+                $voltage     = 'N/A';
+                try {
+                    $health_resp = $client->sendSync(new PEAR2\Net\RouterOS\Request('/system/health/print'));
+                    foreach ($health_resp as $h_item) {
+                        if ($h_item->getType() === PEAR2\Net\RouterOS\Response::TYPE_DATA) {
+                            if ($h_item->getProperty('temperature') !== null) {
+                                $temperature = $h_item->getProperty('temperature') . ' °C';
+                            } elseif ($h_item->getProperty('name') === 'temperature') {
+                                $temperature = $h_item->getProperty('value') . ' °C';
+                            }
+                            if ($h_item->getProperty('voltage') !== null) {
+                                $voltage = $h_item->getProperty('voltage') . ' V';
+                            } elseif ($h_item->getProperty('name') === 'voltage') {
+                                $voltage = $h_item->getProperty('value') . ' V';
+                            }
+                        }
+                    }
+                } catch (Exception $e) {}
+
+                // 2. Daftar Interface & Tabel Trafik Interface (mikrotik_monitor_get_interfaces_list & mikrotik_monitor_get_traffic)
+                $if_resp = $client->sendSync(new PEAR2\Net\RouterOS\Request('/interface/print'));
+                $interfaces_list    = [];
+                $interfaces_traffic = [];
+                $default_iface      = '';
+
+                foreach ($if_resp as $iface) {
+                    if ($iface->getType() !== PEAR2\Net\RouterOS\Response::TYPE_DATA) continue;
+                    $if_name = $iface->getProperty('name');
+                    if (empty($if_name)) continue;
+
+                    // Jangan masukkan dynamic queue/pppoe ratusan baris ke dropdown utama kecuali dipilih, prioritaskan interface fisik/bridge/vlan
+                    $is_dyn_pppoe = (strpos($if_name, '<pppoe-') === 0);
+                    if (!$is_dyn_pppoe) {
+                        $interfaces_list[] = $if_name;
+                    }
+
+                    $is_running = ($iface->getProperty('running') === 'true');
+                    if ($default_iface === '' && $is_running && !$is_dyn_pppoe) {
+                        $default_iface = $if_name;
+                    }
+
+                    $tx_b = (float)($iface->getProperty('tx-byte') ?: 0);
+                    $rx_b = (float)($iface->getProperty('rx-byte') ?: 0);
+
+                    if (!$is_dyn_pppoe) {
+                        $interfaces_traffic[] = [
+                            'name'    => $if_name,
+                            'type'    => $iface->getProperty('type') ?: '-',
+                            'running' => $is_running,
+                            'status'  => $is_running ? 'UP' : 'DOWN',
+                            'tx'      => fmt_bytes($tx_b),
+                            'rx'      => fmt_bytes($rx_b),
+                            'total'   => fmt_bytes($tx_b + $rx_b)
+                        ];
+                    }
                 }
 
-                $ppp_cnt = 0;
-                $ppp_resp = $client->sendSync(new PEAR2\Net\RouterOS\Request('/ppp/active/print'));
-                foreach ($ppp_resp as $p) {
-                    if ($p->getType() === PEAR2\Net\RouterOS\Response::TYPE_DATA) $ppp_cnt++;
+                if ($default_iface === '' && !empty($interfaces_list)) {
+                    $default_iface = $interfaces_list[0];
+                }
+
+                $target_iface = (!empty($req_iface) && in_array($req_iface, $interfaces_list))
+                    ? $req_iface
+                    : $default_iface;
+
+                // 3. Monitor Traffic Murni (/interface/monitor-traffic interface=$target_iface once)
+                // Persis seperti fungsi mikrotik_monitor_traffic_update() pada plugin asli!
+                $tx_bps = 0.0;
+                $rx_bps = 0.0;
+                if (!empty($target_iface)) {
+                    $mon_req = new PEAR2\Net\RouterOS\Request('/interface/monitor-traffic');
+                    $mon_req->setArgument('interface', $target_iface);
+                    $mon_req->setArgument('once', '');
+                    $mon_res = $client->sendSync($mon_req);
+                    foreach ($mon_res as $m_item) {
+                        if ($m_item->getType() === PEAR2\Net\RouterOS\Response::TYPE_DATA) {
+                            $tx_bps = (float)($m_item->getProperty('tx-bits-per-second') ?: 0);
+                            $rx_bps = (float)($m_item->getProperty('rx-bits-per-second') ?: 0);
+                            break;
+                        }
+                    }
+                }
+
+                // 4. Hitung jumlah Hotspot & PPPoE Online
+                $hs = 0;
+                foreach ($client->sendSync(new PEAR2\Net\RouterOS\Request('/ip/hotspot/active/print')) as $h) {
+                    if ($h->getType() === PEAR2\Net\RouterOS\Response::TYPE_DATA) $hs++;
+                }
+                $ppp = 0;
+                foreach ($client->sendSync(new PEAR2\Net\RouterOS\Request('/ppp/active/print')) as $p) {
+                    if ($p->getType() === PEAR2\Net\RouterOS\Response::TYPE_DATA) $ppp++;
                 }
 
                 $used_mem = max(0, $total_mem - $free_mem);
                 $ram_pct  = $total_mem > 0 ? round(($used_mem / $total_mem) * 100, 1) : 0;
 
+                $rx_mbps = round($rx_bps / 1000000.0, 2);
+                $tx_mbps = round($tx_bps / 1000000.0, 2);
+
                 $results[] = [
-                    'id'             => (int)$r['id'],
-                    'name'           => $r['name'],
-                    'ip_address'     => $r['ip_address'],
-                    'online'         => true,
-                    'ping_ms'        => $ping_ms,
-                    'cpu_load'       => $cpu,
-                    'free_memory'    => format_bytes_readable($free_mem),
-                    'total_memory'   => format_bytes_readable($total_mem),
-                    'ram_percent'    => $ram_pct,
-                    'uptime'         => $uptime,
-                    'board_name'     => $board,
-                    'version'        => $ver,
-                    'hotspot_online' => $hs_cnt,
-                    'pppoe_online'   => $ppp_cnt
+                    'id'                   => (int)$r['id'],
+                    'name'                 => $r['name'],
+                    'ip_address'           => $r['ip_address'],
+                    'online'               => true,
+                    'ping_ms'              => $ping,
+                    'platform'             => $platform,
+                    'board_name'           => $board,
+                    'arch'                 => $arch,
+                    'version'              => $ver,
+                    'cpu'                  => $cpu_model,
+                    'cpu_info'             => $cpu_count . ' Core / ' . $cpu_freq . ' MHz / ' . $cpu . '%',
+                    'cpu_load'             => $cpu,
+                    'temperature'          => $temperature,
+                    'voltage'              => $voltage,
+                    'used_memory'          => fmt_bytes($used_mem),
+                    'free_memory'          => fmt_bytes($free_mem),
+                    'total_memory'         => fmt_bytes($total_mem),
+                    'ram_percent'          => $ram_pct,
+                    'free_hdd'             => fmt_bytes($free_hdd),
+                    'total_hdd'            => fmt_bytes($total_hdd),
+                    'uptime'               => $up,
+                    'hotspot_online'       => $hs,
+                    'pppoe_online'         => $ppp,
+                    'monitored_interface'  => $target_iface,
+                    'interfaces_list'      => $interfaces_list,
+                    'interfaces_traffic'   => $interfaces_traffic,
+                    'rx_bps'               => round($rx_bps),
+                    'tx_bps'               => round($tx_bps),
+                    'rx_mbps'              => $rx_mbps,
+                    'tx_mbps'              => $tx_mbps,
+                    'rx_speed_label'       => fmt_bps($rx_bps),
+                    'tx_speed_label'       => fmt_bps($tx_bps),
+                    'download_mbps'        => $rx_mbps,
+                    'upload_mbps'          => $tx_mbps,
+                    'download_speed_label' => fmt_bps($rx_bps),
+                    'upload_speed_label'   => fmt_bps($tx_bps)
                 ];
             } catch (Exception $e) {
                 $results[] = [
-                    'id'          => (int)$r['id'],
-                    'name'        => $r['name'],
-                    'ip_address'  => $r['ip_address'],
-                    'online'      => false,
-                    'ping_ms'     => 0,
-                    'uptime'      => 'Error API'
+                    'id' => (int)$r['id'], 'name' => $r['name'], 'ip_address' => $r['ip_address'],
+                    'online' => false, 'ping_ms' => 0, 'uptime' => 'Error: ' . $e->getMessage()
                 ];
             }
         }
-
-        api_response(true, 'Status router berhasil diperiksa', $results);
+        api_out(true, 'Status live router berhasil dimuat', $results);
         break;
 
-    case 'admin_router_reboot':
-        $admin = authenticate_admin($api_secret, ['SuperAdmin', 'Admin']);
-        $id = (int)_post('id');
-        $r = ORM::for_table('tbl_routers')->find_one($id);
-        if (!$r) {
-            api_response(false, 'Router tidak ditemukan.', null, 404);
-        }
-
-        $client = get_mikrotik_ros_client($r['ip_address'], $r['username'], $r['password']);
-        if (!$client) {
-            api_response(false, 'Gagal terhubung ke Router ' . $r['name'], null, 500);
-        }
-
-        try {
-            $req = new PEAR2\Net\RouterOS\Request('/system/reboot');
-            @$client->sendSync($req);
-        } catch (Exception $e) {}
-
-        write_admin_log($admin, 'Melakukan Reboot Router: ' . $r['name']);
-        api_response(true, 'Perintah Reboot telah dikirim ke Router ' . $r['name'] . '.');
-        break;
-
+    case 'online_users':
     case 'admin_online_users':
-        // Live Hotspot & PPPoE Online Users di MikroTik
-        $admin = authenticate_admin($api_secret);
-        $router_filter  = trim(_get('router') ?: _post('router'));
-        $service_filter = strtolower(trim(_get('service') ?: _post('service') ?: 'all'));
-
+    case 'data_usage':
+    case 'admin_data_usage':
+        // Implementasi persis mikrotik_monitor_get_ppp_online_users() & mikrotik_monitor_get_hotspot_online_users()
+        // Mengambil trafik PPPoE dari interface <pppoe-$username> pada /interface/print!
+        require_admin_session($api_secret);
+        $req_router_id = (int)_req('router_id');
         $q = ORM::for_table('tbl_routers')->where('enabled', 1);
-        if ($router_filter !== '' && strtolower($router_filter) !== 'all') {
-            $q->where('name', $router_filter);
+        if ($req_router_id > 0) {
+            $q->where('id', $req_router_id);
         }
         $routers = $q->find_array();
 
-        $online_users = [];
+        $users  = [];
+        $rx_sum = 0.0;
+        $tx_sum = 0.0;
+
         foreach ($routers as $r) {
-            $client = get_mikrotik_ros_client($r['ip_address'], $r['username'], $r['password']);
+            $client = connect_ros($r['ip_address'], $r['username'], $r['password']);
             if (!$client) continue;
 
             try {
-                if ($service_filter === 'all' || $service_filter === 'hotspot') {
-                    $hs_resp = $client->sendSync(new PEAR2\Net\RouterOS\Request('/ip/hotspot/active/print'));
-                    foreach ($hs_resp as $item) {
-                        if ($item->getType() === PEAR2\Net\RouterOS\Response::TYPE_DATA) {
-                            $rx = (float)($item->getProperty('bytes-in') ?: 0);
-                            $tx = (float)($item->getProperty('bytes-out') ?: 0);
-                            $online_users[] = [
-                                'ros_id'      => $item->getProperty('.id'),
-                                'username'    => $item->getProperty('user') ?: '-',
-                                'service'     => 'Hotspot',
-                                'router'      => $r['name'],
-                                'router_id'   => (int)$r['id'],
-                                'ip_address'  => $item->getProperty('address') ?: '-',
-                                'mac_address' => $item->getProperty('mac-address') ?: '-',
-                                'uptime'      => $item->getProperty('uptime') ?: '0s',
-                                'upload'      => format_bytes_readable($rx),
-                                'download'    => format_bytes_readable($tx),
-                                'total_bytes' => format_bytes_readable($rx + $tx)
+                // Ambil seluruh /interface/print untuk memetakan <pppoe-$username> (persis plugin mikrotik_monitor.php)
+                $interface_data = [];
+                foreach ($client->sendSync(new PEAR2\Net\RouterOS\Request('/interface/print')) as $if_item) {
+                    if ($if_item->getType() === PEAR2\Net\RouterOS\Response::TYPE_DATA) {
+                        $if_name = $if_item->getProperty('name');
+                        if (!empty($if_name)) {
+                            $interface_data[$if_name] = [
+                                'txBytes' => (float)($if_item->getProperty('tx-byte') ?: 0),
+                                'rxBytes' => (float)($if_item->getProperty('rx-byte') ?: 0)
                             ];
                         }
                     }
                 }
 
-                if ($service_filter === 'all' || $service_filter === 'pppoe') {
-                    $ppp_resp = $client->sendSync(new PEAR2\Net\RouterOS\Request('/ppp/active/print'));
-                    foreach ($ppp_resp as $item) {
-                        if ($item->getType() === PEAR2\Net\RouterOS\Response::TYPE_DATA) {
-                            $online_users[] = [
-                                'ros_id'      => $item->getProperty('.id'),
-                                'username'    => $item->getProperty('name') ?: '-',
-                                'service'     => 'PPPoE',
-                                'router'      => $r['name'],
-                                'router_id'   => (int)$r['id'],
-                                'ip_address'  => $item->getProperty('address') ?: '-',
-                                'mac_address' => $item->getProperty('caller-id') ?: '-',
-                                'uptime'      => $item->getProperty('uptime') ?: '0s',
-                                'upload'      => '-',
-                                'download'    => '-',
-                                'total_bytes' => 'Active Tunnel'
-                            ];
-                        }
+                // 1. Hotspot Active Users
+                foreach ($client->sendSync(new PEAR2\Net\RouterOS\Request('/ip/hotspot/active/print')) as $hs) {
+                    if ($hs->getType() === PEAR2\Net\RouterOS\Response::TYPE_DATA) {
+                        $uname = $hs->getProperty('user') ?: '-';
+                        $rx    = (float)($hs->getProperty('bytes-in') ?: 0);
+                        $tx    = (float)($hs->getProperty('bytes-out') ?: 0);
+                        $rx_sum += $rx;
+                        $tx_sum += $tx;
+                        $users[] = [
+                            'ros_id'       => $hs->getProperty('.id'),
+                            'username'     => $uname,
+                            'service'      => 'Hotspot',
+                            'server'       => $hs->getProperty('server') ?: 'all',
+                            'router'       => $r['name'],
+                            'router_id'    => (int)$r['id'],
+                            'ip_address'   => $hs->getProperty('address') ?: '-',
+                            'mac_address'  => $hs->getProperty('mac-address') ?: '-',
+                            'uptime'       => $hs->getProperty('uptime') ?: '0s',
+                            'session_time' => $hs->getProperty('session-time-left') ?: '-',
+                            'upload'       => fmt_bytes($rx),
+                            'download'     => fmt_bytes($tx),
+                            'rx_bytes'     => fmt_bytes($rx),
+                            'tx_bytes'     => fmt_bytes($tx),
+                            'total'        => fmt_bytes($rx + $tx),
+                            'total_bytes'  => 'TX: ' . fmt_bytes($tx) . ' • RX: ' . fmt_bytes($rx) . ' (Total: ' . fmt_bytes($rx + $tx) . ')',
+                            'total_raw'    => $rx + $tx
+                        ];
+                    }
+                }
+
+                // 2. PPPoE Online Users (Mengambil trafik dari <pppoe-$username>)
+                foreach ($client->sendSync(new PEAR2\Net\RouterOS\Request('/ppp/active/print')) as $ppp) {
+                    if ($ppp->getType() === PEAR2\Net\RouterOS\Response::TYPE_DATA) {
+                        $uname   = $ppp->getProperty('name') ?: '-';
+                        $if_key  = "<pppoe-$uname>";
+                        $tx      = isset($interface_data[$if_key]) ? $interface_data[$if_key]['txBytes'] : 0.0;
+                        $rx      = isset($interface_data[$if_key]) ? $interface_data[$if_key]['rxBytes'] : 0.0;
+                        $rx_sum += $rx;
+                        $tx_sum += $tx;
+
+                        $users[] = [
+                            'ros_id'       => $ppp->getProperty('.id'),
+                            'username'     => $uname,
+                            'service'      => 'PPPoE',
+                            'server'       => $ppp->getProperty('service') ?: 'pppoe',
+                            'router'       => $r['name'],
+                            'router_id'    => (int)$r['id'],
+                            'ip_address'   => $ppp->getProperty('address') ?: '-',
+                            'mac_address'  => $ppp->getProperty('caller-id') ?: '-',
+                            'uptime'       => $ppp->getProperty('uptime') ?: '0s',
+                            'session_time' => '-',
+                            'upload'       => fmt_bytes($rx),
+                            'download'     => fmt_bytes($tx),
+                            'rx_bytes'     => fmt_bytes($rx),
+                            'tx_bytes'     => fmt_bytes($tx),
+                            'total'        => fmt_bytes($rx + $tx),
+                            'total_bytes'  => 'TX: ' . fmt_bytes($tx) . ' • RX: ' . fmt_bytes($rx) . ' (Total: ' . fmt_bytes($rx + $tx) . ')',
+                            'total_raw'    => $rx + $tx
+                        ];
                     }
                 }
             } catch (Exception $e) {}
         }
 
-        api_response(true, 'Daftar user online berhasil dimuat', [
-            'total' => count($online_users),
-            'users' => $online_users
+        api_out(true, 'Daftar user online berhasil dimuat', [
+            'total'   => count($users),
+            'users'   => $users,
+            'items'   => $users,
+            'summary' => [
+                'total_users'    => count($users),
+                'total_upload'   => fmt_bytes($rx_sum),
+                'total_download' => fmt_bytes($tx_sum),
+                'total_traffic'  => fmt_bytes($rx_sum + $tx_sum)
+            ]
         ]);
         break;
 
+    case 'mikrotik_extra':
+        // Mengambil Log MikroTik (/log/print) & Wireless Signal (/interface/wireless/registration-table/print)
+        require_admin_session($api_secret);
+        $router_id = (int)_req('router_id');
+        $sub_type  = _req('sub_type') ?: 'logs'; // logs | wlan
+
+        $q = ORM::for_table('tbl_routers')->where('enabled', 1);
+        if ($router_id > 0) $q->where('id', $router_id);
+        $r = $q->find_one();
+        if (!$r) api_out(false, 'Router tidak ditemukan.', null, 404);
+
+        $client = connect_ros($r['ip_address'], $r['username'], $r['password']);
+        if (!$client) api_out(false, 'Gagal terhubung ke Router ' . $r['name'], null, 500);
+
+        if ($sub_type === 'wlan') {
+            $signals = [];
+            try {
+                $wlan_res = $client->sendSync(new PEAR2\Net\RouterOS\Request('/interface/wireless/registration-table/print'));
+                foreach ($wlan_res as $sig) {
+                    if ($sig->getType() === PEAR2\Net\RouterOS\Response::TYPE_DATA) {
+                        $signals[] = [
+                            'interface'       => $sig->getProperty('interface') ?: '-',
+                            'mac_address'     => $sig->getProperty('mac-address') ?: '-',
+                            'uptime'          => $sig->getProperty('uptime') ?: '-',
+                            'last_ip'         => $sig->getProperty('last-ip') ?: '-',
+                            'signal_strength' => $sig->getProperty('signal-strength') ?: '-',
+                            'tx_ccq'          => $sig->getProperty('tx-ccq') ?: '-',
+                            'rx_rate'         => $sig->getProperty('rx-rate') ?: '-',
+                            'tx_rate'         => $sig->getProperty('tx-rate') ?: '-'
+                        ];
+                    }
+                }
+            } catch (Exception $e) {}
+            api_out(true, 'Data sinyal wireless dimuat', $signals);
+        }
+
+        // Default: Ambil 100 baris terbaru /log/print MikroTik
+        $ros_logs = [];
+        try {
+            $log_res = $client->sendSync(new PEAR2\Net\RouterOS\Request('/log/print'));
+            foreach ($log_res as $entry) {
+                if ($entry->getType() === PEAR2\Net\RouterOS\Response::TYPE_DATA) {
+                    $ros_logs[] = [
+                        'id'      => $entry->getProperty('.id') ?: '',
+                        'time'    => $entry->getProperty('time') ?: '-',
+                        'topics'  => $entry->getProperty('topics') ?: 'info',
+                        'message' => $entry->getProperty('message') ?: ''
+                    ];
+                }
+            }
+            $ros_logs = array_slice(array_reverse($ros_logs), 0, 100);
+        } catch (Exception $e) {}
+        api_out(true, 'Log MikroTik berhasil dimuat', $ros_logs);
+        break;
+
+    case 'kick_user':
     case 'admin_kick_user':
-        // Putuskan sesi Hotspot / PPPoE langsung dari MikroTik
-        $admin = authenticate_admin($api_secret);
-        $router_name = trim(_post('router'));
-        $username    = trim(_post('username'));
-        $service     = strtolower(trim(_post('service') ?: 'hotspot'));
-        $ros_id      = trim(_post('ros_id'));
+        // Menggunakan fungsi resmi Mikrotik::removeHotspotActiveUser & Mikrotik::removePpoeActive seperti di mikrotik_monitor.php
+        require_admin_session($api_secret);
+        $router_param = trim(_post('router') ?: _post('router_id'));
+        $r = is_numeric($router_param)
+            ? ORM::for_table('tbl_routers')->find_one((int)$router_param)
+            : ORM::for_table('tbl_routers')->where('name', $router_param)->find_one();
 
-        $r = ORM::for_table('tbl_routers')->where('name', $router_name)->find_one();
-        if (!$r) {
-            api_response(false, 'Router ' . $router_name . ' tidak ditemukan.', null, 404);
-        }
+        if (!$r) api_out(false, 'Router tidak ditemukan.', null, 404);
+        $client = connect_ros($r['ip_address'], $r['username'], $r['password']);
+        if (!$client) api_out(false, 'Gagal terhubung ke Router.', null, 500);
 
-        $client = get_mikrotik_ros_client($r['ip_address'], $r['username'], $r['password']);
-        if (!$client) {
-            api_response(false, 'Gagal terhubung ke Router ' . $r['name'], null, 500);
-        }
+        $service = strtolower(trim(_post('service') ?: _post('userType') ?: 'hotspot'));
+        $ros_id  = trim(_post('ros_id'));
+        $uname   = trim(_post('username'));
 
         try {
-            $path = ($service === 'pppoe') ? '/ppp/active' : '/ip/hotspot/active';
-            $prop = ($service === 'pppoe') ? 'name' : 'user';
-
-            if (!empty($ros_id)) {
-                $rem = new PEAR2\Net\RouterOS\Request($path . '/remove');
-                $rem->setArgument('numbers', $ros_id);
-                $client->sendSync($rem);
+            if ($service === 'hotspot' && class_exists('Mikrotik') && method_exists('Mikrotik', 'removeHotspotActiveUser') && !empty($uname)) {
+                @Mikrotik::removeHotspotActiveUser($client, $uname);
+            } elseif ($service === 'pppoe' && class_exists('Mikrotik') && method_exists('Mikrotik', 'removePpoeActive') && !empty($uname)) {
+                @Mikrotik::removePpoeActive($client, $uname);
             } else {
-                $print = new PEAR2\Net\RouterOS\Request($path . '/print');
-                $print->setQuery(PEAR2\Net\RouterOS\Query::where($prop, $username));
-                $resp = $client->sendSync($print);
-                foreach ($resp as $item) {
-                    if ($item->getType() === PEAR2\Net\RouterOS\Response::TYPE_DATA) {
-                        $rem = new PEAR2\Net\RouterOS\Request($path . '/remove');
-                        $rem->setArgument('numbers', $item->getProperty('.id'));
-                        $client->sendSync($rem);
+                $path = ($service === 'pppoe') ? '/ppp/active' : '/ip/hotspot/active';
+                $prop = ($service === 'pppoe') ? 'name' : 'user';
+                if (!empty($ros_id)) {
+                    $rem = new PEAR2\Net\RouterOS\Request($path . '/remove');
+                    $rem->setArgument('numbers', $ros_id);
+                    $client->sendSync($rem);
+                } else {
+                    $pr = new PEAR2\Net\RouterOS\Request($path . '/print');
+                    $pr->setQuery(PEAR2\Net\RouterOS\Query::where($prop, $uname));
+                    foreach ($client->sendSync($pr) as $item) {
+                        if ($item->getType() === PEAR2\Net\RouterOS\Response::TYPE_DATA) {
+                            $rem = new PEAR2\Net\RouterOS\Request($path . '/remove');
+                            $rem->setArgument('numbers', $item->getProperty('.id'));
+                            $client->sendSync($rem);
+                        }
                     }
                 }
             }
-
-            write_admin_log($admin, 'Memutus sesi online (' . strtoupper($service) . ') user: ' . $username . ' di ' . $router_name);
-            api_response(true, 'Sesi ' . $username . ' berhasil diputus dari ' . $router_name . '.');
+            api_out(true, 'Sesi ' . $uname . ' berhasil diputus dari ' . $r['name'] . '.');
         } catch (Exception $e) {
-            api_response(false, 'Gagal memutus sesi: ' . $e->getMessage(), null, 500);
+            api_out(false, 'Gagal memutus sesi: ' . $e->getMessage(), null, 500);
         }
         break;
 
-    case 'admin_pools':
-        // Menu: Jaringan -> IP Pool
-        $admin = authenticate_admin($api_secret);
-        $pools = ORM::for_table('tbl_pool')->order_by_desc('id')->find_array();
-        api_response(true, 'Daftar IP Pool dimuat', $pools);
+    case 'router_reboot':
+    case 'admin_router_reboot':
+        require_admin_session($api_secret, ['SuperAdmin', 'Admin']);
+        $r = ORM::for_table('tbl_routers')->find_one((int)_req('id'));
+        if (!$r) api_out(false, 'Router tidak ditemukan.', null, 404);
+        $client = connect_ros($r['ip_address'], $r['username'], $r['password']);
+        if (!$client) api_out(false, 'Gagal terhubung ke Router.', null, 500);
+        try { @$client->sendSync(new PEAR2\Net\RouterOS\Request('/system/reboot')); } catch (Exception $e) {}
+        api_out(true, 'Perintah Reboot dikirim ke Router ' . $r['name'] . '.');
         break;
 
-    case 'admin_pool_save':
-        $admin = authenticate_admin($api_secret, ['SuperAdmin', 'Admin']);
-        $id        = (int)_post('id');
-        $pool_name = trim(_post('pool_name'));
-        $range_ip  = trim(_post('range_ip'));
-        $routers   = trim(_post('routers'));
-
-        if (empty($pool_name) || empty($range_ip)) {
-            api_response(false, 'Nama Pool dan Rentang IP wajib diisi.', null, 400);
-        }
-
-        if ($id > 0) {
-            $pool = ORM::for_table('tbl_pool')->find_one($id);
-            if (!$pool) api_response(false, 'IP Pool tidak ditemukan.', null, 404);
-        } else {
-            $pool = ORM::for_table('tbl_pool')->create();
-        }
-
-        $pool->pool_name = $pool_name;
-        $pool->local_ip  = trim(_post('local_ip') ?: '');
-        $pool->range_ip  = $range_ip;
-        $pool->routers   = $routers;
-        $pool->save();
-
-        write_admin_log($admin, 'Menyimpan IP Pool: ' . $pool_name);
-        api_response(true, 'IP Pool ' . $pool_name . ' berhasil disimpan.', $pool->as_array());
-        break;
-
-    case 'admin_pool_delete':
-        $admin = authenticate_admin($api_secret, ['SuperAdmin', 'Admin']);
-        $id = (int)_post('id');
-        $pool = ORM::for_table('tbl_pool')->find_one($id);
-        if ($pool) {
-            $pool->delete();
-        }
-        api_response(true, 'IP Pool berhasil dihapus.');
-        break;
-
-    case 'admin_map_data':
-        // Menu: Peta (Lokasi Pelanggan, Router, dan Asset/ODP)
-        $admin = authenticate_admin($api_secret);
-        ensure_extra_admin_tables();
-
-        $cust_rows = ORM::for_table('tbl_customers')
-            ->where_not_equal('coordinates', '')
-            ->where_not_null('coordinates')
-            ->find_array();
-
-        $active_map = [];
-        $recharges = ORM::for_table('tbl_user_recharges')->find_array();
-        foreach ($recharges as $r) {
-            $cid = (int)$r['customer_id'];
-            if (!isset($active_map[$cid]) || $r['status'] === 'on') {
-                $active_map[$cid] = $r;
-            }
-        }
-
-        $customer_markers = [];
-        foreach ($cust_rows as $c) {
-            $parts = array_map('trim', explode(',', $c['coordinates']));
-            if (count($parts) !== 2 || !is_numeric($parts[0]) || !is_numeric($parts[1])) continue;
-            $rech = $active_map[(int)$c['id']] ?? null;
-            $customer_markers[] = [
-                'id'           => (int)$c['id'],
-                'username'     => $c['username'],
-                'fullname'     => $c['fullname'],
-                'phonenumber'  => $c['phonenumber'],
-                'address'      => $c['address'],
-                'service_type' => $c['service_type'],
-                'lat'          => (float)$parts[0],
-                'lng'          => (float)$parts[1],
-                'plan_status'  => $rech ? $rech['status'] : 'off',
-                'plan_name'    => $rech ? $rech['namebp'] : 'Belum Ada Paket',
-                'expiration'   => $rech ? $rech['expiration'] : '-'
-            ];
-        }
-
-        $router_rows = ORM::for_table('tbl_routers')
-            ->where_not_equal('coordinates', '')
-            ->where_not_null('coordinates')
-            ->find_array();
-
-        $router_markers = [];
-        foreach ($router_rows as $r) {
-            $parts = array_map('trim', explode(',', $r['coordinates']));
-            if (count($parts) !== 2 || !is_numeric($parts[0]) || !is_numeric($parts[1])) continue;
-            $router_markers[] = [
-                'id'          => (int)$r['id'],
-                'name'        => $r['name'],
-                'ip_address'  => $r['ip_address'],
-                'description' => $r['description'],
-                'coverage'    => (int)($r['coverage'] ?: 500),
-                'lat'         => (float)$parts[0],
-                'lng'         => (float)$parts[1]
-            ];
-        }
-
-        $asset_markers = [];
-        try {
-            $asset_rows = ORM::for_table('tbl_assets')
-                ->where_not_equal('coordinates', '')
-                ->where_not_null('coordinates')
-                ->find_array();
-            foreach ($asset_rows as $a) {
-                $parts = array_map('trim', explode(',', $a['coordinates']));
-                if (count($parts) !== 2 || !is_numeric($parts[0]) || !is_numeric($parts[1])) continue;
-                $asset_markers[] = [
-                    'id'        => (int)$a['id'],
-                    'name'      => $a['name'],
-                    'category'  => $a['category'],
-                    'condition' => $a['condition_status'],
-                    'lat'       => (float)$parts[0],
-                    'lng'       => (float)$parts[1]
-                ];
-            }
-        } catch (Exception $e) {}
-
-        api_response(true, 'Data peta berhasil dimuat', [
-            'customers' => $customer_markers,
-            'routers'   => $router_markers,
-            'assets'    => $asset_markers
-        ]);
-        break;
-
-    case 'admin_assets':
-        // Menu: Asset Manager
-        $admin = authenticate_admin($api_secret);
-        ensure_extra_admin_tables();
-        $category = trim(_get('category') ?: _post('category'));
-        $search   = trim(_get('search') ?: _post('search'));
-
-        $q = ORM::for_table('tbl_assets');
-        if ($category !== '' && strtolower($category) !== 'all') {
-            $q->where('category', $category);
-        }
-        if ($search !== '') {
-            $like = '%' . $search . '%';
-            $q->where_raw('(name LIKE ? OR serial_number LIKE ? OR brand LIKE ? OR notes LIKE ?)', [$like, $like, $like, $like]);
-        }
-
-        $assets = $q->order_by_desc('id')->find_array();
-        $total_value = ORM::for_table('tbl_assets')->sum('cost') ?: 0;
-
-        api_response(true, 'Daftar aset jaringan dimuat', [
-            'summary' => [
-                'total_items' => count($assets),
-                'total_value' => (float)$total_value
-            ],
-            'assets' => $assets
-        ]);
-        break;
-
-    case 'admin_asset_save':
-        $admin = authenticate_admin($api_secret);
-        ensure_extra_admin_tables();
-        $id   = (int)_post('id');
-        $name = trim(_post('name'));
-
-        if (empty($name)) {
-            api_response(false, 'Nama aset / perangkat wajib diisi.', null, 400);
-        }
-
-        if ($id > 0) {
-            $a = ORM::for_table('tbl_assets')->find_one($id);
-            if (!$a) api_response(false, 'Aset tidak ditemukan.', null, 404);
-        } else {
-            $a = ORM::for_table('tbl_assets')->create();
-        }
-
-        $a->name             = $name;
-        $a->category         = trim(_post('category') ?: 'ODP/ODC');
-        $a->serial_number    = trim(_post('serial_number'));
-        $a->brand            = trim(_post('brand'));
-        $a->customer_id      = (int)(_post('customer_id') ?: 0);
-        $a->router_name      = trim(_post('router_name'));
-        $a->coordinates      = trim(_post('coordinates'));
-        $a->cost             = (float)(_post('cost') ?: 0);
-        $a->condition_status = _post('condition_status') ?: 'Good';
-        $a->purchase_date    = _post('purchase_date') ?: date('Y-m-d');
-        $a->notes            = trim(_post('notes'));
-        $a->save();
-
-        write_admin_log($admin, 'Menyimpan data aset: ' . $name);
-        api_response(true, 'Data aset ' . $name . ' berhasil disimpan.', $a->as_array());
-        break;
-
-    case 'admin_asset_delete':
-        $admin = authenticate_admin($api_secret, ['SuperAdmin', 'Admin']);
-        ensure_extra_admin_tables();
-        $id = (int)_post('id');
-        $a = ORM::for_table('tbl_assets')->find_one($id);
-        if ($a) {
-            $a->delete();
-        }
-        api_response(true, 'Data aset berhasil dihapus.');
-        break;
-
+    // =========================================================================
+    // 7. LAPORAN TRANSAKSI (MENCAKUP DEPOSIT SALDO), PESAN, HALAMAN STATIS & LOGS
+    // =========================================================================
     case 'admin_reports':
-        // Menu: Laporan (Harian & Periode)
-        $admin = authenticate_admin($api_secret);
-        $start_date = trim(_get('start_date') ?: _post('start_date') ?: date('Y-m-01'));
-        $end_date   = trim(_get('end_date') ?: _post('end_date') ?: date('Y-m-d'));
-        $type       = trim(_get('type') ?: _post('type'));
-        $router     = trim(_get('router') ?: _post('router'));
-        $method     = trim(_get('method') ?: _post('method'));
-        $search     = trim(_get('search') ?: _post('search'));
-        $page       = max(1, (int)(_get('page') ?: _post('page') ?: 1));
-        $limit      = max(15, min(200, (int)(_get('limit') ?: _post('limit') ?: 50)));
-        $offset     = ($page - 1) * $limit;
+        require_admin_session($api_secret);
+        $start_date = trim(_req('start_date') ?: date('Y-m-01'));
+        $end_date   = trim(_req('end_date') ?: date('Y-m-d'));
+        $search     = trim(_req('search'));
+        $limit      = max(20, min(300, (int)(_req('limit') ?: 150)));
 
+        // Menampilkan seluruh transaksi uang masuk (Termasuk Deposit Saldo, hanya mengecualikan pemotongan saldo 'Customer - Balance')
         $q = ORM::for_table('tbl_transactions')
             ->where_gte('recharged_on', $start_date)
             ->where_lte('recharged_on', $end_date)
-            ->where_not_equal('method', 'Customer - Balance')
-            ->where_not_equal('type', 'Balance');
+            ->where_not_equal('method', 'Customer - Balance');
 
-        if ($type !== '' && strtolower($type) !== 'all') {
-            $q->where('type', $type);
-        }
-        if ($router !== '' && strtolower($router) !== 'all') {
-            $q->where('routers', $router);
-        }
-        if ($method !== '' && strtolower($method) !== 'all') {
-            $q->where_like('method', '%' . $method . '%');
-        }
         if ($search !== '') {
             $like = '%' . $search . '%';
-            $q->where_raw('(username LIKE ? OR invoice LIKE ? OR plan_name LIKE ?)', [$like, $like, $like]);
+            $q->where_raw('(username LIKE ? OR invoice LIKE ? OR plan_name LIKE ? OR method LIKE ?)', [$like, $like, $like, $like]);
         }
 
         $sum_q = clone $q;
@@ -2747,160 +1884,38 @@ switch ($action) {
         $cnt_q = clone $q;
         $total_count = $cnt_q->count();
 
-        $rows = $q->order_by_desc('id')
-            ->limit($limit)
-            ->offset($offset)
-            ->find_array();
+        $rows = $q->order_by_desc('id')->limit($limit)->find_array();
 
-        api_response(true, 'Laporan keuangan berhasil dimuat', [
-            'filter' => [
-                'start_date' => $start_date,
-                'end_date'   => $end_date
-            ],
+        api_out(true, 'Laporan keuangan berhasil dimuat', [
             'summary' => [
                 'total_transactions' => (int)$total_count,
                 'total_income'       => (float)$total_income
             ],
-            'page'         => $page,
-            'limit'        => $limit,
             'transactions' => $rows
         ]);
         break;
 
-    case 'admin_payment_gateways':
-        // Audit Transaksi Payment Gateway (ViaQRIS, Duitku, Midtrans, Xendit, dll)
-        $admin  = authenticate_admin($api_secret);
-        $token  = get_bearer_token();
-        $status = _get('status') !== '' ? _get('status') : _post('status');
-        $search = trim(_get('search') ?: _post('search'));
-        $page   = max(1, (int)(_get('page') ?: _post('page') ?: 1));
-        $limit  = max(10, min(100, (int)(_get('limit') ?: _post('limit') ?: 30)));
-        $offset = ($page - 1) * $limit;
-
-        $q = ORM::for_table('tbl_payment_gateway');
-        if ($status !== '' && $status !== null && strtolower((string)$status) !== 'all') {
-            $q->where('status', (int)$status);
-        }
-        if ($search !== '') {
-            $like = '%' . $search . '%';
-            $q->where_raw('(username LIKE ? OR plan_name LIKE ? OR trx_invoice LIKE ? OR gateway LIKE ?)', [$like, $like, $like, $like]);
-        }
-
-        $total_q = clone $q;
-        $total = $total_q->count();
-
-        $rows = $q->order_by_desc('id')
-            ->limit($limit)
-            ->offset($offset)
-            ->find_many();
-
-        $items = [];
-        foreach ($rows as $row) {
-            if ((int)$row['status'] === 1) {
-                verify_if_already_recharged($row);
-            }
-            $items[] = format_unpaid_data($row, $token, $config, false);
-        }
-
-        api_response(true, 'Data transaksi Payment Gateway dimuat', [
-            'total' => (int)$total,
-            'page'  => $page,
-            'limit' => $limit,
-            'items' => $items
-        ]);
-        break;
-
-    case 'admin_pg_action':
-        // Tindakan Admin pada Tagihan Payment Gateway: 'check', 'approve_manual', 'cancel'
-        $admin      = authenticate_admin($api_secret);
-        $token      = get_bearer_token();
-        $trx_id     = (int)_post('id');
-        $sub_action = trim(_post('sub_action') ?: 'check');
-
-        $trx = ORM::for_table('tbl_payment_gateway')->find_one($trx_id);
-        if (!$trx) {
-            api_response(false, 'Data tagihan tidak ditemukan.', null, 404);
-        }
-
-        $cust = ORM::for_table('tbl_customers')->where('username', $trx['username'])->find_one();
-
-        if ($sub_action === 'cancel') {
-            if ((int)$trx['status'] === 2) {
-                api_response(false, 'Tagihan yang sudah LUNAS tidak dapat dibatalkan.', null, 400);
-            }
-            $trx->status = 4;
-            $trx->save();
-            write_admin_log($admin, 'Membatalkan tagihan QRIS #' . $trx_id . ' milik ' . $trx['username']);
-            api_response(true, 'Tagihan berhasil dibatalkan.', format_unpaid_data($trx, $token, $config, false));
-        }
-
-        if ($sub_action === 'approve_manual') {
-            if (!in_array($admin['user_type'], ['SuperAdmin', 'Admin'])) {
-                api_response(false, 'Hanya SuperAdmin/Admin yang dapat menyetujui pembayaran manual.', null, 403);
-            }
-            if (verify_if_already_recharged($trx)) {
-                api_response(true, 'Tagihan ini sudah berstatus LUNAS sebelumnya.', format_unpaid_data($trx, $token, $config, false));
-            }
-            if (!$cust) {
-                api_response(false, 'Data pelanggan pemilik tagihan tidak ditemukan.', null, 404);
-            }
-
-            if (class_exists('Package') && Package::rechargeUser($cust['id'], $trx['routers'], $trx['plan_id'], $trx['gateway'], 'Manual Approve (' . $admin['username'] . ')')) {
-                $trx->status = 2;
-                $trx->paid_date = date('Y-m-d H:i:s');
-                $trx->save();
-                write_admin_log($admin, 'Approve manual tagihan Payment Gateway #' . $trx_id . ' untuk ' . $trx['username']);
-                api_response(true, 'Tagihan berhasil dilunasi & paket pelanggan telah aktif!', format_unpaid_data($trx, $token, $config, false));
-            } else {
-                api_response(false, 'Gagal mengaktifkan paket ke Router MikroTik.', null, 500);
-            }
-        }
-
-        // Default sub_action === 'check'
-        if (!verify_if_already_recharged($trx) && (int)$trx['status'] === 1 && !empty($trx['gateway']) && $cust) {
-            $gw_file = 'system/paymentgateway/' . $trx['gateway'] . '.php';
-            if (file_exists($gw_file)) {
-                include_once $gw_file;
-                $status_fn = $trx['gateway'] . '_get_status';
-                if (function_exists($status_fn)) {
-                    $GLOBALS['API_INTERCEPT_MODE']   = 'check_payment';
-                    $GLOBALS['API_INTERCEPT_TRX_ID'] = $trx['id'];
-                    $GLOBALS['API_INTERCEPT_TOKEN']  = $token;
-                    @$status_fn($trx, $cust);
-                    $GLOBALS['API_INTERCEPT_TRX_ID'] = null;
-                    $trx = ORM::for_table('tbl_payment_gateway')->find_one($trx_id);
-                }
-            }
-        }
-
-        $is_paid = verify_if_already_recharged($trx);
-        api_response(true, $is_paid ? 'Pembayaran LUNAS terverifikasi!' : 'Pembayaran belum diterima oleh Gateway.', [
-            'paid' => $is_paid,
-            'bill' => format_unpaid_data($trx, $token, $config, false)
-        ]);
-        break;
-
     case 'admin_send_message':
-        // Menu: Mengirim Pesan (Single & Bulk Broadcast WA / SMS / Inbox / Telegram)
-        $admin = authenticate_admin($api_secret);
-        $mode        = _post('mode') ?: 'single'; // single / bulk
+        $admin = require_admin_session($api_secret);
+        $mode        = _post('mode') ?: 'single';
         $customer_id = (int)_post('customer_id');
-        $group       = _post('group') ?: 'all'; // all, active, expired, hotspot, pppoe
-        $via         = _post('via') ?: 'wa'; // wa, sms, inbox, both
+        $group       = _post('group') ?: 'all';
+        $via         = _post('via') ?: 'wa';
         $message_raw = trim(_post('message'));
         $subject     = trim(_post('subject') ?: ('Informasi ' . ($config['CompanyName'] ?? 'Arneta.ID')));
 
         if (empty($message_raw)) {
-            api_response(false, 'Isi pesan tidak boleh kosong.', null, 400);
+            api_out(false, 'Isi pesan tidak boleh kosong.', null, 400);
         }
 
         $targets = [];
         if ($mode === 'single') {
             $c = ORM::for_table('tbl_customers')->find_one($customer_id);
-            if (!$c) {
-                api_response(false, 'Pelanggan tujuan tidak ditemukan.', null, 404);
+            if (!$c && !empty(_post('username'))) {
+                $c = ORM::for_table('tbl_customers')->where('username', trim(_post('username')))->find_one();
             }
-            $targets[] = $c;
+            if (!$c) api_out(false, 'Pilih pelanggan tujuan terlebih dahulu.', null, 404);
+            $targets[] = $c->as_array();
         } else {
             $q = ORM::for_table('tbl_customers');
             if ($group === 'hotspot') {
@@ -2914,10 +1929,10 @@ switch ($action) {
                 if (!empty($cids)) {
                     $q->where_in('id', $cids);
                 } else {
-                    api_response(false, 'Tidak ada pelanggan dalam kategori ' . $group, null, 404);
+                    api_out(false, 'Tidak ada pelanggan dalam kategori ' . $group, null, 404);
                 }
             }
-            $targets = $q->limit(250)->find_many();
+            $targets = $q->limit(300)->find_array();
         }
 
         $sent_count = 0;
@@ -2928,106 +1943,88 @@ switch ($action) {
                 $message_raw
             );
 
-            $sent_any = false;
-            if (($via === 'wa' || $via === 'both') && !empty($cust['phonenumber']) && class_exists('Message') && method_exists('Message', 'sendWhatsapp')) {
-                @Message::sendWhatsapp($cust['phonenumber'], $msg);
-                $sent_any = true;
+            $ok = false;
+            if (($via === 'wa' || $via === 'both') && !empty($cust['phonenumber'])) {
+                if (class_exists('Message') && method_exists('Message', 'sendWhatsapp')) {
+                    @Message::sendWhatsapp($cust['phonenumber'], $msg);
+                    $ok = true;
+                }
             }
-            if (($via === 'sms' || $via === 'both') && !empty($cust['phonenumber']) && class_exists('Message') && method_exists('Message', 'sendSMS')) {
-                @Message::sendSMS($cust['phonenumber'], $msg);
-                $sent_any = true;
+            if (($via === 'sms' || $via === 'both') && !empty($cust['phonenumber'])) {
+                if (class_exists('Message') && method_exists('Message', 'sendSMS')) {
+                    @Message::sendSMS($cust['phonenumber'], $msg);
+                    $ok = true;
+                }
             }
             if ($via === 'inbox' || $via === 'both') {
                 if (class_exists('Message') && method_exists('Message', 'addToInbox')) {
                     @Message::addToInbox($cust['id'], $subject, $msg, 'Admin');
-                    $sent_any = true;
+                    $ok = true;
                 } else {
                     try {
                         $inb = ORM::for_table('tbl_customers_inbox')->create();
-                        $inb->customer_id = $cust['id'];
+                        $inb->customer_id  = $cust['id'];
                         $inb->date_created = date('Y-m-d H:i:s');
-                        $inb->subject = $subject;
-                        $inb->body = nl2br($msg);
-                        $inb->from = 'Admin';
+                        $inb->subject      = $subject;
+                        $inb->body         = nl2br($msg);
+                        $inb->from         = 'Admin';
                         $inb->save();
-                        $sent_any = true;
+                        $ok = true;
                     } catch (Exception $e) {}
                 }
             }
-            if ($sent_any) $sent_count++;
+            if ($ok) $sent_count++;
         }
 
         write_admin_log($admin, 'Mengirim pesan (' . strtoupper($via) . ') ke ' . $sent_count . ' pelanggan');
-        api_response(true, 'Pesan berhasil dikirim ke ' . $sent_count . ' pelanggan.');
+        api_out(true, 'Pesan berhasil dikirim ke ' . $sent_count . ' pelanggan.');
         break;
 
+    case 'pages':
     case 'admin_pages':
-        // Menu: Halaman Statis (Membaca template di folder pages/)
-        $admin = authenticate_admin($api_secret);
-        $pages_dir = 'pages';
+        require_admin_session($api_secret);
+        $pages_dir = is_dir($phpnux_root . '/pages') ? ($phpnux_root . '/pages') : 'pages';
         $files = glob($pages_dir . '/*.html') ?: [];
-
-        $page_list = [];
+        $list = [];
         foreach ($files as $f) {
             $name = basename($f, '.html');
-            $page_list[] = [
+            $list[] = [
                 'name'    => $name,
                 'title'   => str_replace('_', ' ', $name),
                 'content' => @file_get_contents($f) ?: ''
             ];
         }
-
-        api_response(true, 'Daftar halaman statis dimuat', $page_list);
+        api_out(true, 'Halaman statis dimuat', $list);
         break;
 
+    case 'page_save':
     case 'admin_page_save':
-        $admin = authenticate_admin($api_secret, ['SuperAdmin', 'Admin']);
-        $name    = preg_replace('/[^a-zA-Z0-9_\-]/', '', _post('name'));
-        $content = _post('content');
-
-        if (empty($name)) {
-            api_response(false, 'Nama halaman tidak valid.', null, 400);
+        require_admin_session($api_secret, ['SuperAdmin', 'Admin']);
+        $name = preg_replace('/[^a-zA-Z0-9_\-]/', '', _post('name'));
+        if (empty($name)) api_out(false, 'Nama halaman tidak valid.', null, 400);
+        $pages_dir = is_dir($phpnux_root . '/pages') ? ($phpnux_root . '/pages') : 'pages';
+        if (@file_put_contents($pages_dir . '/' . $name . '.html', _post('content')) !== false) {
+            api_out(true, 'Halaman ' . str_replace('_', ' ', $name) . ' berhasil disimpan.');
         }
-
-        $path = 'pages/' . $name . '.html';
-        if (@file_put_contents($path, $content) !== false) {
-            write_admin_log($admin, 'Memperbarui halaman statis: ' . $name);
-            api_response(true, 'Halaman ' . str_replace('_', ' ', $name) . ' berhasil disimpan.');
-        } else {
-            api_response(false, 'Gagal menulis file ke folder pages/. Pastikan izin folder writable.', null, 500);
-        }
+        api_out(false, 'Gagal menulis ke folder pages/. Pastikan permission writable.', null, 500);
         break;
 
     case 'admin_settings':
-        // Menu: Pengaturan Umum & Notifikasi
-        $admin = authenticate_admin($api_secret, ['SuperAdmin', 'Admin']);
-        $safe_keys = [
-            'CompanyName', 'address', 'phone', 'currency_code', 'country_code_phone',
-            'enable_balance', 'allow_balance_transfer', 'minimum_transfer',
-            'enable_tax', 'tax_rate', 'payment_gateway', 'whatsapp_gateway_url',
-            'wa_url', 'sms_url', 'telegram_bot', 'telegram_target_id',
-            'user_notification_expired', 'user_notification_payment', 'user_notification_reminder',
-            'note', 'tawkto', 'theme'
-        ];
-
-        $settings_data = [];
-        foreach ($safe_keys as $k) {
-            $settings_data[$k] = $config[$k] ?? '';
+        require_admin_session($api_secret, ['SuperAdmin', 'Admin']);
+        $rows = ORM::for_table('tbl_appconfig')->find_array();
+        $cfg = [];
+        foreach ($rows as $r) {
+            $cfg[$r['setting']] = $r['value'];
         }
-
-        api_response(true, 'Pengaturan sistem dimuat', $settings_data);
+        api_out(true, 'Pengaturan sistem dimuat', $cfg);
         break;
 
     case 'admin_settings_save':
-        $admin = authenticate_admin($api_secret, ['SuperAdmin', 'Admin']);
+        $admin = require_admin_session($api_secret, ['SuperAdmin', 'Admin']);
         $updates = _post('settings');
-        if (!is_array($updates)) {
-            $updates = $_POST;
-        }
-
-        $saved = 0;
+        if (!is_array($updates)) $updates = $_POST;
         foreach ($updates as $k => $v) {
-            if (in_array($k, ['action', 'token', 'settings'])) continue;
+            if (in_array($k, ['r', 'action', 'token', 'settings'])) continue;
             $row = ORM::for_table('tbl_appconfig')->where('setting', $k)->find_one();
             if (!$row) {
                 $row = ORM::for_table('tbl_appconfig')->create();
@@ -3035,174 +2032,497 @@ switch ($action) {
             }
             $row->value = is_array($v) ? implode(',', $v) : trim((string)$v);
             $row->save();
-            $saved++;
         }
-
-        write_admin_log($admin, 'Memperbarui ' . $saved . ' pengaturan aplikasi melalui Android Admin');
-        api_response(true, 'Pengaturan sistem berhasil disimpan.');
+        write_admin_log($admin, 'Memperbarui pengaturan sistem');
+        api_out(true, 'Pengaturan sistem berhasil disimpan.');
         break;
 
     case 'admin_staff_list':
-        // Menu: Pengaturan -> Pengaturan Pengguna (Admin / Agent / Sales)
-        $admin = authenticate_admin($api_secret, ['SuperAdmin', 'Admin']);
+        require_admin_session($api_secret, ['SuperAdmin', 'Admin']);
         $rows = ORM::for_table('tbl_users')->order_by_asc('id')->find_array();
-        $staff = [];
-        foreach ($rows as $r) {
-            unset($r['password']);
-            $staff[] = $r;
-        }
-        api_response(true, 'Daftar staf/admin dimuat', $staff);
+        foreach ($rows as &$r) unset($r['password']);
+        api_out(true, 'Daftar staf dimuat', $rows);
         break;
 
     case 'admin_staff_save':
-        $admin = authenticate_admin($api_secret, ['SuperAdmin', 'Admin']);
-        $id        = (int)_post('id');
+        require_admin_session($api_secret, ['SuperAdmin', 'Admin']);
         $username  = trim(_post('username'));
         $fullname  = trim(_post('fullname'));
         $password  = _post('password');
         $user_type = _post('user_type') ?: 'Agent';
-
-        if (empty($username) || empty($fullname)) {
-            api_response(false, 'Username dan Nama Lengkap wajib diisi.', null, 400);
-        }
-
-        if ($id > 0) {
-            $u = ORM::for_table('tbl_users')->find_one($id);
-            if (!$u) api_response(false, 'Staf tidak ditemukan.', null, 404);
-        } else {
-            if (empty($password)) {
-                api_response(false, 'Password wajib diisi untuk staf baru.', null, 400);
-            }
-            $dup = ORM::for_table('tbl_users')->where('username', $username)->find_one();
-            if ($dup) api_response(false, 'Username sudah digunakan.', null, 400);
-            $u = ORM::for_table('tbl_users')->create();
-            $u->creationdate = date('Y-m-d H:i:s');
-        }
-
-        $u->username  = $username;
-        $u->fullname  = $fullname;
-        $u->user_type = $user_type;
-        $u->phone     = trim(_post('phone'));
-        $u->email     = trim(_post('email'));
-        $u->city      = trim(_post('city'));
-        $u->status    = _post('status') ?: 'Active';
-        if (!empty($password)) {
-            $u->password = hash_admin_password($password);
-        }
+        if (empty($username) || empty($fullname)) api_out(false, 'Username & Nama wajib diisi.', null, 400);
+        $u = ORM::for_table('tbl_users')->create();
+        $u->username     = $username;
+        $u->fullname     = $fullname;
+        $u->user_type    = $user_type;
+        $u->status       = 'Active';
+        $u->creationdate = date('Y-m-d H:i:s');
+        $u->password     = hash_user_password($password ?: '123456');
         $u->save();
-
-        write_admin_log($admin, ($id > 0 ? 'Mengubah' : 'Menambah') . ' staf ' . $user_type . ': ' . $username);
-        api_response(true, 'Data staf ' . $fullname . ' berhasil disimpan.');
+        api_out(true, 'Akun staf ' . $fullname . ' berhasil ditambahkan.');
         break;
 
     case 'admin_staff_delete':
-        $admin = authenticate_admin($api_secret, ['SuperAdmin']);
-        $id = (int)_post('id');
-        if ($id === (int)$admin['id']) {
-            api_response(false, 'Anda tidak dapat menghapus akun Anda sendiri.', null, 400);
-        }
+        $admin = require_admin_session($api_secret, ['SuperAdmin']);
+        $id = (int)_req('id');
+        if ($id === (int)$admin['id']) api_out(false, 'Tidak dapat menghapus akun sendiri.', null, 400);
         $u = ORM::for_table('tbl_users')->find_one($id);
-        if ($u) {
-            $u->delete();
-        }
-        api_response(true, 'Akun staf berhasil dihapus.');
+        if ($u) $u->delete();
+        api_out(true, 'Akun staf berhasil dihapus.');
         break;
 
     case 'admin_logs':
-        $admin = authenticate_admin($api_secret);
-        $clear = (int)_post('clear');
-        if ($clear === 1 && in_array($admin['user_type'], ['SuperAdmin', 'Admin'])) {
-            ORM::for_table('tbl_logs')->delete_many();
-            write_admin_log($admin, 'Membersihkan riwayat System Logs');
-            api_response(true, 'System Logs berhasil dibersihkan.');
-        }
-
-        $logs = ORM::for_table('tbl_logs')
-            ->order_by_desc('id')
-            ->limit(100)
-            ->find_array();
-        api_response(true, 'System logs dimuat', $logs);
+        require_admin_session($api_secret);
+        $logs = ORM::for_table('tbl_logs')->order_by_desc('id')->limit(100)->find_array();
+        api_out(true, 'System logs berhasil dimuat', $logs);
         break;
 
+    case 'system_tools':
     case 'admin_system_tools':
-        // Utilitas Admin: Clear Cache & Trigger Cronjob
-        $admin = authenticate_admin($api_secret, ['SuperAdmin', 'Admin']);
-        $tool = _post('tool') ?: 'clear_cache';
-
+        $admin = require_admin_session($api_secret, ['SuperAdmin', 'Admin']);
+        $tool = _req('tool') ?: 'clear_cache';
         if ($tool === 'clear_cache') {
-            $deleted = 0;
-            $dirs = ['ui/compiled/*', 'system/cache/*'];
-            foreach ($dirs as $pattern) {
-                foreach (glob($pattern) ?: [] as $f) {
-                    if (is_file($f) && basename($f) !== 'index.html' && basename($f) !== '.htaccess') {
+            $del = 0;
+            foreach ([$phpnux_root . '/ui/compiled/*', $phpnux_root . '/system/cache/*'] as $pat) {
+                foreach (glob($pat) ?: [] as $f) {
+                    if (is_file($f) && !in_array(basename($f), ['index.html', '.htaccess'])) {
                         @unlink($f);
-                        $deleted++;
+                        $del++;
                     }
                 }
             }
-            write_admin_log($admin, 'Membersihkan ' . $deleted . ' file cache sistem');
-            api_response(true, $deleted . ' file cache berhasil dibersihkan.');
+            api_out(true, $del . ' file cache sistem berhasil dibersihkan.');
         }
-
         if ($tool === 'run_cron') {
-            // Mengecek dan menonaktifkan paket yang sudah melewati tanggal/jam expired
-            $now_date = date('Y-m-d');
-            $now_time = date('H:i:s');
-            $active_list = ORM::for_table('tbl_user_recharges')
-                ->where('status', 'on')
-                ->where_lte('expiration', $now_date)
-                ->find_many();
-
-            $expired_cnt = 0;
-            foreach ($active_list as $ur) {
-                $exp_ts = strtotime($ur['expiration'] . ' ' . ($ur['time'] ?: '23:59:59'));
-                if (time() >= $exp_ts) {
-                    $plan = ORM::for_table('tbl_plans')->find_one($ur['plan_id']);
-                    $cust = ORM::for_table('tbl_customers')->find_one($ur['customer_id']);
-                    if ($plan && $cust && class_exists('Package') && method_exists('Package', 'getDevice')) {
-                        $dev_file = Package::getDevice($plan);
-                        if (file_exists($dev_file)) {
-                            require_once $dev_file;
-                            $d_cls = $plan['device'];
-                            if (class_exists($d_cls)) {
-                                $dev = new $d_cls();
-                                if (method_exists($dev, 'remove_customer')) {
-                                    @$dev->remove_customer($cust, $plan);
-                                }
-                            }
-                        }
-                    }
+            $cnt = 0;
+            $active = ORM::for_table('tbl_user_recharges')->where('status', 'on')->where_lte('expiration', date('Y-m-d'))->find_many();
+            foreach ($active as $ur) {
+                if (time() >= strtotime($ur['expiration'] . ' ' . ($ur['time'] ?: '23:59:59'))) {
                     $ur->status = 'off';
                     $ur->save();
-                    $expired_cnt++;
+                    $cnt++;
                 }
             }
-
-            write_admin_log($admin, 'Menjalankan Cronjob manual (' . $expired_cnt . ' pelanggan kedaluwarsa ditertibkan)');
-            api_response(true, 'Cronjob selesai dijalankan. ' . $expired_cnt . ' paket kedaluwarsa telah dinonaktifkan.');
+            api_out(true, 'Cronjob selesai. ' . $cnt . ' paket kedaluwarsa telah dinonaktifkan.');
         }
-
-        api_response(false, 'Perintah utilitas tidak dikenali.', null, 400);
+        api_out(false, 'Perintah tidak dikenali.', null, 400);
         break;
 
+    // =========================================================================
+    // 8. PETA, KUPON, ASSET MANAGER, AUDIT QRIS & WEBVIEW SSO
+    // =========================================================================
+    case 'map_all':
+    case 'admin_map_data':
+        require_admin_session($api_secret);
+        ensure_custom_tables();
+
+        $active_map = [];
+        foreach (ORM::for_table('tbl_user_recharges')->find_array() as $r) {
+            $cid = (int)$r['customer_id'];
+            if (!isset($active_map[$cid]) || $r['status'] === 'on') $active_map[$cid] = $r;
+        }
+
+        $customers = [];
+        foreach (ORM::for_table('tbl_customers')->where_not_equal('coordinates', '')->where_not_null('coordinates')->find_array() as $c) {
+            $p = array_map('trim', explode(',', $c['coordinates']));
+            if (count($p) < 2 || !is_numeric($p[0]) || !is_numeric($p[1])) continue;
+            $rech = $active_map[(int)$c['id']] ?? null;
+            $customers[] = [
+                'id'           => (int)$c['id'],
+                'username'     => $c['username'] ?: '-',
+                'fullname'     => $c['fullname'] ?: $c['username'],
+                'phonenumber'  => $c['phonenumber'] ?: '-',
+                'address'      => str_replace(["\r", "\n"], ' ', $c['address'] ?: '-'),
+                'service_type' => $c['service_type'] ?: 'Hotspot',
+                'lat'          => (float)$p[0],
+                'lng'          => (float)$p[1],
+                'plan_status'  => $rech ? $rech['status'] : 'off',
+                'plan_name'    => $rech ? $rech['namebp'] : 'Non-Paket',
+                'expiration'   => $rech ? $rech['expiration'] : '-'
+            ];
+        }
+
+        $routers = [];
+        foreach (ORM::for_table('tbl_routers')->find_array() as $r) {
+            if (empty($r['coordinates'])) continue;
+            $p = array_map('trim', explode(',', $r['coordinates']));
+            if (count($p) < 2 || !is_numeric($p[0]) || !is_numeric($p[1])) continue;
+            $routers[] = [
+                'id'          => (int)$r['id'],
+                'name'        => $r['name'],
+                'ip_address'  => $r['ip_address'],
+                'description' => str_replace(["\r", "\n"], ' ', $r['description'] ?: ''),
+                'coverage'    => (int)($r['coverage'] ?: 350),
+                'lat'         => (float)$p[0],
+                'lng'         => (float)$p[1]
+            ];
+        }
+
+        $assets = [];
+        try {
+            foreach (ORM::for_table('tbl_assets')->find_array() as $a) {
+                if (empty($a['coordinates'])) continue;
+                $p = array_map('trim', explode(',', $a['coordinates']));
+                if (count($p) < 2 || !is_numeric($p[0]) || !is_numeric($p[1])) continue;
+                $assets[] = [
+                    'id'        => (int)$a['id'],
+                    'name'      => $a['name'],
+                    'category'  => $a['category'],
+                    'condition' => $a['condition_status'],
+                    'lat'       => (float)$p[0],
+                    'lng'       => (float)$p[1]
+                ];
+            }
+        } catch (Exception $e) {}
+
+        api_out(true, 'Data peta berhasil dimuat', [
+            'customers' => $customers,
+            'routers'   => $routers,
+            'assets'    => $assets
+        ]);
+        break;
+
+    case 'coupons':
+    case 'admin_coupons':
+        require_admin_session($api_secret);
+        ensure_custom_tables();
+        api_out(true, 'Daftar kupon dimuat', ORM::for_table('tbl_coupons')->order_by_desc('id')->find_array());
+        break;
+
+    case 'coupon_save':
+    case 'admin_coupon_save':
+        require_admin_session($api_secret);
+        ensure_custom_tables();
+        $code = strtoupper(trim(_post('code')));
+        if (empty($code)) api_out(false, 'Kode kupon wajib diisi.', null, 400);
+        $c = ORM::for_table('tbl_coupons')->create();
+        $c->code = $code;
+        $c->type = _post('type') === 'percent' ? 'percent' : 'fixed';
+        $c->value = (float)_post('value');
+        $c->expired_date = _post('expired_date') ?: date('Y-m-d', strtotime('+30 days'));
+        $c->save();
+        api_out(true, 'Kupon ' . $code . ' berhasil disimpan.', $c->as_array());
+        break;
+
+    case 'coupon_delete':
+    case 'admin_coupon_delete':
+        require_admin_session($api_secret);
+        ensure_custom_tables();
+        $c = ORM::for_table('tbl_coupons')->find_one((int)_req('id'));
+        if ($c) $c->delete();
+        api_out(true, 'Kupon berhasil dihapus.');
+        break;
+
+    case 'assets':
+    case 'admin_assets':
+        require_admin_session($api_secret);
+        ensure_custom_tables();
+        $assets = ORM::for_table('tbl_assets')->order_by_desc('id')->find_array();
+        $val = ORM::for_table('tbl_assets')->sum('cost') ?: 0;
+        api_out(true, 'Daftar aset dimuat', [
+            'summary' => ['total_items' => count($assets), 'total_value' => (float)$val],
+            'assets'  => $assets
+        ]);
+        break;
+
+    case 'asset_save':
+    case 'admin_asset_save':
+        require_admin_session($api_secret);
+        ensure_custom_tables();
+        $name = trim(_post('name'));
+        if (empty($name)) api_out(false, 'Nama aset wajib diisi.', null, 400);
+        $a = ORM::for_table('tbl_assets')->create();
+        $a->name             = $name;
+        $a->category         = trim(_post('category') ?: 'ODP/ODC');
+        $a->serial_number    = trim(_post('serial_number'));
+        $a->cost             = (float)(_post('cost') ?: 0);
+        $a->coordinates      = trim(_post('coordinates'));
+        $a->condition_status = _post('condition_status') ?: 'Good';
+        $a->purchase_date    = date('Y-m-d');
+        $a->save();
+        api_out(true, 'Aset ' . $name . ' berhasil disimpan.', $a->as_array());
+        break;
+
+    case 'asset_delete':
+    case 'admin_asset_delete':
+        require_admin_session($api_secret);
+        ensure_custom_tables();
+        $a = ORM::for_table('tbl_assets')->find_one((int)_req('id'));
+        if ($a) $a->delete();
+        api_out(true, 'Aset berhasil dihapus.');
+        break;
+
+    case 'pg_action':
+    case 'admin_payment_gateways':
+    case 'admin_pg_action':
+        $admin = require_admin_session($api_secret);
+        $sub = trim(_req('sub_action') ?: ($action === 'admin_payment_gateways' ? 'list' : 'check'));
+
+        if ($sub === 'list') {
+            $status = _req('status');
+            $q = ORM::for_table('tbl_payment_gateway');
+            if ($status !== '' && $status !== null && strtolower((string)$status) !== 'all') {
+                $q->where('status', (int)$status);
+            }
+            $rows = $q->order_by_desc('id')->limit(60)->find_many();
+            $items = [];
+            foreach ($rows as $r) {
+                if ((int)$r['status'] === 1) verify_already_recharged($r);
+                $items[] = parse_qris_trx($r, $config);
+            }
+            api_out(true, 'Daftar transaksi Payment Gateway', ['items' => $items]);
+        }
+
+        $trx_id = (int)_req('id');
+        $trx = ORM::for_table('tbl_payment_gateway')->find_one($trx_id);
+        if (!$trx) api_out(false, 'Data tagihan tidak ditemukan.', null, 404);
+        $cust = ORM::for_table('tbl_customers')->where('username', $trx['username'])->find_one();
+
+        if ($sub === 'cancel') {
+            if ((int)$trx['status'] === 2) api_out(false, 'Tagihan sudah LUNAS.', null, 400);
+            $trx->status = 4;
+            $trx->save();
+            api_out(true, 'Tagihan berhasil dibatalkan.', parse_qris_trx($trx, $config));
+        }
+
+        if ($sub === 'approve_manual') {
+            if (verify_already_recharged($trx)) {
+                api_out(true, 'Tagihan sudah LUNAS sebelumnya.', parse_qris_trx($trx, $config));
+            }
+            if ($cust && class_exists('Package') && Package::rechargeUser($cust['id'], $trx['routers'], $trx['plan_id'], $trx['gateway'], 'Manual Approve (' . $admin['username'] . ')')) {
+                $trx->status = 2;
+                $trx->paid_date = date('Y-m-d H:i:s');
+                $trx->save();
+                api_out(true, 'Tagihan berhasil dilunasi & paket aktif!', parse_qris_trx($trx, $config));
+            }
+            api_out(false, 'Gagal mengaktifkan paket ke Router.', null, 500);
+        }
+
+        if (!verify_already_recharged($trx) && (int)$trx['status'] === 1 && !empty($trx['gateway']) && $cust) {
+            $gw_file = 'system/paymentgateway/' . $trx['gateway'] . '.php';
+            if (file_exists($gw_file)) {
+                include_once $gw_file;
+                $status_fn = $trx['gateway'] . '_get_status';
+                if (function_exists($status_fn)) {
+                    $GLOBALS['API_INTERCEPT_MODE']   = 'check_payment';
+                    $GLOBALS['API_INTERCEPT_TRX_ID'] = $trx['id'];
+                    @$status_fn($trx, $cust);
+                    $GLOBALS['API_INTERCEPT_TRX_ID'] = null;
+                    $trx = ORM::for_table('tbl_payment_gateway')->find_one($trx_id);
+                }
+            }
+        }
+        $is_paid = verify_already_recharged($trx);
+        api_out(true, $is_paid ? 'Pembayaran LUNAS!' : 'Pembayaran belum diterima.', [
+            'paid' => $is_paid,
+            'bill' => parse_qris_trx($trx, $config)
+        ]);
+        break;
+
+    case 'webview_sso':
     case 'admin_webview_sso':
-        // Jembatan Auto-Login dari Aplikasi Android ke WebView Internal (?_route=admin -> ?_route=dashboard)
-        $admin = authenticate_admin($api_secret);
-        $target_route = trim(_get('redirect') ?: _post('redirect') ?: 'dashboard');
+        $token = get_req_token();
+        $target = trim(_get('redirect') ?: _post('redirect') ?: 'dashboard');
 
-        $_SESSION['aid'] = $admin['id'];
-        if (class_exists('Admin') && method_exists('Admin', 'setCookie')) {
-            @Admin::setCookie($admin['id']);
+        // Pastikan cookie sesi PHP berlaku di root domain '/' (bukan terkunci di subfolder '/system')
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            setcookie(session_name(), session_id(), 0, '/');
         }
 
-        if (ob_get_length()) {
-            ob_clean();
+        if (strpos($token, 'c.') === 0) {
+            $cust = require_customer_session($api_secret);
+            $_SESSION['uid'] = $cust['id'];
+            if (class_exists('User') && method_exists('User', 'setCookie')) {
+                @User::setCookie($cust['id']);
+            }
+            if ($target === 'dashboard') $target = 'home';
+        } else {
+            $adm = require_admin_session($api_secret);
+            $_SESSION['aid'] = $adm['id'];
+            if (class_exists('Admin') && method_exists('Admin', 'setCookie')) {
+                @Admin::setCookie($adm['id']);
+            }
         }
-        header('Location: ' . APP_URL . '/?_route=' . ltrim($target_route, '/'));
+
+        // Hapus imbuhan '/system' dari APP_URL jika dipanggil lewat /system/api.php
+        $clean_root_url = preg_replace('#/system/?$#i', '', rtrim(APP_URL, '/'));
+
+        if (ob_get_length()) ob_clean();
+        header('Location: ' . $clean_root_url . '/?_route=' . ltrim($target, '/'));
         exit();
 
+    // =========================================================================
+    // 9. ENDPOINT APK PELANGGAN (KOMPATIBILITAS PENUH)
+    // =========================================================================
+    case 'login':
+        $username = _post('username');
+        $password = _post('password');
+        $user = ORM::for_table('tbl_customers')->where('username', $username)->find_one();
+        if (!$user || !check_user_password($password, $user['password'])) {
+            api_out(false, 'Username atau Password salah.', null, 401);
+        }
+        api_out(true, 'Login berhasil', [
+            'token'        => generate_customer_token($user, $api_secret),
+            'native_token' => create_native_token('c', $user['id'], $api_secret)
+        ]);
+        break;
+
+    case 'dashboard':
+        $user = require_customer_session($api_secret);
+        $recharges = ORM::for_table('tbl_user_recharges')->where('customer_id', $user['id'])->order_by_desc('id')->find_array();
+        $unpaid_rows = ORM::for_table('tbl_payment_gateway')->where('username', $user['username'])->where('status', 1)->order_by_desc('id')->find_many();
+        $unpaid_bills = [];
+        foreach ($unpaid_rows as $ur) {
+            if (!verify_already_recharged($ur)) $unpaid_bills[] = parse_qris_trx($ur, $config);
+        }
+        api_out(true, 'Data beranda dimuat', [
+            'company' => [
+                'name' => $config['CompanyName'] ?? 'Arneta.ID', 'phone' => $config['phone'] ?? '',
+                'address' => $config['address'] ?? '', 'currency' => $config['currency_code'] ?? 'Rp',
+                'enable_balance' => ($config['enable_balance'] ?? 'yes') === 'yes'
+            ],
+            'customer' => [
+                'id' => (int)$user['id'], 'username' => $user['username'], 'fullname' => $user['fullname'],
+                'phonenumber' => $user['phonenumber'], 'email' => $user['email'], 'address' => $user['address'],
+                'balance' => (float)$user['balance'], 'service_type' => $user['service_type'] ?: 'Others',
+                'auto_renewal' => (int)$user['auto_renewal']
+            ],
+            'payment_gateways' => get_active_gateways($config),
+            'active_packages'  => $recharges,
+            'unpaid_bills'     => $unpaid_bills,
+            'unpaid_bill'      => $unpaid_bills[0] ?? null
+        ]);
+        break;
+
+    case 'plans':
+        $user = require_customer_session($api_secret);
+        $cust_type = strtoupper(trim($user['service_type'] ?: 'OTHERS'));
+        $plans = ORM::for_table('tbl_plans')->where('enabled', 1)->order_by_asc('price')->find_array();
+        $internet_plans = []; $balance_plans = [];
+        foreach ($plans as $p) {
+            $p_type = strtoupper(trim($p['type']));
+            $item = [
+                'id' => (int)$p['id'], 'name_plan' => $p['name_plan'], 'price' => (float)$p['price'],
+                'type' => ($p_type === 'PPPOE') ? 'PPPoE' : $p['type'], 'prepaid' => $p['prepaid'],
+                'validity' => $p['validity'] . ' ' . $p['validity_unit'], 'routers' => $p['routers']
+            ];
+            if ($p_type === 'BALANCE') { $balance_plans[] = $item; continue; }
+            if ($cust_type === $p_type || ($cust_type !== 'HOTSPOT' && $cust_type !== 'PPPOE')) {
+                $internet_plans[] = $item;
+            }
+        }
+        api_out(true, 'Daftar paket dimuat', [
+            'internet_plans' => $internet_plans, 'balance_plans' => $balance_plans,
+            'payment_gateways' => get_active_gateways($config)
+        ]);
+        break;
+
+    case 'transactions':
+        $user = require_customer_session($api_secret);
+        api_out(true, 'Riwayat transaksi', ORM::for_table('tbl_transactions')->where('username', $user['username'])->order_by_desc('id')->limit(30)->find_array());
+        break;
+
+    case 'toggle_renewal':
+        $user = require_customer_session($api_secret);
+        $user->auto_renewal = ($user->auto_renewal == 1) ? 0 : 1;
+        $user->save();
+        api_out(true, 'Status perpanjangan otomatis diubah.', ['auto_renewal' => (int)$user->auto_renewal]);
+        break;
+
+    case 'redeem_voucher':
+        $user = require_customer_session($api_secret);
+        $code = trim(_post('code'));
+        $v = ORM::for_table('tbl_voucher')->where('code', $code)->where('status', 0)->find_one();
+        if (!$v) api_out(false, 'Kode voucher tidak ditemukan atau sudah terpakai.', null, 404);
+        if (class_exists('Package') && Package::rechargeUser($user['id'], $v['routers'], $v['id_plan'], 'Voucher', $code)) {
+            $v->status = '1'; $v->user = $user['username']; $v->save();
+            api_out(true, 'Voucher berhasil diaktifkan!');
+        }
+        api_out(false, 'Gagal mengaktifkan voucher.', null, 500);
+        break;
+
+    case 'buy':
+    case 'qris_buy':
+        $user = require_customer_session($api_secret);
+        $plan = ORM::for_table('tbl_plans')->find_one((int)_post('plan_id'));
+        $gateway_choice = trim(_post('gateway') ?: _post('method'));
+        if (!$plan) api_out(false, 'Paket tidak ditemukan.', null, 404);
+
+        if ($gateway_choice === 'balance') {
+            if ((float)$user['balance'] < (float)$plan['price']) api_out(false, 'Saldo tidak mencukupi.', null, 400);
+            if (class_exists('Package') && Package::rechargeUser($user['id'], $plan['routers'], $plan['id'], 'Customer', 'Balance')) {
+                if (class_exists('Balance')) Balance::min($user['id'], $plan['price']);
+                else { $user->balance = (float)$user->balance - (float)$plan['price']; $user->save(); }
+                api_out(true, 'Paket berhasil diaktifkan menggunakan Saldo!');
+            }
+            api_out(false, 'Gagal mengaktifkan paket.', null, 500);
+        }
+
+        $existing = ORM::for_table('tbl_payment_gateway')->where('username', $user['username'])->where('status', 1)->find_one();
+        if ($existing && !verify_already_recharged($existing)) {
+            api_out(false, 'Masih ada tagihan yang belum dibayar.', parse_qris_trx($existing, $config), 400);
+        }
+
+        $active_gws = array_filter(array_map('trim', explode(',', $config['payment_gateway'] ?? 'viaqris')));
+        $gateway = (!empty($gateway_choice) && in_array($gateway_choice, $active_gws)) ? $gateway_choice : ($active_gws[0] ?? 'viaqris');
+
+        $d = ORM::for_table('tbl_payment_gateway')->create();
+        $d->username = $user['username']; $d->gateway = $gateway; $d->plan_id = $plan['id'];
+        $d->plan_name = $plan['name_plan']; $d->routers_id = 0; $d->routers = $plan['routers'];
+        $d->price = $plan['price']; $d->created_date = date('Y-m-d H:i:s'); $d->status = 1;
+        $d->save();
+
+        $gw_file = 'system/paymentgateway/' . $gateway . '.php';
+        if (file_exists($gw_file)) {
+            include_once $gw_file;
+            $fn = $gateway . '_create_transaction';
+            if (function_exists($fn)) {
+                $GLOBALS['API_INTERCEPT_MODE'] = 'buy'; $GLOBALS['API_INTERCEPT_TRX_ID'] = $d->id();
+                $fn($d, $user);
+                $GLOBALS['API_INTERCEPT_TRX_ID'] = null;
+                $updated = ORM::for_table('tbl_payment_gateway')->find_one($d->id());
+                api_out(true, 'Tagihan berhasil dibuat.', parse_qris_trx($updated, $config));
+            }
+        }
+        api_out(true, 'Tagihan berhasil dibuat.', parse_qris_trx($d, $config));
+        break;
+
+    case 'payment_detail':
+    case 'check_payment':
+    case 'qris_status':
+        $user = require_customer_session($api_secret);
+        $trx_id = (int)_req('id');
+        $trx = ORM::for_table('tbl_payment_gateway')->where('username', $user['username'])->find_one($trx_id);
+        if (!$trx) api_out(false, 'Tagihan tidak ditemukan.', null, 404);
+        if ($action === 'check_payment' && !verify_already_recharged($trx) && (int)$trx['status'] === 1 && !empty($trx['gateway'])) {
+            $gw_file = 'system/paymentgateway/' . $trx['gateway'] . '.php';
+            if (file_exists($gw_file)) {
+                include_once $gw_file;
+                $status_fn = $trx['gateway'] . '_get_status';
+                if (function_exists($status_fn)) {
+                    $GLOBALS['API_INTERCEPT_MODE'] = 'check_payment'; $GLOBALS['API_INTERCEPT_TRX_ID'] = $trx['id'];
+                    @$status_fn($trx, $user);
+                    $GLOBALS['API_INTERCEPT_TRX_ID'] = null;
+                    $trx = ORM::for_table('tbl_payment_gateway')->find_one($trx_id);
+                }
+            }
+        }
+        $is_paid = verify_already_recharged($trx);
+        api_out(true, $is_paid ? 'Pembayaran diterima!' : 'Menunggu pembayaran.', [
+            'paid' => $is_paid, 'bill' => parse_qris_trx($trx, $config)
+        ]);
+        break;
+
+    case 'cancel_payment':
+    case 'qris_cancel':
+        $user = require_customer_session($api_secret);
+        $trx = ORM::for_table('tbl_payment_gateway')->where('username', $user['username'])->where('status', 1)->find_one((int)_req('id'));
+        if ($trx && !verify_already_recharged($trx)) { $trx->status = 4; $trx->save(); }
+        api_out(true, 'Tagihan berhasil dibatalkan.');
+        break;
+
     default:
-        api_response(true, 'PHPNuxBill Customer & Admin API v6 Ready (Arneta.ID)');
+        api_out(true, 'PHPNuxBill Complete API v10 Ready (MikroTik Monitor & SuperAdmin Integrated)');
         break;
 }
 ```
