@@ -1,5 +1,6 @@
 Arneta.ID Admin — PHPNuxBill Mobile Control Center
 Aplikasi Android open-source berbasis Jetpack Compose yang dirancang untuk memudahkan pengelola jaringan RT/RW Net dan penyedia layanan internet dalam mengontrol billing PHPNuxBill secara mobile. Dilengkapi dengan manajemen pelanggan, pemantauan real-time MikroTik, audit QRIS, peta jaringan interaktif, hingga in-app webview.
+
 📖 Panduan untuk Pengguna Lain (Cara Menggunakan Aplikasi Ini)
 Jika Anda adalah sesama pemilik RT/RW Net atau pengelola billing PHPNuxBill yang ingin menggunakan aplikasi ini untuk server Anda sendiri, silakan ikuti panduan di bawah ini:
 1. Melakukan Fork Repositori
@@ -36,4 +37,5 @@ Jika Anda ingin mengubah domain default secara permanen tanpa perlu mengetiknya 
  * ApiClient.kt (ubah variabel DEFAULT_BASE_URL).
  * AuthAndDashboardScreens.kt (ubah variabel DEFAULT_ARNETA_URL).
  * Unggah file logo kustom Anda dengan nama logo.png di direktori utama repositori untuk otomatis mengubah ikon aplikasi saat di-build.
-Dibuat untuk komunitas pengguna PHPNuxBill Indonesia.
+Dibuat dengan AI untuk komunitas pengguna PHPNuxBill Indonesia.
+Koreksi jika ada kesalahan terutama terkait security 
