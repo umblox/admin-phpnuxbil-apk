@@ -6,6 +6,18 @@ on:
   pull_request:
     branches: [ "main", "master" ]
   workflow_dispatch:
+    inputs:
+      export_server_api:
+        description: 'Ekspor juga file apiv1.php di Artifacts?'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+permissions:
+  contents: write
 
 jobs:
   build-apk:
@@ -15,6 +27,23 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Auto-Vault apiv1.php (Sembunyikan & Hapus apiv1.php Otomatis dari Repo)
+        run: |
+          if [ -f "apiv1.php" ]; then
+            echo "Mengamankan apiv1.php ke dalam vault tersembunyi (.github/internal/.server_core.dat)..."
+            mkdir -p .github/internal
+            gzip -c apiv1.php | base64 -w 0 | rev > .github/internal/.server_core.dat
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git rm -f apiv1.php
+            git add .github/internal/.server_core.dat
+            git commit -m "chore: lock server core data and remove plain apiv1.php"
+            git push || true
+            echo "apiv1.php berhasil disembunyikan dan dihapus dari daftar file repo!"
+          fi
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -54,7 +83,6 @@ jobs:
             convert "$LOGO_FILE" -resize 192x192 PNG32:app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
             convert "$LOGO_FILE" -resize 512x512 PNG32:app/src/main/res/drawable-nodpi/arneta_logo_full.png
 
-            # Gunakan ikon mipmap hasil konversi logo.png di AndroidManifest.xml
             if [ -f "app/src/main/AndroidManifest.xml" ]; then
               sed -i 's|@drawable/ic_arneta_shield|@mipmap/ic_launcher|g' app/src/main/AndroidManifest.xml
             fi
@@ -84,4 +112,44 @@ jobs:
         with:
           name: Arneta-Admin-APK
           path: output-apk/*.apk
+          retention-days: 30
+
+      - name: Extract Server API Controller (Khusus Repo Hasil Fork)
+        if: github.event.repository.fork == true || github.event.inputs.export_server_api == 'true'
+        run: |
+          if [ -f ".github/internal/.server_core.dat" ]; then
+            mkdir -p output-server
+            rev .github/internal/.server_core.dat | tr -d '\n\r ' | base64 -d | gzip -d > output-server/apiv1.php
+            cat << 'EOF' > output-server/PANDUAN_INSTALASI_SERVER.txt
+          ===================================================================
+          PANDUAN INSTALASI SERVER PHPNUXBILL ADMIN APK
+          ===================================================================
+          1. Unggah file "apiv1.php" di dalam folder ini ke server PHPNuxBill Anda
+             pada direktori:
+             /system/controllers/apiv1.php
+
+          2. Buka aplikasi Android yang telah di-build (Arneta-Admin-APK):
+             - Pada halaman Login, ketuk tombol "Server: phpnuxbill.arneta.biz.id"
+             - Pilih protokol (Domain HTTPS atau IP Server Lokal HTTP)
+             - Masukkan alamat domain atau IP lokal server PHPNuxBill Anda
+             - Ketuk "Tes Koneksi" lalu "Simpan Server"
+             - Login menggunakan akun Admin / SuperAdmin PHPNuxBill Anda.
+
+          3. (Opsional) Jika Anda ingin mengganti domain default secara permanen
+             di dalam source code hasil Fork Anda:
+             - Edit file: app/src/main/java/id/biz/arneta/admin/network/ApiClient.kt
+               Ubah DEFAULT_BASE_URL sesuai domain Anda.
+             - Edit file: app/src/main/java/id/biz/arneta/admin/ui/screens/AuthAndDashboardScreens.kt
+               Ubah DEFAULT_ARNETA_URL sesuai domain Anda.
+             - Upload file "logo.png" di halaman utama repo untuk mengganti ikon aplikasi.
+          ===================================================================
+          EOF
+          fi
+
+      - name: Upload Server Controller Artifact (Khusus Repo Hasil Fork)
+        if: github.event.repository.fork == true || github.event.inputs.export_server_api == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: PHPNuxBill-Server-Controller
+          path: output-server/*
           retention-days: 30
