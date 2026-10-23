@@ -1,6 +1,7 @@
 package id.biz.arneta.admin.ui.screens
 
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -74,7 +75,8 @@ fun CustomerLiveSearchPicker(
                     c.optString("username", "").lowercase().contains(q) ||
                     c.optString("phonenumber", "").lowercase().contains(q) ||
                     c.optString("pppoe_username", "").lowercase().contains(q) ||
-                    c.optString("address", "").lowercase().contains(q)
+                    c.optString("address", "").lowercase().contains(q) ||
+                    c.optString("city", "").lowercase().contains(q)
             }
         }
     }
@@ -318,7 +320,7 @@ private fun SelectablePlanCard(
 }
 
 /**
- * LAYAR MANAJEMEN PELANGGAN + LIVE SEARCH 1 HURUF + ADD CUSTOMER + ISI PAKET / SALDO
+ * LAYAR MANAJEMEN PELANGGAN + LIVE SEARCH 1 HURUF + QUICKADD CUSTOMER + ISI PAKET / SALDO
  */
 @Composable
 fun AdminCustomersScreen(
@@ -380,7 +382,8 @@ fun AdminCustomersScreen(
                 c.optString("phonenumber", "").lowercase().contains(q) ||
                 c.optString("pppoe_username", "").lowercase().contains(q) ||
                 c.optString("pppoe_ip", "").lowercase().contains(q) ||
-                c.optString("address", "").lowercase().contains(q)
+                c.optString("address", "").lowercase().contains(q) ||
+                c.optString("city", "").lowercase().contains(q)
             matchType && matchQuery
         }
     }
@@ -465,7 +468,7 @@ fun AdminCustomersScreen(
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
-            placeholder = { Text("Ketik nama, username, WA, atau alamat...", fontSize = 13.sp) },
+            placeholder = { Text("Ketik nama, username, WA, kota, atau alamat...", fontSize = 13.sp) },
             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = ArnetaGoldPrimary) },
             trailingIcon = {
                 if (searchQuery.isNotEmpty()) {
@@ -514,6 +517,7 @@ fun AdminCustomersScreen(
                     val pkg = cust.optJSONObject("active_package")
                     val pkgStatus = pkg?.optString("status", "off") ?: "none"
                     val isOnlineOrActive = pkgStatus == "on"
+                    val cityStr = cust.optString("city", "")
 
                     Card(
                         shape = RoundedCornerShape(16.dp),
@@ -554,7 +558,8 @@ fun AdminCustomersScreen(
                                             overflow = TextOverflow.Ellipsis
                                         )
                                         Text(
-                                            text = "@${cust.optString("username")} • ${cust.optString("service_type")}",
+                                            text = "@${cust.optString("username")} • ${cust.optString("service_type")}" +
+                                                if (cityStr.isNotEmpty()) " • $cityStr" else "",
                                             fontSize = 12.sp,
                                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                                         )
@@ -684,6 +689,13 @@ fun AdminCustomersScreen(
     }
 }
 
+/**
+ * DIALOG TAMBAH / EDIT PELANGGAN (TERINTEGRASI PENUH DENGAN PLUGIN QUICKADD)
+ * - Pemilihan Paket Langsung (ppln) otomatis menyesuaikan jenis layanan (Hotspot / PPPoE / Others)
+ * - Pilihan Metode Pembayaran (using) termasuk 'Recharge Zero' ($zero = 1)
+ * - Input Kota (city), Email, Koordinat, & Custom Attributes (tbl_customers_fields)
+ * - Opsi Kirim Pesan Sambutan (send_welcome_message) via WhatsApp, SMS, & Email
+ */
 @Composable
 private fun CustomerFormDialog(
     initial: JSONObject?,
@@ -696,9 +708,11 @@ private fun CustomerFormDialog(
 
     var username by remember { mutableStateOf(initial?.optString("username") ?: "") }
     var fullname by remember { mutableStateOf(initial?.optString("fullname") ?: "") }
-    var password by remember { mutableStateOf("") }
+    // Default password '123456' saat tambah baru agar memenuhi syarat minimal 3 karakter di quickadd
+    var password by remember { mutableStateOf(if (isEdit) "" else "123456") }
     var phonenumber by remember { mutableStateOf(initial?.optString("phonenumber") ?: "") }
     var email by remember { mutableStateOf(initial?.optString("email") ?: "") }
+    var city by remember { mutableStateOf(initial?.optString("city") ?: "") }
     var address by remember { mutableStateOf(initial?.optString("address") ?: "") }
     var serviceType by remember { mutableStateOf(initial?.optString("service_type") ?: "Hotspot") }
     var status by remember { mutableStateOf(initial?.optString("status") ?: "Active") }
@@ -706,15 +720,80 @@ private fun CustomerFormDialog(
     var pppoePass by remember { mutableStateOf(initial?.optString("pppoe_password") ?: "") }
     var pppoeIp by remember { mutableStateOf(initial?.optString("pppoe_ip") ?: "") }
     var coordinates by remember { mutableStateOf(initial?.optString("coordinates") ?: "") }
+
+    // State khusus QuickAdd (Pilih Paket, Payment Using, Custom Fields, & Welcome Message)
+    var allInternetPlans by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var paymentUsings by remember { mutableStateOf(listOf("Cash", "Recharge Zero")) }
+    var selectedPlan by remember { mutableStateOf<JSONObject?>(null) }
+    var selectedUsing by remember { mutableStateOf("Cash") }
+    var activatePackageOnEdit by remember { mutableStateOf(false) }
+
+    var sendWelcomeMessage by remember { mutableStateOf(!isEdit) }
+    var welcomeViaWa by remember { mutableStateOf(true) }
+    var welcomeViaSms by remember { mutableStateOf(false) }
+    var welcomeViaMail by remember { mutableStateOf(false) }
+
+    var customFields by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var isSaving by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        val res = ApiClient.request("admin_plans")
+        if (res.status && res.data != null) {
+            val arr = res.data.optJSONArray("plans") ?: JSONArray()
+            val pList = mutableListOf<JSONObject>()
+            for (i in 0 until arr.length()) {
+                val p = arr.getJSONObject(i)
+                if (!p.optString("type").equals("Balance", ignoreCase = true)) {
+                    pList.add(p)
+                }
+            }
+            allInternetPlans = pList
+
+            val uArr = res.data.optJSONArray("usings")
+            if (uArr != null && uArr.length() > 0) {
+                val uList = mutableListOf<String>()
+                for (i in 0 until uArr.length()) {
+                    uList.add(uArr.optString(i))
+                }
+                paymentUsings = uList
+                selectedUsing = uList.first()
+            }
+        }
+    }
+
+    // Filter otomatis daftar paket sesuai Service Type (Hotspot / PPPoE / Others)
+    val matchingPlans = remember(allInternetPlans, serviceType) {
+        when (serviceType.uppercase()) {
+            "HOTSPOT" -> allInternetPlans.filter { it.optString("type").equals("Hotspot", ignoreCase = true) }
+            "PPPOE" -> allInternetPlans.filter { it.optString("type").equals("PPPoE", ignoreCase = true) }
+            else -> allInternetPlans
+        }
+    }
+
+    LaunchedEffect(matchingPlans, isEdit, activatePackageOnEdit) {
+        if ((!isEdit || activatePackageOnEdit) && matchingPlans.isNotEmpty()) {
+            if (selectedPlan == null || matchingPlans.none { it.optInt("id") == selectedPlan?.optInt("id") }) {
+                selectedPlan = matchingPlans.first()
+            }
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text(
-                text = if (isEdit) "Edit Pelanggan" else "Add Customer Baru",
-                fontWeight = FontWeight.Bold
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = if (isEdit) Icons.Filled.Edit else Icons.Filled.PersonAdd,
+                    contentDescription = null,
+                    tint = ArnetaGoldPrimary
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (isEdit) "Edit Pelanggan" else "Add Customer (QuickAdd)",
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 17.sp
+                )
+            }
         },
         text = {
             Column(
@@ -723,10 +802,23 @@ private fun CustomerFormDialog(
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
             ) {
+                // 1. Pilih Jenis Layanan (Hotspot / PPPoE / Others)
+                Text("Jenis Layanan Pelanggan:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ArnetaGoldPrimary)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("Hotspot", "PPPoE", "Others").forEach { t ->
+                        FilterChip(
+                            selected = serviceType == t,
+                            onClick = { serviceType = t },
+                            label = { Text(t, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+                        )
+                    }
+                }
+
+                // 2. Identitas Utama & Kredensial
                 OutlinedTextField(
                     value = username,
                     onValueChange = { username = it },
-                    label = { Text("Username Hotspot / Login") },
+                    label = { Text("Username (3-54 karakter)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -740,41 +832,50 @@ private fun CustomerFormDialog(
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
-                    label = { Text(if (isEdit) "Password Baru (Kosongkan jika tetap)" else "Password (Default: 123456)") },
+                    label = { Text(if (isEdit) "Password Baru (Kosongkan jika tetap)" else "Password (3-35 karakter)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = phonenumber,
                     onValueChange = { phonenumber = it },
-                    label = { Text("Nomor WhatsApp (628xxx)") },
+                    label = { Text("Nomor WhatsApp (Otomatis diformat)") },
+                    placeholder = { Text("0812xxxx / 62812xxxx") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("Hotspot", "PPPoE", "Others").forEach { t ->
-                        FilterChip(
-                            selected = serviceType == t,
-                            onClick = { serviceType = t },
-                            label = { Text(t, fontSize = 12.sp) }
-                        )
-                    }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = city,
+                        onValueChange = { city = it },
+                        label = { Text("Kota / Area") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = email,
+                        onValueChange = { email = it },
+                        label = { Text("Email (Opsional)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
 
                 if (serviceType == "PPPoE") {
                     OutlinedTextField(
                         value = pppoeUser,
                         onValueChange = { pppoeUser = it },
-                        label = { Text("PPPoE Username") },
+                        label = { Text("PPPoE Username (Opsional)") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
                         value = pppoePass,
                         onValueChange = { pppoePass = it },
-                        label = { Text("PPPoE Password") },
+                        label = { Text("PPPoE Password (Opsional)") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -801,39 +902,255 @@ private fun CustomerFormDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                // 3. Bagian Aktivasi Paket & Metode Pembayaran (QuickAdd Package & Using)
+                if (isEdit) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Sekaligus Aktifkan / Isi Ulang Paket?", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                        Switch(
+                            checked = activatePackageOnEdit,
+                            onCheckedChange = { activatePackageOnEdit = it }
+                        )
+                    }
+                }
+
+                if (!isEdit || activatePackageOnEdit) {
+                    Text(
+                        text = "Pilih Paket $serviceType (${matchingPlans.size} tersedia):",
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = ArnetaGoldPrimary
+                    )
+
+                    if (matchingPlans.isEmpty()) {
+                        Text("Belum ada paket untuk kategori $serviceType.", fontSize = 11.5.sp)
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            matchingPlans.forEach { p ->
+                                SelectablePlanCard(
+                                    plan = p,
+                                    isSelected = selectedPlan?.optInt("id") == p.optInt("id"),
+                                    onClick = { selectedPlan = p }
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Text(
+                        text = "Metode Pembayaran (Using):",
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = ArnetaCyanIncome
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                    ) {
+                        paymentUsings.forEach { uMethod ->
+                            FilterChip(
+                                selected = selectedUsing == uMethod,
+                                onClick = { selectedUsing = uMethod },
+                                label = {
+                                    Text(
+                                        text = if (uMethod == "Recharge Zero") "⚡ Recharge Zero (Rp 0)" else uMethod,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            )
+                        }
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                // 4. Custom Fields (Atribut Pelanggan Tambahan)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Atribut Tambahan (Custom Fields)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    TextButton(
+                        onClick = { customFields = customFields + ("" to "") }
+                    ) {
+                        Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Tambah Atribut", fontSize = 11.5.sp, color = ArnetaGoldPrimary)
+                    }
+                }
+
+                customFields.forEachIndexed { idx, pair ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedTextField(
+                            value = pair.first,
+                            onValueChange = { newKey ->
+                                val mutable = customFields.toMutableList()
+                                mutable[idx] = newKey to pair.second
+                                customFields = mutable
+                            },
+                            label = { Text("Nama Field", fontSize = 11.sp) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = pair.second,
+                            onValueChange = { newVal ->
+                                val mutable = customFields.toMutableList()
+                                mutable[idx] = pair.first to newVal
+                                customFields = mutable
+                            },
+                            label = { Text("Isi / Nilai", fontSize = 11.sp) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(
+                            onClick = {
+                                val mutable = customFields.toMutableList()
+                                mutable.removeAt(idx)
+                                customFields = mutable
+                            }
+                        ) {
+                            Icon(Icons.Filled.DeleteOutline, contentDescription = "Hapus", tint = ArnetaRedDanger)
+                        }
+                    }
+                }
+
+                // 5. Opsi Kirim Pesan Sambutan (Send Welcome Message via WA / SMS / Email)
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Kirim Pesan Sambutan (Welcome)", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                                Text(
+                                    "Kirim detail username, password & link login ke pelanggan",
+                                    fontSize = 10.5.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                                )
+                            }
+                            Switch(
+                                checked = sendWelcomeMessage,
+                                onCheckedChange = { sendWelcomeMessage = it }
+                            )
+                        }
+
+                        AnimatedVisibility(visible = sendWelcomeMessage) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 8.dp)
+                            ) {
+                                FilterChip(
+                                    selected = welcomeViaWa,
+                                    onClick = { welcomeViaWa = !welcomeViaWa },
+                                    label = { Text("WhatsApp", fontSize = 11.sp) },
+                                    leadingIcon = if (welcomeViaWa) {
+                                        { Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                                    } else null
+                                )
+                                FilterChip(
+                                    selected = welcomeViaSms,
+                                    onClick = { welcomeViaSms = !welcomeViaSms },
+                                    label = { Text("SMS", fontSize = 11.sp) },
+                                    leadingIcon = if (welcomeViaSms) {
+                                        { Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                                    } else null
+                                )
+                                FilterChip(
+                                    selected = welcomeViaMail,
+                                    onClick = { welcomeViaMail = !welcomeViaMail },
+                                    label = { Text("Email", fontSize = 11.sp) },
+                                    leadingIcon = if (welcomeViaMail) {
+                                        { Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                                    } else null
+                                )
+                            }
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
             Button(
                 enabled = !isSaving,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = ArnetaGoldPrimary,
+                    contentColor = Color(0xFF0B0F19)
+                ),
                 onClick = {
+                    if (!isEdit && selectedPlan == null) {
+                        Toast.makeText(context, "Pilih Paket Internet terlebih dahulu!", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
                     isSaving = true
                     scope.launch {
-                        val res = ApiClient.request(
-                            "admin_customer_save",
-                            mapOf(
-                                "id" to (initial?.optInt("id") ?: 0),
-                                "username" to username,
-                                "fullname" to fullname,
-                                "password" to password,
-                                "phonenumber" to phonenumber,
-                                "email" to email,
-                                "address" to address,
-                                "service_type" to serviceType,
-                                "status" to status,
-                                "pppoe_username" to pppoeUser,
-                                "pppoe_password" to pppoePass,
-                                "pppoe_ip" to pppoeIp,
-                                "coordinates" to coordinates
-                            )
+                        val cfNames = customFields.map { it.first.trim() }.filter { it.isNotEmpty() }
+                        val cfValues = customFields.map { it.second.trim() }.filter { it.isNotEmpty() }
+
+                        val params = mutableMapOf<String, Any?>(
+                            "id" to (initial?.optInt("id") ?: 0),
+                            "username" to username.trim(),
+                            "fullname" to fullname.trim(),
+                            "password" to password.trim(),
+                            "phonenumber" to phonenumber.trim(),
+                            "email" to email.trim(),
+                            "city" to city.trim(),
+                            "address" to address.trim(),
+                            "service_type" to serviceType,
+                            "status" to status,
+                            "pppoe_username" to pppoeUser.trim(),
+                            "pppoe_password" to pppoePass.trim(),
+                            "pppoe_ip" to pppoeIp.trim(),
+                            "coordinates" to coordinates.trim(),
+                            "using" to selectedUsing,
+                            "send_welcome_message" to sendWelcomeMessage,
+                            "wa" to welcomeViaWa,
+                            "sms" to welcomeViaSms,
+                            "mail" to welcomeViaMail
                         )
+
+                        if (!isEdit || activatePackageOnEdit) {
+                            params["ppln"] = selectedPlan?.optInt("id") ?: 0
+                        }
+                        if (cfNames.isNotEmpty() && cfNames.size == cfValues.size) {
+                            params["custom_field_name"] = cfNames
+                            params["custom_field_value"] = cfValues
+                        }
+
+                        val res = ApiClient.request("admin_customer_save", params)
                         isSaving = false
-                        Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
                         if (res.status) onSaved()
                     }
                 }
             ) {
-                Text(if (isSaving) "Menyimpan..." else "Simpan")
+                Text(
+                    text = if (isSaving) "Menyimpan..." else if (isEdit) "Simpan Perubahan" else "Buat & Aktifkan",
+                    fontWeight = FontWeight.ExtraBold
+                )
             }
         },
         dismissButton = {
@@ -844,8 +1161,7 @@ private fun CustomerFormDialog(
 
 /**
  * DIALOG ISI ULANG PAKET & ISI ULANG SALDO
- * - Untuk SuperAdmin: Otomatis menyesuaikan opsi paket (Hotspot / PPPoE / Semua) sesuai jenis pelanggan
- *   dan menampilkan seluruh paket termasuk Postpaid & Hidden
+ * - Mendukung pemilihan metode pembayaran (using) termasuk 'Recharge Zero'
  */
 @Composable
 fun QuickRechargeOrDepositDialog(
@@ -860,6 +1176,8 @@ fun QuickRechargeOrDepositDialog(
 
     var selectedCustomer by remember { mutableStateOf(initialCustomer) }
     var plans by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var paymentUsings by remember { mutableStateOf(listOf("Cash", "Recharge Zero")) }
+    var selectedUsing by remember { mutableStateOf("Cash") }
     var selectedPlan by remember { mutableStateOf<JSONObject?>(null) }
     var customAmount by remember { mutableStateOf("") }
     var filterPlanType by remember {
@@ -884,6 +1202,14 @@ fun QuickRechargeOrDepositDialog(
                 }
             }
             plans = list
+
+            val uArr = res.data.optJSONArray("usings")
+            if (uArr != null && uArr.length() > 0) {
+                val uList = mutableListOf<String>()
+                for (i in 0 until uArr.length()) uList.add(uArr.optString(i))
+                paymentUsings = uList
+                selectedUsing = uList.first()
+            }
         }
     }
 
@@ -895,7 +1221,6 @@ fun QuickRechargeOrDepositDialog(
         }
     }
 
-    // Otomatis pilih paket pertama yang sesuai saat filter atau daftar paket berubah
     LaunchedEffect(displayedPlans) {
         if (displayedPlans.isNotEmpty() && (selectedPlan == null || displayedPlans.none { it.optInt("id") == selectedPlan?.optInt("id") })) {
             selectedPlan = displayedPlans.first()
@@ -954,6 +1279,25 @@ fun QuickRechargeOrDepositDialog(
                             )
                         }
                     }
+
+                    Text("Metode Pembayaran (Using):", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = ArnetaCyanIncome)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.horizontalScroll(rememberScrollState())
+                    ) {
+                        paymentUsings.forEach { uMethod ->
+                            FilterChip(
+                                selected = selectedUsing == uMethod,
+                                onClick = { selectedUsing = uMethod },
+                                label = {
+                                    Text(
+                                        text = if (uMethod == "Recharge Zero") "⚡ Recharge Zero" else uMethod,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            )
+                        }
+                    }
                 }
 
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -981,7 +1325,8 @@ fun QuickRechargeOrDepositDialog(
                     scope.launch {
                         val endpoint = if (mode == "deposit") "admin_deposit" else "admin_prepaid_recharge"
                         val params = mutableMapOf<String, Any?>(
-                            "customer_id" to cust.optInt("id")
+                            "customer_id" to cust.optInt("id"),
+                            "using" to selectedUsing
                         )
                         if (mode == "deposit" && customAmount.isNotBlank()) {
                             params["amount"] = customAmount.toDoubleOrNull() ?: 0.0
@@ -1039,6 +1384,8 @@ fun AdminServicesScreen(
     // State untuk Tab Isi Ulang Paket, Saldo & Refill Voucher
     var targetCustomer by remember { mutableStateOf<JSONObject?>(null) }
     var allPlans by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var paymentUsings by remember { mutableStateOf(listOf("Cash", "Recharge Zero")) }
+    var selectedUsing by remember { mutableStateOf("Cash") }
     var rechargePlanFilter by remember { mutableStateOf("All") } // All | Hotspot | PPPoE
     var selectedPlan by remember { mutableStateOf<JSONObject?>(null) }
     var customDepositAmount by remember { mutableStateOf("") }
@@ -1074,6 +1421,14 @@ fun AdminServicesScreen(
                     }
                     allPlans = list
                     selectedPlan = list.firstOrNull()
+
+                    val uArr = res.data?.optJSONArray("usings")
+                    if (uArr != null && uArr.length() > 0) {
+                        val uList = mutableListOf<String>()
+                        for (i in 0 until uArr.length()) uList.add(uArr.optString(i))
+                        paymentUsings = uList
+                        selectedUsing = uList.first()
+                    }
                 }
                 "vouchers" -> {
                     val res = ApiClient.request("admin_vouchers", mapOf("limit" to 200))
@@ -1108,7 +1463,6 @@ fun AdminServicesScreen(
         loadCurrentTab()
     }
 
-    // Filter paket di tab Isi Ulang Paket sesuai pilihan jenis layanan pelanggan
     val displayedRechargePlans = remember(allPlans, rechargePlanFilter, currentSubTab) {
         if (currentSubTab == "deposit_balance" || rechargePlanFilter == "All") {
             allPlans
@@ -1327,8 +1681,6 @@ fun AdminServicesScreen(
                         selectedCustomer = targetCustomer,
                         onCustomerSelected = { cust ->
                             targetCustomer = cust
-                            // Jika SuperAdmin memilih pelanggan pada menu Isi Ulang Paket,
-                            // otomatis ubah kategori paket ke Hotspot / PPPoE / Semua (Others)
                             if (!isDeposit && isSuperAdmin) {
                                 rechargePlanFilter = resolveCustomerPlanCategory(cust)
                             }
@@ -1346,7 +1698,6 @@ fun AdminServicesScreen(
                             modifier = Modifier.fillMaxWidth()
                         )
                     } else {
-                        // Bar Filter Kategori Paket (Otomatis bergeser mengikuti jenis pelanggan untuk SuperAdmin)
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -1363,6 +1714,28 @@ fun AdminServicesScreen(
                                     selected = rechargePlanFilter == key,
                                     onClick = { rechargePlanFilter = key },
                                     label = { Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+                                )
+                            }
+                        }
+
+                        Text("Metode Pembayaran (Using):", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ArnetaCyanIncome)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                        ) {
+                            paymentUsings.forEach { uMethod ->
+                                FilterChip(
+                                    selected = selectedUsing == uMethod,
+                                    onClick = { selectedUsing = uMethod },
+                                    label = {
+                                        Text(
+                                            text = if (uMethod == "Recharge Zero") "⚡ Recharge Zero (Rp 0)" else uMethod,
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
                                 )
                             }
                         }
@@ -1406,7 +1779,10 @@ fun AdminServicesScreen(
                             isSubmitting = true
                             scope.launch {
                                 val endpoint = if (isDeposit) "admin_deposit" else "admin_prepaid_recharge"
-                                val params = mutableMapOf<String, Any?>("customer_id" to cust.optInt("id"))
+                                val params = mutableMapOf<String, Any?>(
+                                    "customer_id" to cust.optInt("id"),
+                                    "using" to selectedUsing
+                                )
                                 if (isDeposit && customDepositAmount.isNotBlank()) {
                                     params["amount"] = customDepositAmount.toDoubleOrNull() ?: 0.0
                                 } else if (selectedPlan != null) {
