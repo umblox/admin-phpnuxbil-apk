@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -238,7 +239,10 @@ fun AdminInAppWebViewScreen(
 }
 
 /**
- * 2. LAYAR JARINGAN, LIVE SPEED MONITOR MIKROTIK (MBPS UPLOAD/DOWNLOAD MULUS) & USER ONLINE
+ * 2. LAYAR JARINGAN & MIKROTIK MONITOR (100% MENGIKUTI PLUGIN mikrotik_monitor.php)
+ * - Menggunakan /interface/monitor-traffic (interface + once) murni tanpa angka acak
+ * - Pemilih Router & Pemilih Interface (ether1, bridge, wlan1, dll)
+ * - Tabel Trafik Seluruh Interface, Informasi Platform/Hardware/Health, User Online (<pppoe-user>), Log & Wireless
  */
 @Composable
 fun AdminNetworkAndOnlineScreen(
@@ -247,76 +251,81 @@ fun AdminNetworkAndOnlineScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var currentTab by remember { mutableStateOf(initialTab) } // live_monitor | online_users | routers | pools
+    var currentTab by remember { mutableStateOf(initialTab) } // live_monitor | online_users | ros_logs | routers | pools
     var isLivePolling by remember { mutableStateOf(true) }
-    var routerStatusList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
-    var onlineUsersList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
-    var routerList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
-    var poolList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
 
-    // Filter di Tab User Online
+    // State MikroTik Monitor
+    var routerStatusList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var selectedRouterId by remember { mutableIntStateOf(0) }
+    var selectedInterface by remember { mutableStateOf("") }
+
+    // Riwayat titik murni dari /interface/monitor-traffic (dalam satuan Kbps agar skala Kbps maupun Mbps presisi)
+    var rxHistoryKbps by remember { mutableStateOf(List(24) { 0f }) }
+    var txHistoryKbps by remember { mutableStateOf(List(24) { 0f }) }
+    var currentRxBps by remember { mutableLongStateOf(0L) }
+    var currentTxBps by remember { mutableLongStateOf(0L) }
+    var currentRxLabel by remember { mutableStateOf("0 bps") }
+    var currentTxLabel by remember { mutableStateOf("0 bps") }
+    var lastUpdatedTime by remember { mutableStateOf("-") }
+
+    // State User Online, Log MikroTik & Wireless
+    var onlineUsersList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var onlineSearchQuery by remember { mutableStateOf("") }
     var onlineServiceFilter by remember { mutableStateOf("All") } // All | Hotspot | PPPoE
 
-    // State Kecepatan Internet Real-Time (Download & Upload dalam Mbps)
-    var targetDownloadMbps by remember { mutableFloatStateOf(0f) }
-    var targetUploadMbps by remember { mutableFloatStateOf(0f) }
-    var downloadLabel by remember { mutableStateOf("0 Kbps") }
-    var uploadLabel by remember { mutableStateOf("0 Kbps") }
-    var maxCpuLoad by remember { mutableFloatStateOf(0f) }
-    var avgRamPercent by remember { mutableFloatStateOf(0f) }
-    var avgPingMs by remember { mutableFloatStateOf(0f) }
+    var extraSubType by remember { mutableStateOf("logs") } // logs | wlan
+    var rosLogsList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var wlanSignalList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var logFilterText by remember { mutableStateOf("") }
 
-    // Riwayat 30 titik untuk pergerakan gelombang mulus (Smooth Bezier Spline)
-    var downloadWavePoints by remember { mutableStateOf(List(28) { 0f }) }
-    var uploadWavePoints by remember { mutableStateOf(List(28) { 0f }) }
-    var lastUpdatedTime by remember { mutableStateOf("Baru saja") }
-
+    // State CRUD Router & IP Pool
+    var routerList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var poolList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var showRouterDialog by remember { mutableStateOf(false) }
     var editingRouter by remember { mutableStateOf<JSONObject?>(null) }
     var showPoolDialog by remember { mutableStateOf(false) }
     var editingPool by remember { mutableStateOf<JSONObject?>(null) }
 
     suspend fun fetchLiveRouterStatus() {
-        val res = ApiClient.request("admin_router_status")
+        val params = mutableMapOf<String, Any?>()
+        if (selectedRouterId > 0) params["router_id"] = selectedRouterId
+        if (selectedInterface.isNotEmpty()) params["interface"] = selectedInterface
+
+        val res = ApiClient.request("admin_router_status", params)
         val arr = res.dataArray ?: res.data?.optJSONArray("routers") ?: JSONArray()
         if (res.status && arr.length() > 0) {
             val list = mutableListOf<JSONObject>()
-            var sumDlMbps = 0f
-            var sumUlMbps = 0f
-            var sumRxBps = 0L
-            var sumTxBps = 0L
-            var peakCpu = 0f
-            var sumRam = 0f
-            var sumPing = 0f
-            var onlineCount = 0
-
             for (i in 0 until arr.length()) {
-                val obj = arr.getJSONObject(i)
-                list.add(obj)
-                if (obj.optBoolean("online", false)) {
-                    onlineCount++
-                    sumDlMbps += obj.optDouble("download_mbps", 0.0).toFloat()
-                    sumUlMbps += obj.optDouble("upload_mbps", 0.0).toFloat()
-                    sumRxBps += obj.optLong("rx_bps", 0L)
-                    sumTxBps += obj.optLong("tx_bps", 0L)
-                    val c = obj.optDouble("cpu_load", 0.0).toFloat()
-                    if (c > peakCpu) peakCpu = c
-                    sumRam += obj.optDouble("ram_percent", 0.0).toFloat()
-                    sumPing += obj.optDouble("ping_ms", 0.0).toFloat()
-                }
+                list.add(arr.getJSONObject(i))
             }
             routerStatusList = list
-            if (onlineCount > 0) {
-                targetDownloadMbps = sumDlMbps
-                targetUploadMbps = sumUlMbps
-                downloadLabel = formatSpeedBps(sumRxBps)
-                uploadLabel = formatSpeedBps(sumTxBps)
-                maxCpuLoad = peakCpu
-                avgRamPercent = sumRam / onlineCount
-                avgPingMs = sumPing / onlineCount
+
+            val activeRouter = list.firstOrNull { it.optInt("id") == selectedRouterId } ?: list.first()
+            if (selectedRouterId == 0) {
+                selectedRouterId = activeRouter.optInt("id", 0)
             }
+
+            val monitoredIf = activeRouter.optString("monitored_interface", "")
+            if (selectedInterface.isEmpty() && monitoredIf.isNotEmpty()) {
+                selectedInterface = monitoredIf
+            }
+
+            if (activeRouter.optBoolean("online", false)) {
+                val rxBps = activeRouter.optLong("rx_bps", 0L)
+                val txBps = activeRouter.optLong("tx_bps", 0L)
+                currentRxBps = rxBps
+                currentTxBps = txBps
+                currentRxLabel = activeRouter.optString("rx_speed_label", formatSpeedBps(rxBps))
+                currentTxLabel = activeRouter.optString("tx_speed_label", formatSpeedBps(txBps))
+
+                val rxKbps = (rxBps / 1000f).coerceAtLeast(0f)
+                val txKbps = (txBps / 1000f).coerceAtLeast(0f)
+
+                rxHistoryKbps = rxHistoryKbps.drop(1) + rxKbps
+                txHistoryKbps = txHistoryKbps.drop(1) + txKbps
+            }
+
             val cal = java.util.Calendar.getInstance()
             lastUpdatedTime = String.format(
                 "%02d:%02d:%02d",
@@ -328,7 +337,8 @@ fun AdminNetworkAndOnlineScreen(
     }
 
     suspend fun fetchOnlineUsers() {
-        val res = ApiClient.request("admin_online_users")
+        val params = if (selectedRouterId > 0) mapOf("router_id" to selectedRouterId) else emptyMap()
+        val res = ApiClient.request("admin_online_users", params)
         val arr = res.data?.optJSONArray("users")
             ?: res.data?.optJSONArray("items")
             ?: res.dataArray
@@ -340,6 +350,21 @@ fun AdminNetworkAndOnlineScreen(
         onlineUsersList = list
     }
 
+    suspend fun fetchMikrotikExtra() {
+        val res = ApiClient.request(
+            "mikrotik_extra",
+            mapOf("router_id" to selectedRouterId, "sub_type" to extraSubType)
+        )
+        val arr = res.dataArray ?: JSONArray()
+        val list = mutableListOf<JSONObject>()
+        for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
+        if (extraSubType == "wlan") {
+            wlanSignalList = list
+        } else {
+            rosLogsList = list
+        }
+    }
+
     fun loadTabContent() {
         scope.launch {
             isLoading = true
@@ -349,6 +374,7 @@ fun AdminNetworkAndOnlineScreen(
                     if (onlineUsersList.isEmpty()) fetchOnlineUsers()
                 }
                 "online_users" -> fetchOnlineUsers()
+                "ros_logs" -> fetchMikrotikExtra()
                 "routers" -> {
                     val res = ApiClient.request("admin_routers")
                     val arr = res.dataArray ?: res.data?.optJSONArray("routers") ?: JSONArray()
@@ -368,8 +394,8 @@ fun AdminNetworkAndOnlineScreen(
         }
     }
 
-    // Engine 1: Polling Data MikroTik tiap 2 detik
-    LaunchedEffect(currentTab, isLivePolling) {
+    // Polling murni ke MikroTik setiap 2 detik (Tanpa generator angka acak/jitter palsu)
+    LaunchedEffect(currentTab, isLivePolling, selectedRouterId, selectedInterface, extraSubType) {
         loadTabContent()
         if (isLivePolling && (currentTab == "live_monitor" || currentTab == "online_users")) {
             while (isActive && isLivePolling) {
@@ -383,26 +409,6 @@ fun AdminNetworkAndOnlineScreen(
         }
     }
 
-    // Engine 2: Animator Gelombang Halus (Berjalan tiap 250ms untuk menginterpolasi naik-turun speed secara mulus)
-    LaunchedEffect(isLivePolling, currentTab) {
-        while (isActive && isLivePolling && currentTab == "live_monitor") {
-            delay(250L)
-            val prevDl = downloadWavePoints.lastOrNull() ?: 0f
-            val prevUl = uploadWavePoints.lastOrNull() ?: 0f
-
-            // Interpolasi halus menuju target speed + fluktuasi mikro alami saat ada trafik aktif
-            val microJitterDl = if (targetDownloadMbps > 0.05f) ((Math.random().toFloat() - 0.5f) * targetDownloadMbps * 0.08f) else 0f
-            val microJitterUl = if (targetUploadMbps > 0.05f) ((Math.random().toFloat() - 0.5f) * targetUploadMbps * 0.08f) else 0f
-
-            val nextDl = (prevDl + (targetDownloadMbps - prevDl) * 0.35f + microJitterDl).coerceAtLeast(0f)
-            val nextUl = (prevUl + (targetUploadMbps - prevUl) * 0.35f + microJitterUl).coerceAtLeast(0f)
-
-            downloadWavePoints = (downloadWavePoints.drop(1) + nextDl)
-            uploadWavePoints = (uploadWavePoints.drop(1) + nextUl)
-        }
-    }
-
-    // Filter Instan 1 Huruf pada Daftar User Online
     val filteredOnlineUsers = remember(onlineUsersList, onlineSearchQuery, onlineServiceFilter) {
         val q = onlineSearchQuery.trim().lowercase()
         onlineUsersList.filter { u ->
@@ -413,6 +419,16 @@ fun AdminNetworkAndOnlineScreen(
                 u.optString("mac_address", "").lowercase().contains(q) ||
                 u.optString("router", "").lowercase().contains(q)
             matchService && matchQuery
+        }
+    }
+
+    val filteredRosLogs = remember(rosLogsList, logFilterText) {
+        val q = logFilterText.trim().lowercase()
+        if (q.isEmpty()) rosLogsList
+        else rosLogsList.filter { l ->
+            l.optString("message", "").lowercase().contains(q) ||
+                l.optString("topics", "").lowercase().contains(q) ||
+                l.optString("time", "").lowercase().contains(q)
         }
     }
 
@@ -430,8 +446,9 @@ fun AdminNetworkAndOnlineScreen(
                 .horizontalScroll(rememberScrollState())
         ) {
             listOf(
-                "live_monitor" to "Live Speed MikroTik",
+                "live_monitor" to "MikroTik Monitor",
                 "online_users" to "User Online (${onlineUsersList.size})",
+                "ros_logs" to "Log & Wireless",
                 "routers" to "Daftar Router",
                 "pools" to "IP Pool"
             ).forEach { (key, label) ->
@@ -447,11 +464,101 @@ fun AdminNetworkAndOnlineScreen(
 
         when (currentTab) {
             "live_monitor" -> {
+                val activeRouterObj = routerStatusList.firstOrNull { it.optInt("id") == selectedRouterId }
+                    ?: routerStatusList.firstOrNull()
+
+                val interfacesList = remember(activeRouterObj) {
+                    val arr = activeRouterObj?.optJSONArray("interfaces_list") ?: JSONArray()
+                    val list = mutableListOf<String>()
+                    for (i in 0 until arr.length()) list.add(arr.optString(i))
+                    list
+                }
+
+                val interfacesTrafficList = remember(activeRouterObj) {
+                    val arr = activeRouterObj?.optJSONArray("interfaces_traffic") ?: JSONArray()
+                    val list = mutableListOf<JSONObject>()
+                    for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
+                    list
+                }
+
                 LazyColumn(
-                    contentPadding = PaddingValues(bottom = 110.dp),
+                    contentPadding = PaddingValues(bottom = 95.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    // 1. Pemilih Router & Pemilih Interface (Persis Dropdown di mikrotik_monitor.tpl)
                     item {
+                        Card(
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                if (routerStatusList.size > 1) {
+                                    Text("Pilih Router MikroTik:", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.horizontalScroll(rememberScrollState())
+                                    ) {
+                                        routerStatusList.forEach { r ->
+                                            val rid = r.optInt("id")
+                                            FilterChip(
+                                                selected = selectedRouterId == rid,
+                                                onClick = {
+                                                    selectedRouterId = rid
+                                                    selectedInterface = ""
+                                                    rxHistoryKbps = List(24) { 0f }
+                                                    txHistoryKbps = List(24) { 0f }
+                                                },
+                                                label = { Text(r.optString("name"), fontSize = 11.5.sp) }
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                }
+
+                                Text(
+                                    text = "Pilih Interface Traffic Monitor (/interface/monitor-traffic):",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = ArnetaGoldPrimary
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+
+                                if (interfacesList.isEmpty()) {
+                                    Text("Memuat daftar interface dari MikroTik...", fontSize = 11.sp)
+                                } else {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState())
+                                    ) {
+                                        interfacesList.forEach { ifName ->
+                                            val isSel = selectedInterface == ifName ||
+                                                (selectedInterface.isEmpty() && activeRouterObj?.optString("monitored_interface") == ifName)
+                                            FilterChip(
+                                                selected = isSel,
+                                                onClick = {
+                                                    selectedInterface = ifName
+                                                    rxHistoryKbps = List(24) { 0f }
+                                                    txHistoryKbps = List(24) { 0f }
+                                                },
+                                                label = { Text(ifName, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold) },
+                                                leadingIcon = if (isSel) {
+                                                    { Icon(Icons.Filled.Speed, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                                                } else null
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. Kartu Real-Time Interface Traffic Monitor (TX & RX Murni dari MikroTik)
+                    item {
+                        val monitoredIf = activeRouterObj?.optString("monitored_interface", selectedInterface.ifEmpty { "ether1" }) ?: "ether1"
                         Card(
                             shape = RoundedCornerShape(18.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -474,12 +581,12 @@ fun AdminNetworkAndOnlineScreen(
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Column {
                                             Text(
-                                                text = "Live Traffic Speed & Telemetry",
+                                                text = "Interface: $monitoredIf",
                                                 fontWeight = FontWeight.ExtraBold,
                                                 fontSize = 15.sp
                                             )
                                             Text(
-                                                text = "Real-time stream • Update: $lastUpdatedTime",
+                                                text = "Update: $lastUpdatedTime • Ping: ${activeRouterObj?.optInt("ping_ms", 0) ?: 0} ms",
                                                 fontSize = 11.sp,
                                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                                             )
@@ -494,167 +601,222 @@ fun AdminNetworkAndOnlineScreen(
 
                                 Spacer(modifier = Modifier.height(12.dp))
 
-                                // KOMPONEN BAR & GELOMBANG SPEED INTERNET MULUS (DOWNLOAD & UPLOAD MBPS)
-                                SmoothSpeedTrafficMonitor(
-                                    downloadPoints = downloadWavePoints,
-                                    uploadPoints = uploadWavePoints,
-                                    downloadLabel = downloadLabel,
-                                    uploadLabel = uploadLabel,
-                                    targetDlMbps = targetDownloadMbps,
-                                    targetUlMbps = targetUploadMbps,
-                                    cpuLoad = maxCpuLoad,
-                                    ramPercent = avgRamPercent,
-                                    pingMs = avgPingMs,
+                                NativeMikrotikTrafficChart(
+                                    rxPointsKbps = rxHistoryKbps,
+                                    txPointsKbps = txHistoryKbps,
+                                    rxBps = currentRxBps,
+                                    txBps = currentTxBps,
+                                    rxLabel = currentRxLabel,
+                                    txLabel = currentTxLabel,
                                     modifier = Modifier.fillMaxWidth()
                                 )
                             }
                         }
                     }
 
-                    // Daftar Kartu Resource per Router + Speed Spesifik Router
-                    items(routerStatusList) { r ->
-                        val online = r.optBoolean("online", false)
-                        val cpu = r.optInt("cpu_load", 0)
-                        val ramPct = r.optDouble("ram_percent", 0.0).toFloat()
-                        val animCpu by animateFloatAsState(
-                            targetValue = (cpu / 100f).coerceIn(0f, 1f),
-                            animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
-                            label = "r_cpu"
-                        )
-                        val animRam by animateFloatAsState(
-                            targetValue = (ramPct / 100f).coerceIn(0f, 1f),
-                            animationSpec = tween(durationMillis = 700, easing = FastOutSlowInEasing),
-                            label = "r_ram"
-                        )
+                    // 3. Kartu Resource, Platform, Hardware & Health (Persis mikrotik_monitor_get_resources)
+                    if (activeRouterObj != null) {
+                        item {
+                            val r = activeRouterObj
+                            val online = r.optBoolean("online", false)
+                            val cpu = r.optInt("cpu_load", 0)
+                            val ramPct = r.optDouble("ram_percent", 0.0).toFloat()
 
-                        Card(
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(14.dp)) {
+                            val animCpu by animateFloatAsState(
+                                targetValue = (cpu / 100f).coerceIn(0f, 1f),
+                                animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing),
+                                label = "cpu_anim"
+                            )
+                            val animRam by animateFloatAsState(
+                                targetValue = (ramPct / 100f).coerceIn(0f, 1f),
+                                animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing),
+                                label = "ram_anim"
+                            )
+
+                            Card(
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp)) {
+                                    Row(
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "${r.optString("name")} (${r.optString("board_name")})",
+                                                fontWeight = FontWeight.ExtraBold,
+                                                fontSize = 15.sp
+                                            )
+                                            Text(
+                                                text = "IP: ${r.optString("ip_address")} • RouterOS ${r.optString("version")}",
+                                                fontSize = 11.5.sp,
+                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                                            )
+                                        }
+                                        Surface(
+                                            color = if (online) ArnetaGreenSuccess.copy(alpha = 0.2f) else ArnetaRedDanger.copy(alpha = 0.2f),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Text(
+                                                text = if (online) "ONLINE" else "OFFLINE",
+                                                color = if (online) ArnetaGreenSuccess else ArnetaRedDanger,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 11.sp,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    Text("CPU Load: $cpu% (${r.optString("cpu_info", "-")})", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    LinearProgressIndicator(
+                                        progress = { animCpu },
+                                        color = if (cpu > 80) ArnetaRedDanger else ArnetaCyanIncome,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(8.dp)
+                                            .clip(RoundedCornerShape(4.dp))
+                                    )
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    Text(
+                                        "Memory Used: ${r.optString("used_memory", "-")} / Free: ${r.optString("free_memory")} ($ramPct%)",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    LinearProgressIndicator(
+                                        progress = { animRam },
+                                        color = ArnetaGoldPrimary,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(8.dp)
+                                            .clip(RoundedCornerShape(4.dp))
+                                    )
+
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    // Grid Info Hardware, System & Health
+                                    Row(
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Uptime: ${r.optString("uptime")}", fontSize = 11.sp)
+                                            Text("Arch: ${r.optString("arch", "-")}", fontSize = 11.sp)
+                                            Text("HDD Free: ${r.optString("free_hdd", "-")} / ${r.optString("total_hdd", "-")}", fontSize = 11.sp)
+                                        }
+                                        Column(horizontalAlignment = Alignment.End) {
+                                            Text("Temp: ${r.optString("temperature", "N/A")} • Volt: ${r.optString("voltage", "N/A")}", fontSize = 11.sp, color = ArnetaGoldPrimary)
+                                            Text(
+                                                text = "Hotspot: ${r.optInt("hotspot_online")} • PPPoE: ${r.optInt("pppoe_online")}",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = ArnetaGreenSuccess,
+                                                modifier = Modifier.clickable { currentTab = "online_users" }
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            OutlinedButton(
+                                                onClick = {
+                                                    scope.launch {
+                                                        val rbRes = ApiClient.request("admin_router_reboot", mapOf("id" to r.optInt("id")))
+                                                        Toast.makeText(context, rbRes.message, Toast.LENGTH_LONG).show()
+                                                    }
+                                                },
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                                modifier = Modifier.height(28.dp)
+                                            ) {
+                                                Icon(Icons.Filled.PowerSettingsNew, contentDescription = null, tint = ArnetaRedDanger, modifier = Modifier.size(13.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Reboot", fontSize = 10.5.sp, color = ArnetaRedDanger)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 4. Tabel Interface Traffic (Persis mikrotik_monitor_get_traffic)
+                    if (interfacesTrafficList.isNotEmpty()) {
+                        item {
+                            Text(
+                                text = "Tabel Total Trafik Interface (Ketuk untuk pantau speed):",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        }
+
+                        items(interfacesTrafficList) { iface ->
+                            val ifName = iface.optString("name")
+                            val isUp = iface.optBoolean("running", false)
+                            val isMonitored = (selectedInterface == ifName)
+
+                            Card(
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isMonitored) ArnetaGoldPrimary.copy(alpha = 0.14f)
+                                    else MaterialTheme.colorScheme.surface
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        selectedInterface = ifName
+                                        rxHistoryKbps = List(24) { 0f }
+                                        txHistoryKbps = List(24) { 0f }
+                                    }
+                            ) {
                                 Row(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = "${r.optString("name")} (${r.optString("board_name")})",
-                                            fontWeight = FontWeight.ExtraBold,
-                                            fontSize = 15.sp
-                                        )
-                                        Text(
-                                            text = "IP: ${r.optString("ip_address")} • RouterOS ${r.optString("version")}",
-                                            fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                                        )
-                                    }
-
-                                    Surface(
-                                        color = if (online) ArnetaGreenSuccess.copy(alpha = 0.2f) else ArnetaRedDanger.copy(alpha = 0.2f),
-                                        shape = RoundedCornerShape(8.dp)
-                                    ) {
-                                        Text(
-                                            text = if (online) "${r.optInt("ping_ms")} ms • ONLINE" else "OFFLINE",
-                                            color = if (online) ArnetaGreenSuccess else ArnetaRedDanger,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 11.sp,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                        )
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                // Info Speed Download & Upload per Router
-                                Row(
-                                    horizontalArrangement = Arrangement.SpaceBetween,
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
-                                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                                        .padding(horizontal = 12.dp, vertical = 10.dp)
                                 ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Filled.ArrowDownward, contentDescription = null, tint = ArnetaCyanIncome, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "DL: ${r.optString("download_speed_label", "0 Kbps")}",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 12.5.sp,
-                                            color = ArnetaCyanIncome
-                                        )
+                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                        Surface(
+                                            color = if (isUp) ArnetaGreenSuccess.copy(alpha = 0.2f) else ArnetaRedDanger.copy(alpha = 0.2f),
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text(
+                                                text = if (isUp) "UP" else "DOWN",
+                                                color = if (isUp) ArnetaGreenSuccess else ArnetaRedDanger,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Column {
+                                            Text(ifName, fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+                                            Text(
+                                                text = "TX: ${iface.optString("tx")} • RX: ${iface.optString("rx")}",
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f)
+                                            )
+                                        }
                                     }
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Filled.ArrowUpward, contentDescription = null, tint = ArnetaGoldPrimary, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
+
+                                    Column(horizontalAlignment = Alignment.End) {
                                         Text(
-                                            text = "UL: ${r.optString("upload_speed_label", "0 Kbps")}",
-                                            fontWeight = FontWeight.Bold,
+                                            text = iface.optString("total"),
+                                            fontWeight = FontWeight.ExtraBold,
                                             fontSize = 12.5.sp,
                                             color = ArnetaGoldPrimary
                                         )
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                Text("CPU Load: $cpu%", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                LinearProgressIndicator(
-                                    progress = { animCpu },
-                                    color = if (cpu > 80) ArnetaRedDanger else ArnetaCyanIncome,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(8.dp)
-                                        .clip(RoundedCornerShape(4.dp))
-                                )
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                Text(
-                                    "RAM Terpakai: $ramPct% (Free: ${r.optString("free_memory")} / Total: ${r.optString("total_memory")})",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                LinearProgressIndicator(
-                                    progress = { animRam },
-                                    color = ArnetaGoldPrimary,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(8.dp)
-                                        .clip(RoundedCornerShape(4.dp))
-                                )
-
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                Row(
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(
-                                        text = "Uptime: ${r.optString("uptime")} | HS: ${r.optInt("hotspot_online")} | PPPoE: ${r.optInt("pppoe_online")}",
-                                        fontSize = 11.sp,
-                                        color = ArnetaGreenSuccess,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.clickable { currentTab = "online_users" }
-                                    )
-
-                                    OutlinedButton(
-                                        onClick = {
-                                            scope.launch {
-                                                val rbRes = ApiClient.request("admin_router_reboot", mapOf("id" to r.optInt("id")))
-                                                Toast.makeText(context, rbRes.message, Toast.LENGTH_LONG).show()
-                                            }
-                                        },
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                                    ) {
-                                        Icon(Icons.Filled.PowerSettingsNew, contentDescription = null, tint = ArnetaRedDanger, modifier = Modifier.size(15.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Reboot", fontSize = 11.sp, color = ArnetaRedDanger)
+                                        Text(
+                                            text = if (isMonitored) "Dipantau" else "Ketuk pantau",
+                                            fontSize = 10.sp,
+                                            color = if (isMonitored) ArnetaCyanIncome else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                        )
                                     }
                                 }
                             }
@@ -664,7 +826,6 @@ fun AdminNetworkAndOnlineScreen(
             }
 
             "online_users" -> {
-                // Kolom Pencarian 1 Huruf & Filter Layanan User Online
                 OutlinedTextField(
                     value = onlineSearchQuery,
                     onValueChange = { onlineSearchQuery = it },
@@ -720,7 +881,7 @@ fun AdminNetworkAndOnlineScreen(
                     }
                 } else {
                     LazyColumn(
-                        contentPadding = PaddingValues(bottom = 110.dp),
+                        contentPadding = PaddingValues(bottom = 95.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(filteredOnlineUsers) { u ->
@@ -759,12 +920,12 @@ fun AdminNetworkAndOnlineScreen(
                                         }
                                         Spacer(modifier = Modifier.height(4.dp))
                                         Text(
-                                            text = "IP: ${u.optString("ip_address")} • MAC: ${u.optString("mac_address")}",
+                                            text = "IP: ${u.optString("ip_address")} • MAC/Caller: ${u.optString("mac_address")}",
                                             fontSize = 11.sp,
                                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                                         )
                                         Text(
-                                            text = "Uptime: ${u.optString("uptime")} • Trafik: ${u.optString("total_bytes")} (${u.optString("router")})",
+                                            text = "Uptime: ${u.optString("uptime")} • ${u.optString("total_bytes")}",
                                             fontSize = 11.sp,
                                             color = ArnetaGoldPrimary
                                         )
@@ -777,6 +938,7 @@ fun AdminNetworkAndOnlineScreen(
                                                     "admin_kick_user",
                                                     mapOf(
                                                         "router" to u.optString("router"),
+                                                        "router_id" to u.optInt("router_id"),
                                                         "username" to u.optString("username"),
                                                         "service" to u.optString("service"),
                                                         "ros_id" to u.optString("ros_id")
@@ -802,6 +964,100 @@ fun AdminNetworkAndOnlineScreen(
                 }
             }
 
+            "ros_logs" -> {
+                Row(
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = extraSubType == "logs",
+                            onClick = { extraSubType = "logs" },
+                            label = { Text("Log MikroTik (/log/print)", fontSize = 12.sp) }
+                        )
+                        FilterChip(
+                            selected = extraSubType == "wlan",
+                            onClick = { extraSubType = "wlan" },
+                            label = { Text("Sinyal Wireless (WLAN)", fontSize = 12.sp) }
+                        )
+                    }
+                    IconButton(onClick = { loadTabContent() }) {
+                        Icon(Icons.Filled.Refresh, contentDescription = "Muat Ulang", tint = ArnetaGoldPrimary)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                if (extraSubType == "logs") {
+                    OutlinedTextField(
+                        value = logFilterText,
+                        onValueChange = { logFilterText = it },
+                        placeholder = { Text("Cari isi log / topik (pppoe, hotspot, error)...", fontSize = 12.5.sp) },
+                        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    LazyColumn(
+                        contentPadding = PaddingValues(bottom = 95.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        items(filteredRosLogs) { l ->
+                            Card(modifier = Modifier.fillMaxWidth()) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Row(
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = l.optString("topics"),
+                                            fontSize = 10.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = ArnetaCyanIncome
+                                        )
+                                        Text(
+                                            text = l.optString("time"),
+                                            fontSize = 10.5.sp,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = l.optString("message"),
+                                        fontSize = 12.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    if (wlanSignalList.isEmpty()) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                            Text("Tidak ada interface Wireless aktif pada router ini.", fontSize = 13.sp)
+                        }
+                    } else {
+                        LazyColumn(
+                            contentPadding = PaddingValues(bottom = 95.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(wlanSignalList) { w ->
+                                Card(modifier = Modifier.fillMaxWidth()) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Text("${w.optString("mac_address")} (${w.optString("interface")})", fontWeight = FontWeight.Bold)
+                                        Text("IP: ${w.optString("last_ip")} • Signal: ${w.optString("signal_strength")} • Uptime: ${w.optString("uptime")}", fontSize = 11.5.sp)
+                                        Text("TX Rate: ${w.optString("tx_rate")} • RX Rate: ${w.optString("rx_rate")}", fontSize = 11.sp, color = ArnetaGoldPrimary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             "routers" -> {
                 Button(
                     onClick = {
@@ -818,7 +1074,7 @@ fun AdminNetworkAndOnlineScreen(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 LazyColumn(
-                    contentPadding = PaddingValues(bottom = 110.dp),
+                    contentPadding = PaddingValues(bottom = 95.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(routerList) { r ->
@@ -875,7 +1131,7 @@ fun AdminNetworkAndOnlineScreen(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 LazyColumn(
-                    contentPadding = PaddingValues(bottom = 110.dp),
+                    contentPadding = PaddingValues(bottom = 95.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(poolList) { p ->
@@ -931,7 +1187,7 @@ fun AdminNetworkAndOnlineScreen(
 }
 
 private fun formatSpeedBps(bps: Long): String {
-    if (bps <= 0L) return "0 Kbps"
+    if (bps <= 0L) return "0 bps"
     if (bps >= 1_000_000L) {
         return String.format("%.2f Mbps", bps / 1_000_000f)
     }
@@ -942,70 +1198,70 @@ private fun formatSpeedBps(bps: Long): String {
 }
 
 /**
- * KOMPONEN SPEEDOMETER BAR & GELOMBANG TRAFIK MULUS (DOWNLOAD & UPLOAD MBPS REAL-TIME)
+ * KOMPONEN GRAFIK & BAR SPEEDOMETER MURNI DARI /interface/monitor-traffic
+ * - Tidak menggunakan angka acak (zero fake jitter)
+ * - Skala otomatis menyesuaikan dari Kbps hingga ratusan Mbps
  */
 @Composable
-private fun SmoothSpeedTrafficMonitor(
-    downloadPoints: List<Float>,
-    uploadPoints: List<Float>,
-    downloadLabel: String,
-    uploadLabel: String,
-    targetDlMbps: Float,
-    targetUlMbps: Float,
-    cpuLoad: Float,
-    ramPercent: Float,
-    pingMs: Float,
+private fun NativeMikrotikTrafficChart(
+    rxPointsKbps: List<Float>,
+    txPointsKbps: List<Float>,
+    rxBps: Long,
+    txBps: Long,
+    rxLabel: String,
+    txLabel: String,
     modifier: Modifier = Modifier
 ) {
-    // Skala maksimum dinamis (minimal 10 Mbps, otomatis naik jika trafik > 10 Mbps)
-    val peakMbps = remember(downloadPoints, uploadPoints, targetDlMbps, targetUlMbps) {
-        val maxDl = downloadPoints.maxOrNull() ?: 0f
-        val maxUl = uploadPoints.maxOrNull() ?: 0f
-        max(10f, max(max(maxDl, maxUl), max(targetDlMbps, targetUlMbps)) * 1.25f)
+    val currentRxKbps = rxBps / 1000f
+    val currentTxKbps = txBps / 1000f
+
+    // Skala puncak dinamis dalam Kbps (Minimal 512 Kbps agar saat trafik kecil tetap terlihat jelas, dan otomatis naik saat puluhan/ratusan Mbps)
+    val peakScaleKbps = remember(rxPointsKbps, txPointsKbps, currentRxKbps, currentTxKbps) {
+        val maxRx = rxPointsKbps.maxOrNull() ?: 0f
+        val maxTx = txPointsKbps.maxOrNull() ?: 0f
+        max(512f, max(max(maxRx, maxTx), max(currentRxKbps, currentTxKbps)) * 1.25f)
     }
 
-    // Animasi mulus 60 FPS untuk bar kecepatan Download & Upload
-    val smoothDlRatio by animateFloatAsState(
-        targetValue = (targetDlMbps / peakMbps).coerceIn(0.02f, 1f),
-        animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
-        label = "dl_bar"
+    val animRxRatio by animateFloatAsState(
+        targetValue = (currentRxKbps / peakScaleKbps).coerceIn(0f, 1f),
+        animationSpec = tween(durationMillis = 450, easing = FastOutSlowInEasing),
+        label = "rx_bar_anim"
     )
-    val smoothUlRatio by animateFloatAsState(
-        targetValue = (targetUlMbps / peakMbps).coerceIn(0.02f, 1f),
-        animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
-        label = "ul_bar"
+    val animTxRatio by animateFloatAsState(
+        targetValue = (currentTxKbps / peakScaleKbps).coerceIn(0f, 1f),
+        animationSpec = tween(durationMillis = 450, easing = FastOutSlowInEasing),
+        label = "tx_bar_anim"
     )
 
     Column(modifier = modifier) {
-        // 2 Kartu Speedometer Berdampingan (Download & Upload dengan Bar yang Bergerak Mulus)
         Row(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-            // Kotak Download Speed
+            // Kotak RX (Download / Masuk ke Interface)
             Surface(
                 color = Color(0xFF0B1120),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
                     .weight(1f)
-                    .border(1.dp, ArnetaCyanIncome.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                    .border(1.dp, ArnetaCyanIncome.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
             ) {
                 Column(modifier = Modifier.padding(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Download, contentDescription = null, tint = ArnetaCyanIncome, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Filled.ArrowDownward, contentDescription = null, tint = ArnetaCyanIncome, modifier = Modifier.size(15.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Download (RX)", fontSize = 11.sp, color = Color.White.copy(alpha = 0.75f))
+                        Text("RX (rx-bits-per-second)", fontSize = 10.5.sp, color = Color.White.copy(alpha = 0.75f))
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = downloadLabel,
+                        text = rxLabel,
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 17.sp,
                         color = ArnetaCyanIncome
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     LinearProgressIndicator(
-                        progress = { smoothDlRatio },
+                        progress = { animRxRatio },
                         color = ArnetaCyanIncome,
                         trackColor = Color.White.copy(alpha = 0.1f),
                         modifier = Modifier
@@ -1016,30 +1272,30 @@ private fun SmoothSpeedTrafficMonitor(
                 }
             }
 
-            // Kotak Upload Speed
+            // Kotak TX (Upload / Keluar dari Interface)
             Surface(
                 color = Color(0xFF0B1120),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
                     .weight(1f)
-                    .border(1.dp, ArnetaGoldPrimary.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                    .border(1.dp, ArnetaGoldPrimary.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
             ) {
                 Column(modifier = Modifier.padding(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Upload, contentDescription = null, tint = ArnetaGoldPrimary, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Filled.ArrowUpward, contentDescription = null, tint = ArnetaGoldPrimary, modifier = Modifier.size(15.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Upload (TX)", fontSize = 11.sp, color = Color.White.copy(alpha = 0.75f))
+                        Text("TX (tx-bits-per-second)", fontSize = 10.5.sp, color = Color.White.copy(alpha = 0.75f))
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = uploadLabel,
+                        text = txLabel,
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 17.sp,
                         color = ArnetaGoldPrimary
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     LinearProgressIndicator(
-                        progress = { smoothUlRatio },
+                        progress = { animTxRatio },
                         color = ArnetaGoldPrimary,
                         trackColor = Color.White.copy(alpha = 0.1f),
                         modifier = Modifier
@@ -1053,11 +1309,11 @@ private fun SmoothSpeedTrafficMonitor(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Grafik Gelombang Cubic Bezier (Mulus seperti Traffic Monitor WinBox)
+        // Grafik Line Chart Murni Berdasarkan Data Polling /interface/monitor-traffic
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(155.dp)
+                .height(150.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(Color(0xFF0B1120))
                 .padding(10.dp)
@@ -1068,14 +1324,14 @@ private fun SmoothSpeedTrafficMonitor(
             for (i in 0..4) {
                 val y = h * (i / 4f)
                 drawLine(
-                    color = Color.White.copy(alpha = 0.07f),
+                    color = Color.White.copy(alpha = 0.08f),
                     start = Offset(0f, y),
                     end = Offset(w, y),
                     strokeWidth = 1f
                 )
             }
 
-            fun drawSmoothBezierWave(points: List<Float>, strokeColor: Color, fillAlpha: Float) {
+            fun drawTrafficLine(points: List<Float>, strokeColor: Color, fillAlpha: Float) {
                 if (points.size < 2) return
                 val strokePath = Path()
                 val fillPath = Path()
@@ -1083,8 +1339,8 @@ private fun SmoothSpeedTrafficMonitor(
 
                 val coords = points.mapIndexed { idx, v ->
                     val x = idx * stepX
-                    val ratio = (v / peakMbps).coerceIn(0f, 1f)
-                    val y = h - (ratio * (h * 0.88f)) - 4f
+                    val ratio = (v / peakScaleKbps).coerceIn(0f, 1f)
+                    val y = h - (ratio * (h * 0.88f)) - 2f
                     Offset(x, y)
                 }
 
@@ -1095,13 +1351,9 @@ private fun SmoothSpeedTrafficMonitor(
                 for (i in 0 until coords.size - 1) {
                     val p0 = coords[i]
                     val p1 = coords[i + 1]
-                    val controlX1 = (p0.x + p1.x) / 2f
-                    val controlY1 = p0.y
-                    val controlX2 = (p0.x + p1.x) / 2f
-                    val controlY2 = p1.y
-
-                    strokePath.cubicTo(controlX1, controlY1, controlX2, controlY2, p1.x, p1.y)
-                    fillPath.cubicTo(controlX1, controlY1, controlX2, controlY2, p1.x, p1.y)
+                    val midX = (p0.x + p1.x) / 2f
+                    strokePath.cubicTo(midX, p0.y, midX, p1.y, p1.x, p1.y)
+                    fillPath.cubicTo(midX, p0.y, midX, p1.y, p1.x, p1.y)
                 }
 
                 fillPath.lineTo(coords.last().x, h)
@@ -1116,35 +1368,38 @@ private fun SmoothSpeedTrafficMonitor(
                 drawPath(
                     path = strokePath,
                     color = strokeColor,
-                    style = Stroke(width = 4.5f, cap = StrokeCap.Round)
+                    style = Stroke(width = 4f, cap = StrokeCap.Round)
                 )
             }
 
-            drawSmoothBezierWave(uploadPoints, ArnetaGoldPrimary, 0.22f)
-            drawSmoothBezierWave(downloadPoints, ArnetaCyanIncome, 0.35f)
+            drawTrafficLine(txPointsKbps, ArnetaGoldPrimary, 0.22f)
+            drawTrafficLine(rxPointsKbps, ArnetaCyanIncome, 0.32f)
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
-        // Baris Ringkasan CPU, RAM, Ping & Skala Puncak Grafik
+        val scaleLabel = if (peakScaleKbps >= 1000f) {
+            String.format("%.1f Mbps", peakScaleKbps / 1000f)
+        } else {
+            String.format("%.0f Kbps", peakScaleKbps)
+        }
+
         Row(
             horizontalArrangement = Arrangement.SpaceBetween,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("CPU: ${cpuLoad.toInt()}%", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ArnetaCyanIncome)
-            Text("RAM: ${ramPercent.toInt()}%", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ArnetaGoldPrimary)
-            Text("Ping: ${pingMs.toInt()} ms", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ArnetaGreenSuccess)
-            Text("Skala: ${String.format("%.0f", peakMbps)} Mbps", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+            Text("🔵 Garis Biru: RX Traffic", fontSize = 11.sp, color = ArnetaCyanIncome, fontWeight = FontWeight.SemiBold)
+            Text("🟡 Garis Emas: TX Traffic", fontSize = 11.sp, color = ArnetaGoldPrimary, fontWeight = FontWeight.SemiBold)
+            Text("Skala Grafik: $scaleLabel", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
         }
     }
 }
 
 /**
- * 3. LAYAR PAKET INTERNET (HOTSPOT NON-POSTPAID, PPPOE POSTPAID NON-HIDDEN, SALDO) & BANDWIDTH
+ * 3. LAYAR PAKET INTERNET (MENDUKUNG PREPAID, POSTPAID & HIDDEN UNTUK SUPERADMIN) & BANDWIDTH
  */
 @Composable
 fun AdminPlansScreen() {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     var currentTab by remember { mutableStateOf("Hotspot") } // Hotspot | PPPoE | Balance | Bandwidth
@@ -1228,8 +1483,8 @@ fun AdminPlansScreen() {
             modifier = Modifier.horizontalScroll(rememberScrollState())
         ) {
             val tabItems = listOf(
-                "Hotspot" to "Hotspot (Prepaid)",
-                "PPPoE" to "PPPoE (Postpaid)",
+                "Hotspot" to "Hotspot",
+                "PPPoE" to "PPPoE",
                 "Balance" to "Paket Saldo",
                 "Bandwidth" to "Bandwidth (${bwList.size})"
             )
@@ -1250,7 +1505,7 @@ fun AdminPlansScreen() {
             }
         } else if (currentTab == "Bandwidth") {
             LazyColumn(
-                contentPadding = PaddingValues(bottom = 110.dp),
+                contentPadding = PaddingValues(bottom = 95.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(bwList) { bw ->
@@ -1288,15 +1543,17 @@ fun AdminPlansScreen() {
             val filteredPlans = plansList.filter { it.optString("type").equals(currentTab, ignoreCase = true) }
             if (filteredPlans.isEmpty()) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                    Text("Belum ada paket $currentTab yang aktif.", fontSize = 13.sp)
+                    Text("Belum ada paket $currentTab yang terdaftar.", fontSize = 13.sp)
                 }
             } else {
                 LazyColumn(
-                    contentPadding = PaddingValues(bottom = 110.dp),
+                    contentPadding = PaddingValues(bottom = 95.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(filteredPlans) { p ->
                         val isPostpaid = p.optString("prepaid", "yes").equals("no", ignoreCase = true)
+                        val isHidden = p.optBoolean("is_hidden", false) || p.optInt("enabled", 1) == 0
+
                         Card(modifier = Modifier.fillMaxWidth()) {
                             Row(
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1306,9 +1563,11 @@ fun AdminPlansScreen() {
                                     .padding(14.dp)
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
                                         Text(p.optString("name_plan"), fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                                        Spacer(modifier = Modifier.width(6.dp))
                                         Surface(
                                             color = if (isPostpaid) ArnetaOrangeActive.copy(alpha = 0.2f) else ArnetaCyanIncome.copy(alpha = 0.2f),
                                             shape = RoundedCornerShape(6.dp)
@@ -1320,6 +1579,20 @@ fun AdminPlansScreen() {
                                                 color = if (isPostpaid) ArnetaOrangeActive else ArnetaCyanIncome,
                                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                             )
+                                        }
+                                        if (isHidden) {
+                                            Surface(
+                                                color = ArnetaRedDanger.copy(alpha = 0.2f),
+                                                shape = RoundedCornerShape(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = "HIDDEN",
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    color = ArnetaRedDanger,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
                                         }
                                     }
                                     Spacer(modifier = Modifier.height(3.dp))
@@ -1393,12 +1666,11 @@ fun AdminPlansScreen() {
 }
 
 /**
- * 4. LAYAR PETA PELANGGAN, ROUTER COVERAGE & ODP INTERAKTIF (Full Marker + Nama + Auto-Focus Router)
+ * 4. LAYAR PETA PELANGGAN, ROUTER COVERAGE & ODP INTERAKTIF
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun AdminMapScreen() {
-    val context = LocalContext.current
     var customersGeo by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var routersGeo by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var assetsGeo by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
@@ -1590,7 +1862,7 @@ fun AdminMapScreen() {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(bottom = 84.dp)
+            .padding(bottom = 64.dp)
     ) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1766,7 +2038,7 @@ fun AdminAssetsScreen() {
         Spacer(modifier = Modifier.height(10.dp))
 
         LazyColumn(
-            contentPadding = PaddingValues(bottom = 110.dp),
+            contentPadding = PaddingValues(bottom = 95.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(assetList) { a ->
@@ -1958,6 +2230,7 @@ private fun PlanFormDialog(
             initial?.optString("prepaid") ?: if (defaultType.equals("PPPoE", ignoreCase = true)) "no" else "yes"
         )
     }
+    var enabledStatus by remember { mutableIntStateOf(initial?.optInt("enabled", 1) ?: 1) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1983,6 +2256,20 @@ private fun PlanFormDialog(
                             label = { Text("Postpaid (Pascabayar)", fontSize = 11.sp) }
                         )
                     }
+                }
+
+                // Opsi Visibilitas Paket (Visible vs Hidden)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = enabledStatus == 1,
+                        onClick = { enabledStatus = 1 },
+                        label = { Text("Aktif (Visible)", fontSize = 11.sp) }
+                    )
+                    FilterChip(
+                        selected = enabledStatus == 0,
+                        onClick = { enabledStatus = 0 },
+                        label = { Text("Hidden (Disembunyikan)", fontSize = 11.sp) }
+                    )
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2011,7 +2298,7 @@ private fun PlanFormDialog(
                             "id_bw" to bwId,
                             "pool" to poolName,
                             "prepaid" to prepaidMode,
-                            "enabled" to 1
+                            "enabled" to enabledStatus
                         )
                     )
                     Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
