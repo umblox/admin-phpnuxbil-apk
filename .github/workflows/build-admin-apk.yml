@@ -3,8 +3,6 @@ name: Build Arneta.ID Admin APK
 on:
   push:
     branches: [ "main", "master" ]
-  pull_request:
-    branches: [ "main", "master" ]
   workflow_dispatch:
     inputs:
       export_server_api:
@@ -16,6 +14,11 @@ on:
           - 'false'
           - 'true'
 
+# PROTEKSI 1: Batalkan build lama secara otomatis jika ada commit baru beruntun (Anti-Spam Queue)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
@@ -23,6 +26,8 @@ jobs:
   build-apk:
     name: Compile Android APK (Android 7 - 16)
     runs-on: ubuntu-latest
+    # PROTEKSI 2: Batasi waktu maksimal 15 menit agar tidak dianggap menyalahgunakan runner jika Gradle hang
+    timeout-minutes: 15
 
     steps:
       - name: Checkout Repository
@@ -30,28 +35,34 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Auto-Vault apiv1.php (Sembunyikan & Hapus apiv1.php Otomatis dari Repo)
+      - name: Auto-Vault apiv1.php (Update Vault & Skip Build Jika Hanya Update PHP)
+        id: vault
         run: |
           if [ -f "apiv1.php" ]; then
-            echo "Mengamankan apiv1.php ke dalam vault tersembunyi (.github/internal/.server_core.dat)..."
+            echo "Memperbarui isi .github/internal/.server_core.dat dengan apiv1.php terbaru..."
             mkdir -p .github/internal
             gzip -c apiv1.php | base64 -w 0 | rev > .github/internal/.server_core.dat
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git rm -f apiv1.php
             git add .github/internal/.server_core.dat
-            git commit -m "chore: lock server core data and remove plain apiv1.php"
+            git commit -m "chore: update server core data [skip ci]"
             git push || true
-            echo "apiv1.php berhasil disembunyikan dan dihapus dari daftar file repo!"
+            echo "vault_only=true" >> $GITHUB_OUTPUT
+            echo "Vault berhasil diperbarui! Melewati proses compile APK agar hemat kuota Actions."
+          else
+            echo "vault_only=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Set up JDK 17
+        if: steps.vault.outputs.vault_only != 'true'
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
       - name: Auto-Generate App Icons from logo.png (If Uploaded)
+        if: steps.vault.outputs.vault_only != 'true'
         run: |
           mkdir -p app/src/main/res/mipmap-mdpi
           mkdir -p app/src/main/res/mipmap-hdpi
@@ -70,12 +81,10 @@ jobs:
           fi
 
           if [ -n "$LOGO_FILE" ]; then
-            echo "Menginstal ImageMagick untuk memproses $LOGO_FILE..."
             if ! command -v convert &> /dev/null; then
               sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick
             fi
 
-            echo "Memproses logo $LOGO_FILE menjadi ikon aplikasi PNG32 murni..."
             convert "$LOGO_FILE" -resize 48x48 PNG32:app/src/main/res/mipmap-mdpi/ic_launcher.png
             convert "$LOGO_FILE" -resize 72x72 PNG32:app/src/main/res/mipmap-hdpi/ic_launcher.png
             convert "$LOGO_FILE" -resize 96x96 PNG32:app/src/main/res/mipmap-xhdpi/ic_launcher.png
@@ -89,15 +98,18 @@ jobs:
           fi
 
       - name: Setup Gradle
+        if: steps.vault.outputs.vault_only != 'true'
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
       - name: Build Debug & Release APK
+        if: steps.vault.outputs.vault_only != 'true'
         run: |
           gradle assembleDebug assembleRelease --stacktrace
 
       - name: Rename APK Files
+        if: steps.vault.outputs.vault_only != 'true'
         run: |
           mkdir -p output-apk
           cp app/build/outputs/apk/debug/app-debug.apk output-apk/Arneta-Admin-v6-Debug.apk
@@ -108,14 +120,15 @@ jobs:
           fi
 
       - name: Upload APK Artifact
+        if: steps.vault.outputs.vault_only != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: Arneta-Admin-APK
           path: output-apk/*.apk
-          retention-days: 30
+          retention-days: 14
 
       - name: Extract Server API Controller (Khusus Repo Hasil Fork)
-        if: github.event.repository.fork == true || github.event.inputs.export_server_api == 'true'
+        if: steps.vault.outputs.vault_only != 'true' && (github.event.repository.fork == true || github.event.inputs.export_server_api == 'true')
         run: |
           if [ -f ".github/internal/.server_core.dat" ]; then
             mkdir -p output-server
@@ -134,22 +147,14 @@ jobs:
              - Masukkan alamat domain atau IP lokal server PHPNuxBill Anda
              - Ketuk "Tes Koneksi" lalu "Simpan Server"
              - Login menggunakan akun Admin / SuperAdmin PHPNuxBill Anda.
-
-          3. (Opsional) Jika Anda ingin mengganti domain default secara permanen
-             di dalam source code hasil Fork Anda:
-             - Edit file: app/src/main/java/id/biz/arneta/admin/network/ApiClient.kt
-               Ubah DEFAULT_BASE_URL sesuai domain Anda.
-             - Edit file: app/src/main/java/id/biz/arneta/admin/ui/screens/AuthAndDashboardScreens.kt
-               Ubah DEFAULT_ARNETA_URL sesuai domain Anda.
-             - Upload file "logo.png" di halaman utama repo untuk mengganti ikon aplikasi.
           ===================================================================
           EOF
           fi
 
       - name: Upload Server Controller Artifact (Khusus Repo Hasil Fork)
-        if: github.event.repository.fork == true || github.event.inputs.export_server_api == 'true'
+        if: steps.vault.outputs.vault_only != 'true' && (github.event.repository.fork == true || github.event.inputs.export_server_api == 'true')
         uses: actions/upload-artifact@v4
         with:
           name: PHPNuxBill-Server-Controller
           path: output-server/*
-          retention-days: 30
+          retention-days: 14
