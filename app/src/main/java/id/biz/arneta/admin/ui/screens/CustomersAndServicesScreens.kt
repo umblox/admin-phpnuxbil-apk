@@ -41,7 +41,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * KOMPONEN REUSABLE: DROPDOWN PEMILIH KOMPAK (UNTUK ROUTER, JENIS LAYANAN, & METODE BAYAR)
+ * KOMPONEN REUSABLE: DROPDOWN PEMILIH KOMPAK (DENGAN PLACEHOLDER & OPSI DISABLED SALDO KURANG)
  */
 @Composable
 fun CompactDropdownSelector(
@@ -160,6 +160,11 @@ fun CompactDropdownSelector(
     }
 }
 
+/**
+ * KOMPONEN REUSABLE: PENCARIAN & PEMILIH PELANGGAN OTOMATIS
+ * - Saat klik "Ganti", pilihan pelanggan langsung di-reset (null) agar tombol eksekusi nonaktif
+ *   sampai Admin benar-benar memilih pelanggan baru.
+ */
 @Composable
 fun CustomerLiveSearchPicker(
     selectedCustomer: JSONObject?,
@@ -171,7 +176,6 @@ fun CustomerLiveSearchPicker(
     var isExpanded by remember { mutableStateOf(selectedCustomer == null) }
     var isLoading by remember { mutableStateOf(false) }
 
-    // Jika dari luar di-reset menjadi null, otomatis buka kembali daftar pemilihan
     LaunchedEffect(selectedCustomer) {
         if (selectedCustomer == null) {
             isExpanded = true
@@ -218,7 +222,6 @@ fun CustomerLiveSearchPicker(
                     .fillMaxWidth()
                     .border(1.5.dp, ArnetaGoldPrimary, RoundedCornerShape(12.dp))
                     .clickable {
-                        // Reset pilihan pelanggan saat klik Ganti agar tidak salah kirim ke pelanggan sebelumnya
                         onCustomerSelected(null)
                         searchText = ""
                         isExpanded = true
@@ -505,7 +508,7 @@ private fun SelectablePlanCard(
 }
 
 /**
- * LAYAR MANAJEMEN PELANGGAN + LIVE SEARCH 1 HURUF + QUICKADD CUSTOMER + ISI PAKET / SALDO
+ * LAYAR MANAJEMEN PELANGGAN
  */
 @Composable
 fun AdminCustomersScreen(
@@ -875,7 +878,7 @@ fun AdminCustomersScreen(
 }
 
 /**
- * DIALOG TAMBAH / EDIT PELANGGAN (QUICKADD + FILTER ROUTER + METODE BAYAR + TOMBOL STATIS DI BAWAH)
+ * DIALOG TAMBAH / EDIT PELANGGAN
  */
 @Composable
 private fun CustomerFormDialog(
@@ -904,9 +907,9 @@ private fun CustomerFormDialog(
     var allInternetPlans by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var routerOptions by remember { mutableStateOf(listOf("All" to "Semua Router")) }
     var selectedRouterFilter by remember { mutableStateOf("All") }
-    var paymentUsings by remember { mutableStateOf(listOf("Cash", "Balance", "Recharge Zero")) }
+    var paymentUsings by remember { mutableStateOf(listOf("Cash", "Recharge Zero")) }
     var selectedPlan by remember { mutableStateOf<JSONObject?>(null) }
-    var selectedUsing by remember { mutableStateOf("Cash") }
+    var selectedUsing by remember { mutableStateOf("") } // Kosong di awal agar Admin memilih manual
     var activatePackageOnEdit by remember { mutableStateOf(false) }
 
     var sendWelcomeMessage by remember { mutableStateOf(!isEdit) }
@@ -935,10 +938,11 @@ private fun CustomerFormDialog(
             if (uArr != null && uArr.length() > 0) {
                 val uList = mutableListOf<String>()
                 for (i in 0 until uArr.length()) {
-                    uList.add(uArr.optString(i))
+                    val item = uArr.optString(i)
+                    if (!isEdit && item.equals("Balance", ignoreCase = true)) continue
+                    uList.add(item)
                 }
                 paymentUsings = uList
-                selectedUsing = uList.first()
             }
         }
     }
@@ -976,7 +980,7 @@ private fun CustomerFormDialog(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = if (isEdit) "Edit Pelanggan" else "Add Customer (QuickAdd)",
+                    text = if (isEdit) "Edit Pelanggan" else "Tambah Pelanggan Baru",
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 16.5.sp
                 )
@@ -1003,7 +1007,7 @@ private fun CustomerFormDialog(
                 OutlinedTextField(
                     value = username,
                     onValueChange = { username = it },
-                    label = { Text("Username (3-54 karakter)") },
+                    label = { Text("Username") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1017,14 +1021,14 @@ private fun CustomerFormDialog(
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
-                    label = { Text(if (isEdit) "Password Baru (Kosongkan jika tetap)" else "Password (3-35 karakter)") },
+                    label = { Text(if (isEdit) "Password Baru (Kosongkan jika tetap)" else "Password") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
                 OutlinedTextField(
                     value = phonenumber,
                     onValueChange = { phonenumber = it },
-                    label = { Text("Nomor WhatsApp (Otomatis diformat)") },
+                    label = { Text("Nomor WhatsApp") },
                     placeholder = { Text("0812xxxx / 62812xxxx") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                     singleLine = true,
@@ -1042,7 +1046,7 @@ private fun CustomerFormDialog(
                     OutlinedTextField(
                         value = email,
                         onValueChange = { email = it },
-                        label = { Text("Email (Opsional)") },
+                        label = { Text("Email") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                         singleLine = true,
                         modifier = Modifier.weight(1f)
@@ -1053,21 +1057,21 @@ private fun CustomerFormDialog(
                     OutlinedTextField(
                         value = pppoeUser,
                         onValueChange = { pppoeUser = it },
-                        label = { Text("PPPoE Username (Opsional)") },
+                        label = { Text("PPPoE Username") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
                         value = pppoePass,
                         onValueChange = { pppoePass = it },
-                        label = { Text("PPPoE Password (Opsional)") },
+                        label = { Text("PPPoE Password") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
                         value = pppoeIp,
                         onValueChange = { pppoeIp = it },
-                        label = { Text("Remote IP PPPoE (Opsional)") },
+                        label = { Text("Remote IP PPPoE") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1105,7 +1109,6 @@ private fun CustomerFormDialog(
                 }
 
                 if (!isEdit || activatePackageOnEdit) {
-                    // Baris Dropdown Kompak: Pilih Router & Metode Pembayaran
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxWidth()
@@ -1119,10 +1122,11 @@ private fun CustomerFormDialog(
                             modifier = Modifier.weight(1f)
                         )
                         CompactDropdownSelector(
-                            label = "Metode Bayar (Using)",
+                            label = "Metode Pembayaran",
                             selectedValue = selectedUsing,
+                            placeholder = "Pilih Metode...",
                             options = paymentUsings.map { u ->
-                                u to if (u.equals("Recharge Zero", ignoreCase = true)) "⚡ Zero (Rp 0)" else u
+                                u to if (u.equals("Recharge Zero", ignoreCase = true)) "⚡ Recharge Zero (Rp 0)" else u
                             },
                             icon = Icons.Filled.Payments,
                             onValueSelected = { selectedUsing = it },
@@ -1159,7 +1163,7 @@ private fun CustomerFormDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Atribut Tambahan (Custom Fields)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text("Atribut Tambahan", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     TextButton(onClick = { customFields = customFields + ("" to "") }) {
                         Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(15.dp))
                         Spacer(modifier = Modifier.width(4.dp))
@@ -1180,7 +1184,7 @@ private fun CustomerFormDialog(
                                 mutable[idx] = newKey to pair.second
                                 customFields = mutable
                             },
-                            label = { Text("Nama Field", fontSize = 11.sp) },
+                            label = { Text("Nama Atribut", fontSize = 11.sp) },
                             singleLine = true,
                             modifier = Modifier.weight(1f)
                         )
@@ -1191,7 +1195,7 @@ private fun CustomerFormDialog(
                                 mutable[idx] = pair.first to newVal
                                 customFields = mutable
                             },
-                            label = { Text("Isi / Nilai", fontSize = 11.sp) },
+                            label = { Text("Nilai", fontSize = 11.sp) },
                             singleLine = true,
                             modifier = Modifier.weight(1f)
                         )
@@ -1219,9 +1223,9 @@ private fun CustomerFormDialog(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("Kirim Pesan Sambutan (Welcome)", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                                Text("Kirim Pesan Sambutan", fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
                                 Text(
-                                    "Kirim username, password & link login ke pelanggan",
+                                    "Kirim detail akun & link login ke pelanggan",
                                     fontSize = 10.5.sp,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                                 )
@@ -1261,17 +1265,17 @@ private fun CustomerFormDialog(
             }
         },
         confirmButton = {
+            val needPackageAndMethod = !isEdit || activatePackageOnEdit
+            val canSubmit = !isSaving && username.isNotBlank() && fullname.isNotBlank() &&
+                (!needPackageAndMethod || (selectedPlan != null && selectedUsing.isNotBlank()))
+
             Button(
-                enabled = !isSaving,
+                enabled = canSubmit,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = ArnetaGoldPrimary,
                     contentColor = Color(0xFF0B0F19)
                 ),
                 onClick = {
-                    if (!isEdit && selectedPlan == null) {
-                        Toast.makeText(context, "Pilih Paket Internet terlebih dahulu!", Toast.LENGTH_SHORT).show()
-                        return@Button
-                    }
                     isSaving = true
                     scope.launch {
                         val cfNames = customFields.map { it.first.trim() }.filter { it.isNotEmpty() }
@@ -1299,7 +1303,7 @@ private fun CustomerFormDialog(
                             "mail" to welcomeViaMail
                         )
 
-                        if (!isEdit || activatePackageOnEdit) {
+                        if (needPackageAndMethod) {
                             params["ppln"] = selectedPlan?.optInt("id") ?: 0
                         }
                         if (cfNames.isNotEmpty() && cfNames.size == cfValues.size) {
@@ -1328,9 +1332,6 @@ private fun CustomerFormDialog(
 
 /**
  * DIALOG CEPAT ISI ULANG PAKET & SALDO DARI DAFTAR PELANGGAN
- * - Bagian atas: Pemilih Pelanggan + Dropdown kompak Router, Layanan & Metode Pembayaran
- * - Bagian tengah: Daftar Paket dengan RadioButton yang dapat di-scroll tersendiri
- * - Bagian bawah: Tombol Proses Sekarang statis di bagian bawah Dialog (tidak ikut ter-scroll)
  */
 @Composable
 fun QuickRechargeOrDepositDialog(
@@ -1352,7 +1353,7 @@ fun QuickRechargeOrDepositDialog(
         )
     }
     var paymentUsings by remember { mutableStateOf(listOf("Cash", "Balance", "Recharge Zero")) }
-    var selectedUsing by remember { mutableStateOf("Cash") }
+    var selectedUsing by remember { mutableStateOf("") } // Wajib dipilih manual oleh Admin
     var selectedPlan by remember { mutableStateOf<JSONObject?>(null) }
     var customAmount by remember { mutableStateOf("") }
     var depositNote by remember { mutableStateOf("") }
@@ -1385,7 +1386,6 @@ fun QuickRechargeOrDepositDialog(
                 val uList = mutableListOf<String>()
                 for (i in 0 until uArr.length()) uList.add(uArr.optString(i))
                 paymentUsings = uList
-                selectedUsing = uList.first()
             }
         }
     }
@@ -1410,6 +1410,16 @@ fun QuickRechargeOrDepositDialog(
         }
     }
 
+    val customerBalance = selectedCustomer?.optDouble("balance", 0.0) ?: 0.0
+    val currentPlanPrice = selectedPlan?.optDouble("price", 0.0) ?: 0.0
+    val isBalanceInsufficient = selectedCustomer == null || (currentPlanPrice > 0.0 && customerBalance < currentPlanPrice)
+
+    LaunchedEffect(isBalanceInsufficient, selectedUsing) {
+        if (isBalanceInsufficient && selectedUsing.equals("Balance", ignoreCase = true)) {
+            selectedUsing = ""
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -1420,8 +1430,6 @@ fun QuickRechargeOrDepositDialog(
             )
         },
         text = {
-            // Struktur Tanpa Scroll Penuh: Header & Filter tetap, hanya daftar paket yang di-scroll (heightIn),
-            // sehingga tombol Proses Sekarang di bawah selalu statis di tempat!
             Column(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth()
@@ -1430,7 +1438,7 @@ fun QuickRechargeOrDepositDialog(
                     selectedCustomer = selectedCustomer,
                     onCustomerSelected = { cust ->
                         selectedCustomer = cust
-                        if (mode != "deposit") {
+                        if (cust != null && mode != "deposit") {
                             if (isSuperAdmin) {
                                 filterPlanType = resolveCustomerPlanCategory(cust)
                             }
@@ -1456,7 +1464,7 @@ fun QuickRechargeOrDepositDialog(
                         OutlinedTextField(
                             value = depositNote,
                             onValueChange = { depositNote = it },
-                            label = { Text("Catatan (Opsional)", fontSize = 11.sp) },
+                            label = { Text("Catatan", fontSize = 11.sp) },
                             singleLine = true,
                             modifier = Modifier.weight(1f)
                         )
@@ -1465,7 +1473,6 @@ fun QuickRechargeOrDepositDialog(
                         Text("Atau Pilih Paket Saldo:", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = ArnetaGoldPrimary)
                     }
                 } else {
-                    // Baris Dropdown Kompak: Pilih Router, Jenis Layanan, & Metode Bayar
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.fillMaxWidth()
@@ -1493,12 +1500,17 @@ fun QuickRechargeOrDepositDialog(
                     }
 
                     CompactDropdownSelector(
-                        label = "Metode Pembayaran (Using)",
+                        label = "Metode Pembayaran",
                         selectedValue = selectedUsing,
+                        placeholder = "-- Pilih Metode Pembayaran --",
+                        disabledOptions = if (isBalanceInsufficient) setOf("Balance") else emptySet(),
                         options = paymentUsings.map { u ->
                             u to when {
                                 u.equals("Recharge Zero", ignoreCase = true) -> "⚡ Recharge Zero (Rp 0)"
-                                u.equals("Balance", ignoreCase = true) -> "💰 Potong Saldo Pelanggan"
+                                u.equals("Balance", ignoreCase = true) -> {
+                                    if (isBalanceInsufficient) "💰 Potong Saldo (Saldo tidak mencukupi)"
+                                    else "💰 Potong Saldo Pelanggan (${formatRupiah(customerBalance)})"
+                                }
                                 else -> u
                             }
                         },
@@ -1508,7 +1520,6 @@ fun QuickRechargeOrDepositDialog(
                     )
                 }
 
-                // Daftar Paket dengan Scroll Terbatas agar Tombol di Bawah Tetap Statis
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier
@@ -1531,8 +1542,14 @@ fun QuickRechargeOrDepositDialog(
             }
         },
         confirmButton = {
+            val isReadyToSubmit = if (mode == "deposit") {
+                !isProcessing && selectedCustomer != null && (customAmount.isNotBlank() || selectedPlan != null)
+            } else {
+                !isProcessing && selectedCustomer != null && selectedPlan != null && selectedUsing.isNotBlank()
+            }
+
             Button(
-                enabled = !isProcessing && selectedCustomer != null,
+                enabled = isReadyToSubmit,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = ArnetaGoldPrimary,
                     contentColor = Color(0xFF0B0F19)
@@ -1575,10 +1592,7 @@ fun QuickRechargeOrDepositDialog(
 }
 
 /**
- * LAYAR LAYANAN LENGKAP (Mencakup Seluruh Sub-Menu "Layanan" di Sidebar Web)
- * - Pada tab Isi Ulang Paket & Isi Ulang Saldo:
- *   Daftar paket berada di dalam LazyColumn(weight(1f)), sedangkan panel Metode Bayar &
- *   Tombol Eksekusi Emas berada STATIS di bagian bawah (Sticky Footer) tanpa ikut ter-scroll!
+ * LAYAR LAYANAN LENGKAP
  */
 @Composable
 fun AdminServicesScreen(
@@ -1607,13 +1621,12 @@ fun AdminServicesScreen(
     var couponList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var searchQuery by remember { mutableStateOf("") }
 
-    // State untuk Tab Isi Ulang Paket, Saldo & Refill Voucher
     var targetCustomer by remember { mutableStateOf<JSONObject?>(null) }
     var allPlans by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var routerOptions by remember { mutableStateOf(listOf("All" to "Semua Router")) }
     var selectedRouterFilter by remember { mutableStateOf("All") }
     var paymentUsings by remember { mutableStateOf(listOf("Cash", "Balance", "Recharge Zero")) }
-    var selectedUsing by remember { mutableStateOf("Cash") }
+    var selectedUsing by remember { mutableStateOf("") }
     var rechargePlanFilter by remember { mutableStateOf("All") } // All | Hotspot | PPPoE
     var selectedPlan by remember { mutableStateOf<JSONObject?>(null) }
     var customDepositAmount by remember { mutableStateOf("") }
@@ -1657,7 +1670,6 @@ fun AdminServicesScreen(
                         val uList = mutableListOf<String>()
                         for (i in 0 until uArr.length()) uList.add(uArr.optString(i))
                         paymentUsings = uList
-                        selectedUsing = uList.first()
                     }
                 }
                 "vouchers" -> {
@@ -1690,6 +1702,10 @@ fun AdminServicesScreen(
     }
 
     LaunchedEffect(currentSubTab) {
+        targetCustomer = null
+        selectedUsing = ""
+        customDepositAmount = ""
+        depositNote = ""
         loadCurrentTab()
     }
 
@@ -1710,6 +1726,16 @@ fun AdminServicesScreen(
     LaunchedEffect(displayedRechargePlans) {
         if (displayedRechargePlans.isNotEmpty() && (selectedPlan == null || displayedRechargePlans.none { it.optInt("id") == selectedPlan?.optInt("id") })) {
             selectedPlan = displayedRechargePlans.first()
+        }
+    }
+
+    val targetCustBalance = targetCustomer?.optDouble("balance", 0.0) ?: 0.0
+    val selectedPlanPrice = selectedPlan?.optDouble("price", 0.0) ?: 0.0
+    val isTargetBalanceInsufficient = targetCustomer == null || (selectedPlanPrice > 0.0 && targetCustBalance < selectedPlanPrice)
+
+    LaunchedEffect(isTargetBalanceInsufficient, selectedUsing) {
+        if (isTargetBalanceInsufficient && selectedUsing.equals("Balance", ignoreCase = true)) {
+            selectedUsing = ""
         }
     }
 
@@ -1764,7 +1790,7 @@ fun AdminServicesScreen(
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("Ketik 1 huruf nama / username / paket...", fontSize = 13.sp) },
+                    placeholder = { Text("Ketik nama / username / paket...", fontSize = 13.sp) },
                     leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = ArnetaGoldPrimary) },
                     trailingIcon = {
                         if (searchQuery.isNotEmpty()) {
@@ -1795,6 +1821,11 @@ fun AdminServicesScreen(
                     ) {
                         items(filteredActiveList) { item ->
                             val isOn = item.optString("status") == "on"
+                            val itemPrice = item.optDouble("price", 0.0)
+                            val invoiceNo = item.optString("invoice").ifEmpty { "INV-${item.optInt("id")}" }
+                            val trxDateTime = "${item.optString("recharged_on")} ${item.optString("recharged_time")}".trim()
+                            val expDateTime = "${item.optString("expiration")} ${item.optString("time")}".trim()
+
                             Card(
                                 shape = RoundedCornerShape(14.dp),
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -1809,7 +1840,7 @@ fun AdminServicesScreen(
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(item.optString("fullname"), fontWeight = FontWeight.Bold, fontSize = 15.sp)
                                             Text(
-                                                "@${item.optString("username")} • ${item.optString("namebp")}",
+                                                "@${item.optString("username")} • ${item.optString("namebp")} (${formatRupiah(itemPrice)})",
                                                 fontSize = 12.sp,
                                                 color = ArnetaCyanIncome
                                             )
@@ -1830,7 +1861,7 @@ fun AdminServicesScreen(
 
                                     Spacer(modifier = Modifier.height(6.dp))
                                     Text(
-                                        text = "Aktif: ${item.optString("recharged_on")} s/d ${item.optString("expiration")} ${item.optString("time")} (${item.optString("routers")})",
+                                        text = "Tgl Trx: $trxDateTime • Exp: $expDateTime (${item.optString("routers")})",
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                                     )
@@ -1845,12 +1876,16 @@ fun AdminServicesScreen(
                                                 scope.launch {
                                                     BluetoothPrinterHelper.printReceiptText(
                                                         context = context,
-                                                        title = "BUKTI LAYANAN AKTIF",
+                                                        title = "STRUK LAYANAN ${ApiClient.companyName.uppercase()}",
                                                         lines = listOf(
-                                                            "Pelanggan" to item.optString("username"),
+                                                            "No. Invoice" to invoiceNo,
+                                                            "Pelanggan" to "${item.optString("fullname")} (${item.optString("username")})",
                                                             "Paket" to item.optString("namebp"),
-                                                            "Router" to item.optString("routers"),
-                                                            "Expired" to "${item.optString("expiration")} ${item.optString("time")}"
+                                                            "Harga" to formatRupiah(itemPrice),
+                                                            "Metode" to item.optString("method"),
+                                                            "Tgl Trx" to trxDateTime,
+                                                            "Aktif s/d" to expDateTime,
+                                                            "Router" to item.optString("routers")
                                                         )
                                                     )
                                                 }
@@ -1863,15 +1898,21 @@ fun AdminServicesScreen(
 
                                         TextButton(
                                             onClick = {
-                                                val msg = BluetoothPrinterHelper.buildInvoiceText(
-                                                    invoice = "INV-${item.optInt("id")}",
-                                                    username = item.optString("username"),
-                                                    planName = item.optString("namebp"),
-                                                    price = 0.0,
-                                                    expiration = "${item.optString("expiration")} ${item.optString("time")}",
-                                                    method = item.optString("method")
-                                                )
-                                                BluetoothPrinterHelper.shareToWhatsApp(context, msg, item.optString("phonenumber"))
+                                                val waMessage = buildString {
+                                                    appendLine("*STRUK LAYANAN ${ApiClient.companyName.uppercase()}*")
+                                                    appendLine("--------------------------------")
+                                                    appendLine("No. Invoice : $invoiceNo")
+                                                    appendLine("Pelanggan   : ${item.optString("fullname")} (${item.optString("username")})")
+                                                    appendLine("Paket       : ${item.optString("namebp")}")
+                                                    appendLine("Harga       : ${formatRupiah(itemPrice)}")
+                                                    appendLine("Metode      : ${item.optString("method")}")
+                                                    appendLine("Tgl Trx     : $trxDateTime")
+                                                    appendLine("Aktif s/d   : $expDateTime")
+                                                    appendLine("Router      : ${item.optString("routers")}")
+                                                    appendLine("--------------------------------")
+                                                    append("Terima kasih telah menggunakan layanan ${ApiClient.companyName}.")
+                                                }
+                                                BluetoothPrinterHelper.shareToWhatsApp(context, waMessage, item.optString("phonenumber"))
                                             }
                                         ) {
                                             Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -1901,10 +1942,6 @@ fun AdminServicesScreen(
             "recharge_plan", "deposit_balance" -> {
                 val isDeposit = currentSubTab == "deposit_balance"
 
-                // TATA LETAK STICKY FOOTER:
-                // 1. Bagian Atas: Pemilih Pelanggan + Filter Router / Jenis Paket
-                // 2. Bagian Tengah (weight(1f)): Daftar Paket dengan Radio Button yang bisa di-scroll mandiri
-                // 3. Bagian Bawah (Statis di atas Bottom Navigation): Metode Pembayaran + Ringkasan + Tombol Eksekusi Emas
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1914,7 +1951,7 @@ fun AdminServicesScreen(
                         selectedCustomer = targetCustomer,
                         onCustomerSelected = { cust ->
                             targetCustomer = cust
-                            if (!isDeposit) {
+                            if (cust != null && !isDeposit) {
                                 if (isSuperAdmin) {
                                     rechargePlanFilter = resolveCustomerPlanCategory(cust)
                                 }
@@ -1946,7 +1983,7 @@ fun AdminServicesScreen(
                             OutlinedTextField(
                                 value = depositNote,
                                 onValueChange = { depositNote = it },
-                                label = { Text("Catatan (Opsional)", fontSize = 11.5.sp) },
+                                label = { Text("Catatan", fontSize = 11.5.sp) },
                                 placeholder = { Text("Setoran tunai") },
                                 singleLine = true,
                                 shape = RoundedCornerShape(10.dp),
@@ -1954,7 +1991,6 @@ fun AdminServicesScreen(
                             )
                         }
                     } else {
-                        // Baris Dropdown Kompak: Pilih Server/Router & Kategori Paket
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxWidth()
@@ -1995,7 +2031,6 @@ fun AdminServicesScreen(
 
                     Spacer(modifier = Modifier.height(6.dp))
 
-                    // Area Tengah Scrollable Khusus Daftar Paket
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -2037,7 +2072,6 @@ fun AdminServicesScreen(
 
                     Spacer(modifier = Modifier.height(6.dp))
 
-                    // PANEL BAWAH STATIS (STICKY ACTION BAR - TIDAK IKUT TER-SCROLL)
                     Surface(
                         color = MaterialTheme.colorScheme.surface,
                         shape = RoundedCornerShape(16.dp),
@@ -2058,12 +2092,17 @@ fun AdminServicesScreen(
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     CompactDropdownSelector(
-                                        label = "Metode Pembayaran (Using)",
+                                        label = "Metode Pembayaran",
                                         selectedValue = selectedUsing,
+                                        placeholder = "-- Pilih Metode Pembayaran --",
+                                        disabledOptions = if (isTargetBalanceInsufficient) setOf("Balance") else emptySet(),
                                         options = paymentUsings.map { u ->
                                             u to when {
                                                 u.equals("Recharge Zero", ignoreCase = true) -> "⚡ Recharge Zero (Rp 0)"
-                                                u.equals("Balance", ignoreCase = true) -> "💰 Potong Saldo Pelanggan"
+                                                u.equals("Balance", ignoreCase = true) -> {
+                                                    if (isTargetBalanceInsufficient) "💰 Potong Saldo (Saldo tidak mencukupi)"
+                                                    else "💰 Potong Saldo Pelanggan (${formatRupiah(targetCustBalance)})"
+                                                }
                                                 else -> u
                                             }
                                         },
@@ -2120,8 +2159,14 @@ fun AdminServicesScreen(
                                 }
                             }
 
+                            val isReadyToSubmit = if (isDeposit) {
+                                !isSubmitting && targetCustomer != null && (customDepositAmount.isNotBlank() || selectedPlan != null)
+                            } else {
+                                !isSubmitting && targetCustomer != null && selectedPlan != null && selectedUsing.isNotBlank()
+                            }
+
                             Button(
-                                enabled = !isSubmitting && targetCustomer != null,
+                                enabled = isReadyToSubmit,
                                 onClick = {
                                     val cust = targetCustomer ?: return@Button
                                     isSubmitting = true
@@ -2143,6 +2188,8 @@ fun AdminServicesScreen(
                                         isSubmitting = false
                                         Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
                                         if (res.status) {
+                                            targetCustomer = null
+                                            selectedUsing = ""
                                             customDepositAmount = ""
                                             depositNote = ""
                                             if (!isDeposit) currentSubTab = "active_users"
@@ -2321,7 +2368,10 @@ fun AdminServicesScreen(
                                         mapOf("customer_id" to cust.optInt("id"), "code" to refillCode)
                                     )
                                     Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
-                                    if (res.status) refillCode = ""
+                                    if (res.status) {
+                                        refillCode = ""
+                                        targetCustomer = null
+                                    }
                                 }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black),
