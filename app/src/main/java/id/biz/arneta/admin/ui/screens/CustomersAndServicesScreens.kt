@@ -50,12 +50,19 @@ fun CompactDropdownSelector(
     options: List<Pair<String, String>>,
     icon: ImageVector,
     onValueSelected: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    placeholder: String = "Pilih...",
+    disabledOptions: Set<String> = emptySet()
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val selectedLabel = remember(selectedValue, options) {
-        options.firstOrNull { it.first.equals(selectedValue, ignoreCase = true) }?.second ?: selectedValue
+    val selectedLabel = remember(selectedValue, options, placeholder) {
+        if (selectedValue.isBlank()) {
+            placeholder
+        } else {
+            options.firstOrNull { it.first.equals(selectedValue, ignoreCase = true) }?.second ?: selectedValue
+        }
     }
+    val isPlaceholder = selectedValue.isBlank()
 
     Box(modifier = modifier) {
         Surface(
@@ -63,7 +70,12 @@ fun CompactDropdownSelector(
             shape = RoundedCornerShape(10.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                .border(
+                    width = 1.dp,
+                    color = if (isPlaceholder) ArnetaGoldPrimary.copy(alpha = 0.6f)
+                    else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
+                    shape = RoundedCornerShape(10.dp)
+                )
                 .clip(RoundedCornerShape(10.dp))
                 .clickable { expanded = true }
         ) {
@@ -93,6 +105,7 @@ fun CompactDropdownSelector(
                             text = selectedLabel,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
+                            color = if (isPlaceholder) ArnetaGoldLight else MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -113,25 +126,33 @@ fun CompactDropdownSelector(
         ) {
             options.forEach { (key, title) ->
                 val isSel = key.equals(selectedValue, ignoreCase = true)
+                val isEnabled = disabledOptions.none { it.equals(key, ignoreCase = true) }
+
                 DropdownMenuItem(
+                    enabled = isEnabled,
                     text = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             RadioButton(
                                 selected = isSel,
                                 onClick = null,
+                                enabled = isEnabled,
                                 colors = RadioButtonDefaults.colors(selectedColor = ArnetaGoldPrimary)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = title,
                                 fontWeight = if (isSel) FontWeight.ExtraBold else FontWeight.Normal,
-                                fontSize = 13.sp
+                                fontSize = 13.sp,
+                                color = if (isEnabled) MaterialTheme.colorScheme.onSurface
+                                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                             )
                         }
                     },
                     onClick = {
-                        onValueSelected(key)
-                        expanded = false
+                        if (isEnabled) {
+                            onValueSelected(key)
+                            expanded = false
+                        }
                     }
                 )
             }
@@ -139,19 +160,23 @@ fun CompactDropdownSelector(
     }
 }
 
-/**
- * KOMPONEN REUSABLE: PENCARIAN & PEMILIH PELANGGAN OTOMATIS (LIVE SEARCH 1 HURUF + SCROLL)
- */
 @Composable
 fun CustomerLiveSearchPicker(
     selectedCustomer: JSONObject?,
-    onCustomerSelected: (JSONObject) -> Unit,
-    label: String = "Cari & Pilih Pelanggan (Ketik 1 huruf / Scroll)"
+    onCustomerSelected: (JSONObject?) -> Unit,
+    label: String = "Cari & Pilih Pelanggan"
 ) {
     var allCustomers by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var searchText by remember { mutableStateOf("") }
     var isExpanded by remember { mutableStateOf(selectedCustomer == null) }
     var isLoading by remember { mutableStateOf(false) }
+
+    // Jika dari luar di-reset menjadi null, otomatis buka kembali daftar pemilihan
+    LaunchedEffect(selectedCustomer) {
+        if (selectedCustomer == null) {
+            isExpanded = true
+        }
+    }
 
     LaunchedEffect(Unit) {
         isLoading = true
@@ -192,7 +217,12 @@ fun CustomerLiveSearchPicker(
                 modifier = Modifier
                     .fillMaxWidth()
                     .border(1.5.dp, ArnetaGoldPrimary, RoundedCornerShape(12.dp))
-                    .clickable { isExpanded = true }
+                    .clickable {
+                        // Reset pilihan pelanggan saat klik Ganti agar tidak salah kirim ke pelanggan sebelumnya
+                        onCustomerSelected(null)
+                        searchText = ""
+                        isExpanded = true
+                    }
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -221,7 +251,13 @@ fun CustomerLiveSearchPicker(
                             )
                         }
                     }
-                    TextButton(onClick = { isExpanded = true }) {
+                    TextButton(
+                        onClick = {
+                            onCustomerSelected(null)
+                            searchText = ""
+                            isExpanded = true
+                        }
+                    ) {
                         Text("Ganti", color = ArnetaGoldPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
                 }
@@ -240,10 +276,6 @@ fun CustomerLiveSearchPicker(
                     if (searchText.isNotEmpty()) {
                         IconButton(onClick = { searchText = "" }) {
                             Icon(Icons.Filled.Clear, contentDescription = "Hapus")
-                        }
-                    } else if (selectedCustomer != null) {
-                        IconButton(onClick = { isExpanded = false }) {
-                            Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Tutup")
                         }
                     }
                 },
