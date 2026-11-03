@@ -1005,7 +1005,7 @@ fun AdminDashboardScreen(
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
                                 Text(
-                                    text = "$unpaidQrisCount Tagihan QRIS Menunggu Pembayaran",
+                                    text = "$unpaidQrisCount Transaksi Payment Gateway Menunggu Pembayaran",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp
                                 )
