@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,7 +16,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -32,7 +30,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,6 +37,7 @@ import id.biz.arneta.admin.network.ApiClient
 import id.biz.arneta.admin.network.formatRupiah
 import id.biz.arneta.admin.ui.theme.*
 import id.biz.arneta.admin.util.BluetoothPrinterHelper
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
@@ -48,123 +46,101 @@ import java.util.Date
 import java.util.Locale
 
 private data class HubMenuItem(
-    val route: String,
+    val key: String,
     val title: String,
     val subtitle: String,
     val icon: ImageVector,
-    val tint: Color,
+    val accent: Color,
     val badgeCount: Int = 0
 )
 
 /**
- * 1. MENU HUB (Pusat Navigasi Seluruh Fitur Admin PHPNuxBill)
+ * 1. LAYAR MENU HUB LENGKAP
  */
 @Composable
-fun AdminMoreMenuScreen(
-    unpaidQrisCount: Int = 0,
-    onNavigate: (String) -> Unit,
+fun AdminMenuHubScreen(
+    unpaidQrisCount: Int,
+    onOpenSubScreen: (String) -> Unit,
+    onOpenInAppWeb: (String, String) -> Unit,
     onLogout: () -> Unit
 ) {
-    val menuGroups = listOf(
-        "Keuangan & Payment Gateway" to listOf(
-            HubMenuItem(
-                route = "reports",
-                title = "Laporan Keuangan",
-                subtitle = "Rekap pendapatan harian, bulanan & per metode bayar",
-                icon = Icons.Filled.Assessment,
-                tint = ArnetaCyanIncome
-            ),
-            HubMenuItem(
-                route = "payment_gateway",
-                title = "Audit Payment Gateway",
-                subtitle = "Pantau transaksi ViaQRIS, Tripay, Duitku, Xendit & PayPal",
-                icon = Icons.Filled.Payments,
-                tint = ArnetaGoldPrimary,
-                badgeCount = unpaidQrisCount
-            )
+    val menuItems = listOf(
+        HubMenuItem(
+            key = "network",
+            title = "MikroTik Monitor & Jaringan",
+            subtitle = "Trafik interface, health, user online, log & router",
+            icon = Icons.Filled.Router,
+            accent = ArnetaCyanIncome
         ),
-        "Jaringan, Paket & Infrastruktur" to listOf(
-            HubMenuItem(
-                route = "online_users",
-                title = "MikroTik Monitor & User Online",
-                subtitle = "Trafik interface live, sinyal wireless, log & putus sesi",
-                icon = Icons.Filled.Router,
-                tint = ArnetaGreenSuccess
-            ),
-            HubMenuItem(
-                route = "plans",
-                title = "Paket Internet & Bandwidth",
-                subtitle = "Kelola paket Hotspot, PPPoE, Saldo & limit kecepatan",
-                icon = Icons.Filled.Speed,
-                tint = ArnetaOrangeActive
-            ),
-            HubMenuItem(
-                route = "routers",
-                title = "Router MikroTik & IP Pool",
-                subtitle = "Konfigurasi router API, koordinat coverage & rentang IP",
-                icon = Icons.Filled.Dns,
-                tint = ArnetaCyanIncome
-            ),
-            HubMenuItem(
-                route = "map",
-                title = "Peta Lokasi Pelanggan & ODP",
-                subtitle = "Pemetaan titik koordinat pelanggan, router & jangkauan",
-                icon = Icons.Filled.Map,
-                tint = ArnetaGreenSuccess
-            ),
-            HubMenuItem(
-                route = "assets",
-                title = "Inventaris Aset Jaringan",
-                subtitle = "Kelola data ODP, ODC, ONT/Modem, kabel & nilai aset",
-                icon = Icons.Filled.Inventory2,
-                tint = ArnetaGoldLight
-            )
+        HubMenuItem(
+            key = "plans",
+            title = "Paket Internet & Bandwidth",
+            subtitle = "Kelola paket Hotspot, PPPoE, saldo & limit kecepatan",
+            icon = Icons.Filled.Speed,
+            accent = ArnetaGoldPrimary
         ),
-        "Komunikasi, Halaman & Sistem" to listOf(
-            HubMenuItem(
-                route = "messages",
-                title = "Kirim Pesan & Broadcast",
-                subtitle = "Kirim notifikasi WhatsApp, SMS & Inbox ke pelanggan",
-                icon = Icons.Filled.Send,
-                tint = ArnetaGreenSuccess
-            ),
-            HubMenuItem(
-                route = "pages",
-                title = "Editor Halaman Statis",
-                subtitle = "Ubah template Voucher, Info Tagihan & Pengumuman",
-                icon = Icons.Filled.Description,
-                tint = ArnetaCyanIncome
-            ),
-            HubMenuItem(
-                route = "webview",
-                title = "Panel Web Admin Internal",
-                subtitle = "Buka Plugin Manager & pengaturan lanjutan dengan SSO",
-                icon = Icons.Filled.Language,
-                tint = ArnetaGoldPrimary
-            ),
-            HubMenuItem(
-                route = "settings",
-                title = "Pengaturan, Staf & Log Sistem",
-                subtitle = "Konfigurasi aplikasi, kelola staf, bersihkan cache & cron",
-                icon = Icons.Filled.Settings,
-                tint = ArnetaCoralCustomer
-            )
+        HubMenuItem(
+            key = "reports",
+            title = "Laporan Keuangan",
+            subtitle = "Rekap pendapatan harian, bulanan & per metode bayar",
+            icon = Icons.Filled.Assessment,
+            accent = ArnetaGreenSuccess
+        ),
+        HubMenuItem(
+            key = "payment_gateway",
+            title = "Audit Payment Gateway",
+            subtitle = "ViaQRIS, Tripay, Duitku, Xendit & PayPal",
+            icon = Icons.Filled.Payments,
+            accent = ArnetaOrangeActive,
+            badgeCount = unpaidQrisCount
+        ),
+        HubMenuItem(
+            key = "map",
+            title = "Peta Pelanggan & Jaringan",
+            subtitle = "Titik koordinat pelanggan, router & jangkauan sinyal",
+            icon = Icons.Filled.Map,
+            accent = ArnetaCyanIncome
+        ),
+        HubMenuItem(
+            key = "assets",
+            title = "Inventaris & Aset Jaringan",
+            subtitle = "Data ODP, ODC, ONT/Modem, kabel & nilai investasi",
+            icon = Icons.Filled.Inventory2,
+            accent = ArnetaPurpleUsers
+        ),
+        HubMenuItem(
+            key = "messages",
+            title = "Kirim Pesan & Broadcast",
+            subtitle = "Kirim pesan WhatsApp, SMS & Inbox ke pelanggan",
+            icon = Icons.Filled.Campaign,
+            accent = ArnetaGreenSuccess
+        ),
+        HubMenuItem(
+            key = "pages",
+            title = "Template & Halaman Statis",
+            subtitle = "Edit template voucher, pengumuman & info tagihan",
+            icon = Icons.Filled.Description,
+            accent = ArnetaGoldLight
+        ),
+        HubMenuItem(
+            key = "settings",
+            title = "Pengaturan, Staf & Log Sistem",
+            subtitle = "Konfigurasi aplikasi, akun staf, cronjob & bersihkan cache",
+            icon = Icons.Filled.Settings,
+            accent = ArnetaIndigoAccent
         )
     )
 
     LazyColumn(
-        contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 100.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 95.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier.fillMaxSize()
     ) {
-        // Kartu Profil Admin Aktif
         item {
             Card(
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF141B2D)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, ArnetaGoldPrimary.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -177,38 +153,37 @@ fun AdminMoreMenuScreen(
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .size(48.dp)
+                                .size(46.dp)
                                 .clip(CircleShape)
                                 .background(ArnetaGoldPrimary.copy(alpha = 0.2f))
                                 .border(1.5.dp, ArnetaGoldPrimary, CircleShape)
                         ) {
-                            Icon(Icons.Filled.Shield, contentDescription = null, tint = ArnetaGoldPrimary)
+                            Icon(Icons.Filled.AdminPanelSettings, contentDescription = null, tint = ArnetaGoldPrimary)
                         }
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
                                 text = ApiClient.adminName,
+                                color = Color.White,
                                 fontWeight = FontWeight.ExtraBold,
-                                fontSize = 16.sp,
-                                color = Color.White
+                                fontSize = 15.sp
                             )
                             Text(
                                 text = "@${ApiClient.adminUsername} • ${ApiClient.adminRole}",
-                                fontSize = 12.sp,
-                                color = ArnetaGoldLight
+                                color = ArnetaGoldLight,
+                                fontSize = 12.sp
                             )
                             Text(
                                 text = ApiClient.baseUrl.replace("https://", "").replace("http://", ""),
-                                fontSize = 11.sp,
-                                color = Color.White.copy(alpha = 0.6f)
+                                color = Color.White.copy(alpha = 0.6f),
+                                fontSize = 11.sp
                             )
                         }
                     }
 
                     OutlinedButton(
                         onClick = onLogout,
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ArnetaRedDanger),
-                        shape = RoundedCornerShape(10.dp)
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ArnetaRedDanger)
                     ) {
                         Icon(Icons.Filled.Logout, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
@@ -218,85 +193,103 @@ fun AdminMoreMenuScreen(
             }
         }
 
-        menuGroups.forEach { (groupTitle, items) ->
-            item {
-                Text(
-                    text = groupTitle,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = ArnetaGoldPrimary,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
-                )
-            }
+        item {
+            Text(
+                text = "Menu Administrasi",
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
 
-            items(items) { m ->
-                Card(
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onNavigate(m.route) }
+        items(menuItems) { item ->
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpenSubScreen(item.key) }
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.padding(14.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(item.accent.copy(alpha = 0.16f))
                         ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier
-                                    .size(42.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(m.tint.copy(alpha = 0.15f))
+                            Icon(item.icon, contentDescription = null, tint = item.accent)
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Icon(m.icon, contentDescription = null, tint = m.tint, modifier = Modifier.size(22.dp))
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = m.title,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 14.5.sp
-                                    )
-                                    if (m.badgeCount > 0) {
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Surface(
-                                            color = ArnetaRedDanger,
-                                            shape = RoundedCornerShape(50)
-                                        ) {
-                                            Text(
-                                                text = "${m.badgeCount} Pending",
-                                                color = Color.White,
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
-                                            )
-                                        }
+                                Text(
+                                    text = item.title,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.5.sp
+                                )
+                                if (item.badgeCount > 0) {
+                                    Surface(
+                                        color = ArnetaRedDanger,
+                                        shape = RoundedCornerShape(50)
+                                    ) {
+                                        Text(
+                                            text = "${item.badgeCount} Pending",
+                                            color = Color.White,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                        )
                                     }
                                 }
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = m.subtitle,
-                                    fontSize = 11.5.sp,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
                             }
+                            Text(
+                                text = item.subtitle,
+                                fontSize = 11.5.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                            )
                         }
-                        Icon(
-                            imageVector = Icons.Filled.ChevronRight,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                        )
+                    }
+                    Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f))
+                }
+            }
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Panel Web Internal (SSO Otomatis)",
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+            ) {
+                listOf(
+                    "dashboard" to "Dasbor Web",
+                    "pluginmanager" to "Plugin Manager",
+                    "paymentgateway" to "Payment Gateway",
+                    "radius" to "FreeRADIUS"
+                ).forEach { (route, label) ->
+                    FilledTonalButton(
+                        onClick = { onOpenInAppWeb(route, label) }
+                    ) {
+                        Icon(Icons.Filled.Language, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -305,10 +298,11 @@ fun AdminMoreMenuScreen(
 }
 
 /**
- * 2. LAYAR LAPORAN KEUANGAN & AUDIT SEMUA PAYMENT GATEWAY (ViaQRIS, Tripay, Duitku, Xendit, PayPal)
+ * 2. LAYAR LAPORAN KEUANGAN & AUDIT SEMUA PAYMENT GATEWAY
+ *    (ViaQRIS, Tripay, Duitku, Xendit, PayPal)
  */
 @Composable
-fun AdminReportsScreen(
+fun AdminReportsAndQrisScreen(
     initialTab: Int = 0
 ) {
     val context = LocalContext.current
@@ -316,31 +310,31 @@ fun AdminReportsScreen(
 
     var currentTab by remember { mutableIntStateOf(initialTab) }
 
-    // State Tab 0: Laporan Transaksi (tbl_transactions)
-    val todayStr = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()) }
-    val firstDayMonthStr = remember { SimpleDateFormat("yyyy-MM-01", Locale.US).format(Date()) }
-
-    var startDate by remember { mutableStateOf(firstDayMonthStr) }
-    var endDate by remember { mutableStateOf(todayStr) }
+    // State Tab 0: Laporan Keuangan
+    val todayDate = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()) }
+    val monthStartDate = remember { SimpleDateFormat("yyyy-MM-01", Locale.US).format(Date()) }
+    var startDate by remember { mutableStateOf(monthStartDate) }
+    var endDate by remember { mutableStateOf(todayDate) }
     var reportSearch by remember { mutableStateOf("") }
     var selectedReportMethod by remember { mutableStateOf("All") }
     var isLoadingReport by remember { mutableStateOf(false) }
     var totalIncome by remember { mutableDoubleStateOf(0.0) }
     var totalTrxCount by remember { mutableIntStateOf(0) }
     var gatewayBreakdown by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
-    var transactionsList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var transactions by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
 
-    // State Tab 1: Audit Payment Gateway (tbl_payment_gateway: ViaQRIS, Tripay, Duitku, Xendit, PayPal)
-    var pgStatusFilter by remember { mutableStateOf("all") } // all | 1 | 2 | 3 | 4
+    // State Tab 1: Audit Payment Gateway (ViaQRIS, Tripay, Duitku, Xendit, PayPal)
+    var pgStatusFilter by remember { mutableStateOf("All") } // All | 1 | 2 | 3 | 4
     var pgGatewayFilter by remember { mutableStateOf("All") } // All | viaqris | tripay | duitku | xendit | paypal
     var pgSearch by remember { mutableStateOf("") }
     var isLoadingPg by remember { mutableStateOf(false) }
     var pgItems by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
-    var pgGatewayStats by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
-    var availableGateways by remember { mutableStateOf(listOf("All", "viaqris", "tripay", "duitku", "xendit", "paypal")) }
-    var selectedPgDetail by remember { mutableStateOf<JSONObject?>(null) }
+    var pgGatewayOptions by remember { mutableStateOf(listOf("viaqris", "tripay", "duitku", "xendit", "paypal")) }
+    var pgByGatewayStats by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var pgTotalPaidAmount by remember { mutableDoubleStateOf(0.0) }
+    var pgTotalUnpaidCount by remember { mutableIntStateOf(0) }
 
-    fun loadFinancialReports() {
+    fun loadReports() {
         isLoadingReport = true
         scope.launch {
             val res = ApiClient.request(
@@ -349,8 +343,7 @@ fun AdminReportsScreen(
                     "start_date" to startDate.trim(),
                     "end_date" to endDate.trim(),
                     "search" to reportSearch.trim(),
-                    "gateway" to if (selectedReportMethod == "All") "" else selectedReportMethod,
-                    "limit" to 200
+                    "gateway" to if (selectedReportMethod == "All") "" else selectedReportMethod
                 )
             )
             if (res.status && res.data != null) {
@@ -366,59 +359,73 @@ fun AdminReportsScreen(
                 val tArr = res.data.optJSONArray("transactions") ?: JSONArray()
                 val tList = mutableListOf<JSONObject>()
                 for (i in 0 until tArr.length()) tList.add(tArr.getJSONObject(i))
-                transactionsList = tList
+                transactions = tList
             }
             isLoadingReport = false
         }
     }
 
-    fun loadPaymentGatewayAudit() {
+    fun loadPaymentGateways() {
         isLoadingPg = true
         scope.launch {
             val res = ApiClient.request(
                 "admin_payment_gateways",
                 mapOf(
                     "sub_action" to "list",
-                    "status" to pgStatusFilter,
+                    "status" to if (pgStatusFilter == "All") "" else pgStatusFilter,
                     "gateway" to if (pgGatewayFilter == "All") "" else pgGatewayFilter,
-                    "search" to pgSearch.trim(),
-                    "limit" to 100
+                    "search" to pgSearch.trim()
                 )
             )
             if (res.status && res.data != null) {
+                val sum = res.data.optJSONObject("summary")
+                pgTotalPaidAmount = sum?.optDouble("total_paid_amount", 0.0) ?: 0.0
+                pgTotalUnpaidCount = sum?.optInt("total_unpaid", 0) ?: 0
+
+                val byGwArr = sum?.optJSONArray("by_gateway") ?: JSONArray()
+                val statList = mutableListOf<JSONObject>()
+                for (i in 0 until byGwArr.length()) statList.add(byGwArr.getJSONObject(i))
+                pgByGatewayStats = statList
+
+                val gwArr = res.data.optJSONArray("gateways")
+                if (gwArr != null && gwArr.length() > 0) {
+                    val gList = mutableListOf<String>()
+                    for (i in 0 until gwArr.length()) {
+                        val g = gwArr.optString(i).trim()
+                        if (g.isNotEmpty()) gList.add(g)
+                    }
+                    if (gList.isNotEmpty()) pgGatewayOptions = gList
+                }
+
                 val arr = res.data.optJSONArray("items") ?: JSONArray()
                 val list = mutableListOf<JSONObject>()
                 for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
                 pgItems = list
-
-                val sum = res.data.optJSONObject("summary")
-                val byGwArr = sum?.optJSONArray("by_gateway") ?: JSONArray()
-                val stList = mutableListOf<JSONObject>()
-                for (i in 0 until byGwArr.length()) stList.add(byGwArr.getJSONObject(i))
-                pgGatewayStats = stList
-
-                val gwArr = res.data.optJSONArray("gateways")
-                if (gwArr != null && gwArr.length() > 0) {
-                    val gList = mutableListOf("All")
-                    for (i in 0 until gwArr.length()) {
-                        val g = gwArr.optString(i).trim()
-                        if (g.isNotEmpty() && gList.none { it.equals(g, ignoreCase = true) }) {
-                            gList.add(g)
-                        }
-                    }
-                    availableGateways = gList
-                }
             }
             isLoadingPg = false
         }
     }
 
     LaunchedEffect(currentTab, selectedReportMethod) {
-        if (currentTab == 0) loadFinancialReports()
+        if (currentTab == 0) loadReports()
+    }
+
+    LaunchedEffect(reportSearch) {
+        if (currentTab == 0) {
+            delay(250)
+            loadReports()
+        }
     }
 
     LaunchedEffect(currentTab, pgStatusFilter, pgGatewayFilter) {
-        if (currentTab == 1) loadPaymentGatewayAudit()
+        if (currentTab == 1) loadPaymentGateways()
+    }
+
+    LaunchedEffect(pgSearch) {
+        if (currentTab == 1) {
+            delay(250)
+            loadPaymentGateways()
+        }
     }
 
     Column(
@@ -428,7 +435,6 @@ fun AdminReportsScreen(
     ) {
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Tab Switcher: Laporan Keuangan vs Audit Payment Gateway
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth()
@@ -436,14 +442,14 @@ fun AdminReportsScreen(
             FilterChip(
                 selected = currentTab == 0,
                 onClick = { currentTab = 0 },
-                label = { Text("Laporan Keuangan", fontWeight = FontWeight.Bold, fontSize = 12.5.sp) },
+                label = { Text("Laporan Keuangan", fontWeight = FontWeight.Bold) },
                 leadingIcon = { Icon(Icons.Filled.Assessment, contentDescription = null, modifier = Modifier.size(16.dp)) },
                 modifier = Modifier.weight(1f)
             )
             FilterChip(
                 selected = currentTab == 1,
                 onClick = { currentTab = 1 },
-                label = { Text("Audit Payment Gateway", fontWeight = FontWeight.Bold, fontSize = 12.5.sp) },
+                label = { Text("Payment Gateway", fontWeight = FontWeight.Bold) },
                 leadingIcon = { Icon(Icons.Filled.Payments, contentDescription = null, modifier = Modifier.size(16.dp)) },
                 modifier = Modifier.weight(1f)
             )
@@ -453,57 +459,17 @@ fun AdminReportsScreen(
 
         if (currentTab == 0) {
             // =================================================================
-            // TAB 0: LAPORAN KEUANGAN & REKAP METODE PEMBAYARAN
+            // TAB 0: LAPORAN TRANSAKSI & REKAP PER METODE / GATEWAY
             // =================================================================
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF141B2D)),
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp)
-                ) {
-                    Column {
-                        Text(
-                            text = if (selectedReportMethod == "All") "Total Pendapatan Bersih"
-                            else "Pendapatan Metode: $selectedReportMethod",
-                            fontSize = 11.5.sp,
-                            color = Color.White.copy(alpha = 0.75f)
-                        )
-                        Text(
-                            text = formatRupiah(totalIncome),
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = ArnetaGoldPrimary
-                        )
-                        Text(
-                            text = "$totalTrxCount transaksi tercatat pada periode ini",
-                            fontSize = 11.sp,
-                            color = ArnetaCyanIncome
-                        )
-                    }
-                    IconButton(onClick = { loadFinancialReports() }) {
-                        Icon(Icons.Filled.Refresh, contentDescription = "Segarkan", tint = ArnetaGoldPrimary)
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Baris Filter Tanggal & Tombol Cari
             Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 OutlinedTextField(
                     value = startDate,
                     onValueChange = { startDate = it },
-                    label = { Text("Dari (YYYY-MM-DD)", fontSize = 10.sp) },
+                    label = { Text("Dari Tanggal", fontSize = 11.sp) },
                     singleLine = true,
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.weight(1f)
@@ -511,57 +477,100 @@ fun AdminReportsScreen(
                 OutlinedTextField(
                     value = endDate,
                     onValueChange = { endDate = it },
-                    label = { Text("Sampai (YYYY-MM-DD)", fontSize = 10.sp) },
+                    label = { Text("Sampai Tanggal", fontSize = 11.sp) },
                     singleLine = true,
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.weight(1f)
                 )
-                Button(
-                    onClick = { loadFinancialReports() },
-                    colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.height(50.dp)
+                IconButton(
+                    onClick = { loadReports() },
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(ArnetaGoldPrimary)
                 ) {
-                    Icon(Icons.Filled.Search, contentDescription = "Filter")
+                    Icon(Icons.Filled.Search, contentDescription = "Filter", tint = Color.Black)
                 }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            // Chip Rekap Per Metode / Payment Gateway (Bisa diklik untuk filter)
-            if (gatewayBreakdown.isNotEmpty()) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                ) {
-                    FilterChip(
-                        selected = selectedReportMethod == "All",
-                        onClick = { selectedReportMethod = "All" },
-                        label = { Text("Semua Metode", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                    )
-                    gatewayBreakdown.forEach { bd ->
-                        val gwKey = bd.optString("gateway", "LAINNYA")
-                        val cnt = bd.optInt("count", 0)
-                        val tot = bd.optDouble("total", 0.0)
-                        FilterChip(
-                            selected = selectedReportMethod.equals(gwKey, ignoreCase = true),
-                            onClick = {
-                                selectedReportMethod = if (selectedReportMethod.equals(gwKey, ignoreCase = true)) "All" else gwKey
-                            },
-                            label = {
-                                Text(
-                                    text = "$gwKey ($cnt) • ${formatRupiah(tot)}",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold
+            // Kartu Ringkasan Total Pendapatan & Breakdown Metode Pembayaran
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF141B2D)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column {
+                            Text(
+                                text = if (selectedReportMethod == "All") "Total Pemasukan Periode"
+                                else "Pemasukan ($selectedReportMethod)",
+                                color = Color.White.copy(alpha = 0.7f),
+                                fontSize = 11.5.sp
+                            )
+                            Text(
+                                text = formatRupiah(totalIncome),
+                                color = ArnetaGoldPrimary,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 20.sp
+                            )
+                        }
+                        Surface(
+                            color = ArnetaCyanIncome.copy(alpha = 0.2f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                text = "$totalTrxCount Transaksi",
+                                color = ArnetaCyanIncome,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            )
+                        }
+                    }
+
+                    if (gatewayBreakdown.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                        ) {
+                            FilterChip(
+                                selected = selectedReportMethod == "All",
+                                onClick = { selectedReportMethod = "All" },
+                                label = { Text("Semua Metode", fontSize = 11.sp) }
+                            )
+                            gatewayBreakdown.forEach { bd ->
+                                val gwName = bd.optString("gateway", "LAINNYA")
+                                val gwCnt = bd.optInt("count", 0)
+                                val gwTot = bd.optDouble("total", 0.0)
+                                FilterChip(
+                                    selected = selectedReportMethod.equals(gwName, ignoreCase = true),
+                                    onClick = {
+                                        selectedReportMethod = if (selectedReportMethod.equals(gwName, ignoreCase = true)) "All" else gwName
+                                    },
+                                    label = {
+                                        Text(
+                                            text = "$gwName ($gwCnt): ${formatRupiah(gwTot)}",
+                                            fontSize = 11.sp
+                                        )
+                                    }
                                 )
                             }
-                        )
+                        }
                     }
                 }
-                Spacer(modifier = Modifier.height(6.dp))
             }
+
+            Spacer(modifier = Modifier.height(8.dp))
 
             OutlinedTextField(
                 value = reportSearch,
@@ -570,11 +579,8 @@ fun AdminReportsScreen(
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = ArnetaGoldPrimary) },
                 trailingIcon = {
                     if (reportSearch.isNotEmpty()) {
-                        IconButton(onClick = {
-                            reportSearch = ""
-                            loadFinancialReports()
-                        }) {
-                            Icon(Icons.Filled.Clear, contentDescription = "Hapus")
+                        IconButton(onClick = { reportSearch = "" }) {
+                            Icon(Icons.Filled.Clear, contentDescription = "Bersihkan")
                         }
                     }
                 },
@@ -589,9 +595,9 @@ fun AdminReportsScreen(
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                     CircularProgressIndicator(color = ArnetaGoldPrimary)
                 }
-            } else if (transactionsList.isEmpty()) {
+            } else if (transactions.isEmpty()) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                    Text("Tidak ada transaksi pada filter ini.", fontSize = 13.sp)
+                    Text("Tidak ada data transaksi pada periode ini.", fontSize = 13.sp)
                 }
             } else {
                 LazyColumn(
@@ -599,12 +605,14 @@ fun AdminReportsScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(transactionsList) { trx ->
-                        val inv = trx.optString("invoice").ifEmpty { "INV-${trx.optInt("id")}" }
+                    items(transactions) { trx ->
+                        val inv = trx.optString("invoice", "INV-${trx.optInt("id")}")
+                        val uname = trx.optString("username", "-")
+                        val planName = trx.optString("plan_name", "-")
                         val price = trx.optDouble("price", 0.0)
+                        val method = trx.optString("method", "-")
                         val trxDate = "${trx.optString("recharged_on")} ${trx.optString("recharged_time")}".trim()
                         val expDate = "${trx.optString("expiration")} ${trx.optString("time")}".trim()
-                        val methodStr = trx.optString("method", "-")
 
                         Card(
                             shape = RoundedCornerShape(12.dp),
@@ -618,47 +626,32 @@ fun AdminReportsScreen(
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Text(
-                                                text = trx.optString("username"),
-                                                fontWeight = FontWeight.ExtraBold,
-                                                fontSize = 14.5.sp
-                                            )
-                                            Surface(
-                                                color = ArnetaCyanIncome.copy(alpha = 0.16f),
-                                                shape = RoundedCornerShape(4.dp)
-                                            ) {
-                                                Text(
-                                                    text = inv,
-                                                    fontSize = 10.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = ArnetaCyanIncome,
-                                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                                                )
-                                            }
-                                        }
                                         Text(
-                                            text = "${trx.optString("plan_name")} • $methodStr",
-                                            fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f)
+                                            text = "$uname • $planName",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = "$inv • $method",
+                                            fontSize = 11.5.sp,
+                                            color = ArnetaCyanIncome
                                         )
                                     }
                                     Text(
                                         text = formatRupiah(price),
                                         fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 14.5.sp,
-                                        color = ArnetaGoldPrimary
+                                        color = ArnetaGoldPrimary,
+                                        fontSize = 14.sp
                                     )
                                 }
 
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "Tgl Trx: $trxDate • Exp: $expDate (${trx.optString("routers")})",
-                                    fontSize = 10.5.sp,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f)
+                                    text = "Tgl Trx: $trxDate • Exp: $expDate (${trx.optString("routers", "-")})",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                                 )
 
                                 Row(
@@ -673,13 +666,12 @@ fun AdminReportsScreen(
                                                     title = "STRUK TRANSAKSI ${ApiClient.companyName.uppercase()}",
                                                     lines = listOf(
                                                         "No. Invoice" to inv,
-                                                        "Pelanggan" to trx.optString("username"),
-                                                        "Paket" to trx.optString("plan_name"),
-                                                        "Harga" to formatRupiah(price),
-                                                        "Metode" to methodStr,
+                                                        "Username" to uname,
+                                                        "Paket" to planName,
+                                                        "Total" to formatRupiah(price),
+                                                        "Metode" to method,
                                                         "Tgl Trx" to trxDate,
-                                                        "Aktif s/d" to expDate,
-                                                        "Router" to trx.optString("routers")
+                                                        "Aktif s/d" to expDate
                                                     )
                                                 )
                                             }
@@ -692,24 +684,20 @@ fun AdminReportsScreen(
 
                                     TextButton(
                                         onClick = {
-                                            val waMsg = buildString {
-                                                appendLine("*STRUK TRANSAKSI ${ApiClient.companyName.uppercase()}*")
-                                                appendLine("--------------------------------")
-                                                appendLine("No. Invoice : $inv")
-                                                appendLine("Pelanggan   : ${trx.optString("username")}")
-                                                appendLine("Paket       : ${trx.optString("plan_name")}")
-                                                appendLine("Harga       : ${formatRupiah(price)}")
-                                                appendLine("Metode      : $methodStr")
-                                                appendLine("Tgl Trx     : $trxDate")
-                                                appendLine("Aktif s/d   : $expDate")
-                                                appendLine("Router      : ${trx.optString("routers")}")
-                                            }
-                                            BluetoothPrinterHelper.shareToWhatsApp(context, waMsg, "")
+                                            val msg = BluetoothPrinterHelper.buildInvoiceText(
+                                                invoice = inv,
+                                                username = uname,
+                                                planName = planName,
+                                                price = price,
+                                                expiration = expDate,
+                                                method = method
+                                            )
+                                            BluetoothPrinterHelper.shareToWhatsApp(context, msg, "")
                                         }
                                     ) {
                                         Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(15.dp))
                                         Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Bagikan WA", fontSize = 11.5.sp)
+                                        Text("WA", fontSize = 11.5.sp)
                                     }
                                 }
                             }
@@ -719,91 +707,114 @@ fun AdminReportsScreen(
             }
         } else {
             // =================================================================
-            // TAB 1: AUDIT MULTI-PAYMENT GATEWAY (ViaQRIS, Tripay, Duitku, Xendit, PayPal)
+            // TAB 1: AUDIT SEMUA PAYMENT GATEWAY (ViaQRIS, Tripay, Duitku, Xendit, PayPal)
             // =================================================================
-            if (pgGatewayStats.isNotEmpty()) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                ) {
-                    pgGatewayStats.forEach { st ->
-                        val gwName = st.optString("gateway", "PG")
-                        val paidCnt = st.optInt("paid_count", 0)
-                        val paidTot = st.optDouble("paid_total", 0.0)
-                        val unpaidCnt = st.optInt("unpaid_count", 0)
-                        val isSelectedGw = pgGatewayFilter.equals(gwName, ignoreCase = true)
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF141B2D)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column {
+                            Text(
+                                text = "Total Pembayaran Lunas (PG)",
+                                color = Color.White.copy(alpha = 0.7f),
+                                fontSize = 11.sp
+                            )
+                            Text(
+                                text = formatRupiah(pgTotalPaidAmount),
+                                color = ArnetaGreenSuccess,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 18.sp
+                            )
+                        }
 
-                        Surface(
-                            color = if (isSelectedGw) ArnetaGoldPrimary.copy(alpha = 0.2f) else Color(0xFF141B2D),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .border(
-                                    width = 1.dp,
-                                    color = if (isSelectedGw) ArnetaGoldPrimary else Color.White.copy(alpha = 0.12f),
-                                    shape = RoundedCornerShape(12.dp)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                color = if (pgTotalUnpaidCount > 0) ArnetaOrangeActive.copy(alpha = 0.2f) else ArnetaGreenSuccess.copy(alpha = 0.2f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(
+                                    text = "$pgTotalUnpaidCount Menunggu",
+                                    color = if (pgTotalUnpaidCount > 0) ArnetaOrangeActive else ArnetaGreenSuccess,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.5.sp,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                                 )
-                                .clickable {
-                                    pgGatewayFilter = if (isSelectedGw) "All" else gwName.lowercase()
-                                }
+                            }
+                            IconButton(onClick = { loadPaymentGateways() }) {
+                                Icon(Icons.Filled.Refresh, contentDescription = "Segarkan", tint = ArnetaGoldPrimary)
+                            }
+                        }
+                    }
+
+                    if (pgByGatewayStats.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
                         ) {
-                            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            pgByGatewayStats.forEach { st ->
+                                val gwName = st.optString("gateway", "-")
+                                val pCnt = st.optInt("paid_count", 0)
+                                val uCnt = st.optInt("unpaid_count", 0)
+                                val pTot = st.optDouble("paid_total", 0.0)
+                                Surface(
+                                    color = Color.White.copy(alpha = 0.08f),
+                                    shape = RoundedCornerShape(8.dp)
                                 ) {
                                     Text(
-                                        text = gwName,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 12.sp,
-                                        color = ArnetaGoldPrimary
+                                        text = "$gwName • Lunas: $pCnt (${formatRupiah(pTot)}) • Pending: $uCnt",
+                                        color = Color.White.copy(alpha = 0.9f),
+                                        fontSize = 10.5.sp,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                     )
-                                    if (unpaidCnt > 0) {
-                                        Surface(
-                                            color = ArnetaOrangeActive.copy(alpha = 0.25f),
-                                            shape = RoundedCornerShape(4.dp)
-                                        ) {
-                                            Text(
-                                                text = "$unpaidCnt Pending",
-                                                fontSize = 9.5.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = ArnetaOrangeActive,
-                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                            )
-                                        }
-                                    }
                                 }
-                                Text(
-                                    text = "Lunas ($paidCnt): ${formatRupiah(paidTot)}",
-                                    fontSize = 11.sp,
-                                    color = Color.White
-                                )
                             }
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(6.dp))
             }
 
-            // Filter Pilihan Payment Gateway (Semua, ViaQRIS, Tripay, Duitku, Xendit, PayPal)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Baris Filter Gateway (Semua, ViaQRIS, Tripay, Duitku, Xendit, PayPal)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState())
             ) {
-                availableGateways.forEach { gw ->
-                    val label = if (gw == "All") "Semua Gateway" else gw.uppercase()
+                FilterChip(
+                    selected = pgGatewayFilter == "All",
+                    onClick = { pgGatewayFilter = "All" },
+                    label = { Text("Semua Gateway", fontSize = 11.5.sp) }
+                )
+                pgGatewayOptions.forEach { gw ->
+                    val label = when (gw.lowercase()) {
+                        "viaqris" -> "ViaQRIS"
+                        "tripay" -> "Tripay"
+                        "duitku" -> "Duitku"
+                        "xendit" -> "Xendit"
+                        "paypal" -> "PayPal"
+                        else -> gw.uppercase()
+                    }
                     FilterChip(
                         selected = pgGatewayFilter.equals(gw, ignoreCase = true),
                         onClick = { pgGatewayFilter = gw },
-                        label = { Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                        label = { Text(label, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold) }
                     )
                 }
             }
 
-            // Filter Status Transaksi PG
+            // Baris Filter Status Tagihan
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier
@@ -811,8 +822,8 @@ fun AdminReportsScreen(
                     .horizontalScroll(rememberScrollState())
             ) {
                 listOf(
-                    "all" to "Semua Status",
-                    "1" to "Menunggu Bayar",
+                    "All" to "Semua Status",
+                    "1" to "Menunggu",
                     "2" to "Lunas",
                     "3" to "Expired",
                     "4" to "Dibatalkan"
@@ -820,41 +831,29 @@ fun AdminReportsScreen(
                     FilterChip(
                         selected = pgStatusFilter == stKey,
                         onClick = { pgStatusFilter = stKey },
-                        label = { Text(stLabel, fontSize = 11.sp) }
+                        label = { Text(stLabel, fontSize = 11.5.sp) }
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                OutlinedTextField(
-                    value = pgSearch,
-                    onValueChange = { pgSearch = it },
-                    placeholder = { Text("Cari username, channel, invoice, ref ID...", fontSize = 12.sp) },
-                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = ArnetaGoldPrimary) },
-                    trailingIcon = {
-                        if (pgSearch.isNotEmpty()) {
-                            IconButton(onClick = {
-                                pgSearch = ""
-                                loadPaymentGatewayAudit()
-                            }) {
-                                Icon(Icons.Filled.Clear, contentDescription = "Bersihkan")
-                            }
+            OutlinedTextField(
+                value = pgSearch,
+                onValueChange = { pgSearch = it },
+                placeholder = { Text("Cari username, paket, channel, atau nomor referensi...", fontSize = 12.5.sp) },
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = ArnetaGoldPrimary) },
+                trailingIcon = {
+                    if (pgSearch.isNotEmpty()) {
+                        IconButton(onClick = { pgSearch = "" }) {
+                            Icon(Icons.Filled.Clear, contentDescription = "Bersihkan")
                         }
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(onClick = { loadPaymentGatewayAudit() }) {
-                    Icon(Icons.Filled.Refresh, contentDescription = "Segarkan", tint = ArnetaGoldPrimary)
-                }
-            }
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            )
 
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -864,7 +863,7 @@ fun AdminReportsScreen(
                 }
             } else if (pgItems.isEmpty()) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                    Text("Tidak ada data transaksi Payment Gateway pada filter ini.", fontSize = 13.sp)
+                    Text("Tidak ada transaksi Payment Gateway yang cocok.", fontSize = 13.sp)
                 }
             } else {
                 LazyColumn(
@@ -873,18 +872,19 @@ fun AdminReportsScreen(
                     modifier = Modifier.fillMaxSize()
                 ) {
                     items(pgItems) { item ->
-                        val statusInt = item.optInt("status", 1)
-                        val statusLabel = item.optString("status_label", "MENUNGGU PEMBAYARAN")
-                        val gwUpper = item.optString("gateway", "PG").uppercase()
-                        val channelName = item.optString("payment_channel", gwUpper)
-                        val methodCode = item.optString("payment_method", "")
-                        val currency = item.optString("currency", ApiClient.currencyCode)
-                        val price = item.optDouble("price", 0.0)
+                        val trxId = item.optInt("id")
+                        val st = item.optInt("status", 1)
+                        val stLabel = item.optString("status_label", "MENUNGGU PEMBAYARAN")
+                        val gwName = item.optString("gateway", "-").uppercase()
+                        val chName = item.optString("payment_channel", item.optString("payment_method", "-"))
+                        val curCode = item.optString("currency", ApiClient.currencyCode)
+                        val priceVal = item.optDouble("price", 0.0)
                         val payCode = item.optString("pay_code", "")
                         val checkoutUrl = item.optString("checkout_url", item.optString("pg_url_payment", ""))
                         val refId = item.optString("gateway_trx_id", "")
+                        val invNo = item.optString("trx_invoice", "INV-$trxId")
 
-                        val statusColor = when (statusInt) {
+                        val statusColor = when (st) {
                             2 -> ArnetaGreenSuccess
                             3, 4 -> ArnetaRedDanger
                             else -> ArnetaOrangeActive
@@ -894,9 +894,7 @@ fun AdminReportsScreen(
                             shape = RoundedCornerShape(14.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                             elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { selectedPgDetail = item }
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(modifier = Modifier.padding(14.dp)) {
                                 Row(
@@ -910,30 +908,21 @@ fun AdminReportsScreen(
                                         modifier = Modifier.weight(1f)
                                     ) {
                                         Surface(
-                                            color = ArnetaIndigoAccent,
+                                            color = ArnetaIndigoAccent.copy(alpha = 0.2f),
                                             shape = RoundedCornerShape(6.dp)
                                         ) {
                                             Text(
-                                                text = if (channelName.isNotEmpty() && !channelName.equals(gwUpper, ignoreCase = true)) {
-                                                    "$gwUpper • $channelName"
-                                                } else if (methodCode.isNotEmpty() && !methodCode.equals(gwUpper, ignoreCase = true)) {
-                                                    "$gwUpper • $methodCode"
-                                                } else {
-                                                    gwUpper
-                                                },
-                                                color = Color.White,
-                                                fontSize = 10.sp,
+                                                text = "$gwName • $chName",
+                                                color = ArnetaCyanIncome,
                                                 fontWeight = FontWeight.ExtraBold,
+                                                fontSize = 10.5.sp,
                                                 modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
                                             )
                                         }
-
                                         Text(
-                                            text = "@${item.optString("username")}",
-                                            fontWeight = FontWeight.ExtraBold,
-                                            fontSize = 14.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                            text = invNo,
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                         )
                                     }
 
@@ -942,16 +931,16 @@ fun AdminReportsScreen(
                                         shape = RoundedCornerShape(6.dp)
                                     ) {
                                         Text(
-                                            text = statusLabel,
+                                            text = stLabel,
                                             color = statusColor,
-                                            fontSize = 10.sp,
                                             fontWeight = FontWeight.ExtraBold,
-                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                            fontSize = 10.sp,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                         )
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.height(6.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
 
                                 Row(
                                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -960,126 +949,153 @@ fun AdminReportsScreen(
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            text = "Paket: ${item.optString("plan_name")} (${item.optString("trx_invoice")})",
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontSize = 12.5.sp
+                                            text = "@${item.optString("username")} — ${item.optString("plan_name")}",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.5.sp
+                                        )
+                                        Text(
+                                            text = "Dibuat: ${item.optString("created_date")}" +
+                                                if (st == 2) " • Lunas: ${item.optString("paid_date")}"
+                                                else " • Batas: ${item.optString("expired_date")}",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f)
                                         )
                                         if (refId.isNotEmpty()) {
                                             Text(
                                                 text = "Ref Merchant: $refId",
-                                                fontSize = 11.sp,
-                                                color = ArnetaCyanIncome
-                                            )
-                                        }
-                                        if (payCode.isNotEmpty()) {
-                                            Text(
-                                                text = "Kode Bayar / VA: $payCode",
-                                                fontSize = 11.sp,
+                                                fontSize = 10.5.sp,
                                                 fontFamily = FontFamily.Monospace,
-                                                fontWeight = FontWeight.Bold,
-                                                color = ArnetaGoldLight
+                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                             )
                                         }
-                                        Text(
-                                            text = "Dibuat: ${item.optString("created_date")} • Exp: ${item.optString("expired_date")}",
-                                            fontSize = 10.5.sp,
-                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                        )
                                     }
 
                                     Text(
-                                        text = formatRupiah(price, currency),
+                                        text = formatRupiah(priceVal, curCode),
                                         fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 15.sp,
-                                        color = ArnetaGoldPrimary
+                                        color = ArnetaGoldPrimary,
+                                        fontSize = 15.sp
                                     )
                                 }
 
-                                Spacer(modifier = Modifier.height(8.dp))
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
-                                Spacer(modifier = Modifier.height(6.dp))
-
-                                Row(
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    TextButton(onClick = { selectedPgDetail = item }) {
-                                        Icon(Icons.Filled.Info, contentDescription = null, modifier = Modifier.size(15.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Detail", fontSize = 11.5.sp)
-                                    }
-
-                                    if (statusInt == 1) {
-                                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            OutlinedButton(
-                                                onClick = {
-                                                    scope.launch {
-                                                        val cRes = ApiClient.request(
-                                                            "admin_pg_action",
-                                                            mapOf("sub_action" to "check", "id" to item.optInt("id"))
-                                                        )
-                                                        Toast.makeText(context, cRes.message, Toast.LENGTH_SHORT).show()
-                                                        loadPaymentGatewayAudit()
-                                                    }
-                                                },
-                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                                            ) {
-                                                Icon(Icons.Filled.Sync, contentDescription = null, modifier = Modifier.size(14.dp))
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text("Cek Mutasi", fontSize = 11.sp)
+                                // Jika ada Kode Bayar / Nomor Virtual Account (Tripay / Duitku)
+                                if (payCode.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                        ) {
+                                            Column {
+                                                Text("Kode Bayar / Virtual Account:", fontSize = 10.sp)
+                                                Text(
+                                                    text = payCode,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    fontSize = 13.5.sp,
+                                                    color = ArnetaGoldPrimary
+                                                )
                                             }
-
-                                            Button(
+                                            TextButton(
                                                 onClick = {
-                                                    scope.launch {
-                                                        val aRes = ApiClient.request(
-                                                            "admin_pg_action",
-                                                            mapOf("sub_action" to "approve_manual", "id" to item.optInt("id"))
-                                                        )
-                                                        Toast.makeText(context, aRes.message, Toast.LENGTH_LONG).show()
-                                                        loadPaymentGatewayAudit()
-                                                    }
-                                                },
-                                                colors = ButtonDefaults.buttonColors(
-                                                    containerColor = ArnetaGreenSuccess,
-                                                    contentColor = Color.White
-                                                ),
-                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                                            ) {
-                                                Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(14.dp))
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text("Setujui", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                            }
-
-                                            IconButton(
-                                                onClick = {
-                                                    scope.launch {
-                                                        val xRes = ApiClient.request(
-                                                            "admin_pg_action",
-                                                            mapOf("sub_action" to "cancel", "id" to item.optInt("id"))
-                                                        )
-                                                        Toast.makeText(context, xRes.message, Toast.LENGTH_SHORT).show()
-                                                        loadPaymentGatewayAudit()
-                                                    }
+                                                    val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                    cb.setPrimaryClip(ClipData.newPlainText("Kode Bayar", payCode))
+                                                    Toast.makeText(context, "Kode bayar disalin", Toast.LENGTH_SHORT).show()
                                                 }
                                             ) {
-                                                Icon(Icons.Filled.Cancel, contentDescription = "Batalkan", tint = ArnetaRedDanger)
+                                                Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Salin", fontSize = 11.5.sp)
                                             }
                                         }
-                                    } else if (checkoutUrl.isNotEmpty()) {
-                                        TextButton(
+                                    }
+                                }
+
+                                // Tombol Aksi untuk Tagihan Berstatus Menunggu Pembayaran (status == 1)
+                                if (st == 1) {
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState())
+                                    ) {
+                                        FilledTonalButton(
                                             onClick = {
-                                                try {
-                                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(checkoutUrl)))
-                                                } catch (e: Exception) {
-                                                    Toast.makeText(context, "Tidak dapat membuka tautan", Toast.LENGTH_SHORT).show()
+                                                scope.launch {
+                                                    val cRes = ApiClient.request(
+                                                        "admin_pg_action",
+                                                        mapOf("sub_action" to "check", "id" to trxId)
+                                                    )
+                                                    Toast.makeText(context, cRes.message, Toast.LENGTH_LONG).show()
+                                                    loadPaymentGateways()
                                                 }
                                             }
                                         ) {
-                                            Icon(Icons.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(15.dp))
+                                            Icon(Icons.Filled.Sync, contentDescription = null, modifier = Modifier.size(15.dp))
                                             Spacer(modifier = Modifier.width(4.dp))
-                                            Text("Buka Link", fontSize = 11.5.sp)
+                                            Text("Cek Status", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                        }
+
+                                        Button(
+                                            onClick = {
+                                                scope.launch {
+                                                    val aRes = ApiClient.request(
+                                                        "admin_pg_action",
+                                                        mapOf("sub_action" to "approve_manual", "id" to trxId)
+                                                    )
+                                                    Toast.makeText(context, aRes.message, Toast.LENGTH_LONG).show()
+                                                    loadPaymentGateways()
+                                                }
+                                            },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = ArnetaGreenSuccess,
+                                                contentColor = Color.White
+                                            )
+                                        ) {
+                                            Icon(Icons.Filled.CheckCircle, contentDescription = null, modifier = Modifier.size(15.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Setujui Manual", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                        }
+
+                                        if (checkoutUrl.isNotEmpty()) {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    runCatching {
+                                                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(checkoutUrl)))
+                                                    }
+                                                }
+                                            ) {
+                                                Icon(Icons.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(15.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Link Bayar", fontSize = 11.5.sp)
+                                            }
+                                        }
+
+                                        OutlinedButton(
+                                            onClick = {
+                                                scope.launch {
+                                                    val xRes = ApiClient.request(
+                                                        "admin_pg_action",
+                                                        mapOf("sub_action" to "cancel", "id" to trxId)
+                                                    )
+                                                    Toast.makeText(context, xRes.message, Toast.LENGTH_SHORT).show()
+                                                    loadPaymentGateways()
+                                                }
+                                            },
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = ArnetaRedDanger)
+                                        ) {
+                                            Icon(Icons.Filled.Cancel, contentDescription = null, modifier = Modifier.size(15.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Batalkan", fontSize = 11.5.sp)
                                         }
                                     }
                                 }
@@ -1090,220 +1106,22 @@ fun AdminReportsScreen(
             }
         }
     }
-
-    // Dialog Detail Transaksi Payment Gateway (Mendukung ViaQRIS, Tripay, Duitku, Xendit, PayPal)
-    if (selectedPgDetail != null) {
-        PaymentGatewayDetailDialog(
-            trx = selectedPgDetail!!,
-            onDismiss = { selectedPgDetail = null },
-            onRefreshList = {
-                selectedPgDetail = null
-                loadPaymentGatewayAudit()
-            }
-        )
-    }
-}
-
-@Composable
-fun AdminPaymentGatewayScreen() {
-    AdminReportsScreen(initialTab = 1)
-}
-
-@Composable
-private fun PaymentGatewayDetailDialog(
-    trx: JSONObject,
-    onDismiss: () -> Unit,
-    onRefreshList: () -> Unit
-) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-
-    val gwUpper = trx.optString("gateway", "PG").uppercase()
-    val channelName = trx.optString("payment_channel", gwUpper)
-    val methodCode = trx.optString("payment_method", gwUpper)
-    val currency = trx.optString("currency", ApiClient.currencyCode)
-    val price = trx.optDouble("price", 0.0)
-    val basePrice = trx.optDouble("base_price", price)
-    val payCode = trx.optString("pay_code", "")
-    val qrisString = trx.optString("qris_string", "")
-    val checkoutUrl = trx.optString("checkout_url", trx.optString("pg_url_payment", ""))
-    val refId = trx.optString("gateway_trx_id", "")
-    val statusInt = trx.optInt("status", 1)
-    val instructionsArr = trx.optJSONArray("instructions") ?: JSONArray()
-
-    fun copyToClipboard(label: String, value: String) {
-        val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        cb.setPrimaryClip(ClipData.newPlainText(label, value))
-        Toast.makeText(context, "$label berhasil disalin", Toast.LENGTH_SHORT).show()
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.ReceiptLong, contentDescription = null, tint = ArnetaGoldPrimary)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = "$gwUpper • $channelName",
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 16.sp
-                )
-            }
-        },
-        text = {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-            ) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier.padding(12.dp)
-                    ) {
-                        Text("Pelanggan: @${trx.optString("username")}", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
-                        Text("Paket: ${trx.optString("plan_name")}", fontSize = 12.5.sp)
-                        Text("Invoice: ${trx.optString("trx_invoice")}", fontSize = 12.sp)
-                        if (refId.isNotEmpty()) {
-                            Text("Ref Merchant: $refId", fontSize = 12.sp, color = ArnetaCyanIncome)
-                        }
-                        Text("Metode/Channel: $methodCode ($channelName)", fontSize = 12.sp)
-                        Text("Total Tagihan: ${formatRupiah(price, currency)}", fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = ArnetaGoldPrimary)
-                        if (price != basePrice) {
-                            Text("Harga Dasar Paket: ${formatRupiah(basePrice, currency)}", fontSize = 11.sp)
-                        }
-                        Text("Status: ${trx.optString("status_label")}", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        Text("Dibuat: ${trx.optString("created_date")}", fontSize = 11.sp)
-                        Text("Kedaluwarsa: ${trx.optString("expired_date")}", fontSize = 11.sp)
-                        if (trx.optString("paid_date", "-") != "-") {
-                            Text("Dibayar Pada: ${trx.optString("paid_date")}", fontSize = 11.sp, color = ArnetaGreenSuccess)
-                        }
-                    }
-                }
-
-                // Tampilkan Kode Virtual Account / Kode Bayar (Tripay / Duitku)
-                if (payCode.isNotEmpty()) {
-                    Surface(
-                        color = ArnetaGoldPrimary.copy(alpha = 0.14f),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .border(1.dp, ArnetaGoldPrimary, RoundedCornerShape(10.dp))
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.padding(10.dp)
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Nomor Virtual Account / Kode Bayar:", fontSize = 10.5.sp)
-                                Text(
-                                    text = payCode,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 15.sp,
-                                    color = ArnetaGoldPrimary
-                                )
-                            }
-                            TextButton(onClick = { copyToClipboard("Kode Bayar", payCode) }) {
-                                Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Salin", fontSize = 11.5.sp)
-                            }
-                        }
-                    }
-                }
-
-                // Tampilkan Tombol Salin String QRIS jika mode QRIS
-                if (qrisString.isNotEmpty()) {
-                    OutlinedButton(
-                        onClick = { copyToClipboard("Payload QRIS", qrisString) },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Filled.QrCode, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Salin String QRIS Dinamis", fontSize = 12.sp)
-                    }
-                }
-
-                // Tampilkan Tombol Buka Link Checkout (Xendit / PayPal / E-Wallet DeepLink)
-                if (checkoutUrl.isNotEmpty()) {
-                    OutlinedButton(
-                        onClick = {
-                            try {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(checkoutUrl)))
-                            } catch (e: Exception) {
-                                copyToClipboard("URL Pembayaran", checkoutUrl)
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Buka Halaman Pembayaran ($gwUpper)", fontSize = 12.sp)
-                    }
-                }
-
-                // Tampilkan Instruksi Pembayaran jika tersedia (misal dari Tripay)
-                if (instructionsArr.length() > 0) {
-                    Text("Instruksi Pembayaran:", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = ArnetaGoldPrimary)
-                    for (i in 0 until instructionsArr.length()) {
-                        val ins = instructionsArr.optJSONObject(i) ?: continue
-                        Text(ins.optString("title"), fontWeight = FontWeight.SemiBold, fontSize = 11.5.sp)
-                        val steps = ins.optJSONArray("steps") ?: JSONArray()
-                        for (j in 0 until steps.length()) {
-                            Text("• ${steps.optString(j)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f))
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            if (statusInt == 1) {
-                Button(
-                    onClick = {
-                        scope.launch {
-                            val res = ApiClient.request(
-                                "admin_pg_action",
-                                mapOf("sub_action" to "approve_manual", "id" to trx.optInt("id"))
-                            )
-                            Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
-                            onRefreshList()
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = ArnetaGreenSuccess, contentColor = Color.White)
-                ) {
-                    Text("Setujui Lunas", fontWeight = FontWeight.Bold)
-                }
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Tutup")
-            }
-        }
-    )
 }
 
 /**
- * 3. LAYAR KIRIM PESAN & BROADCAST WA / SMS / INBOX PELANGGAN
+ * 3. LAYAR KIRIM PESAN & BROADCAST WHATSAPP / SMS / INBOX
  */
 @Composable
-fun AdminSendMessageScreen() {
+fun AdminMessagesScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     var mode by remember { mutableStateOf("single") } // single | broadcast
     var selectedCustomer by remember { mutableStateOf<JSONObject?>(null) }
-    var targetGroup by remember { mutableStateOf("all") } // all | hotspot | pppoe | active | expired
+    var targetGroup by remember { mutableStateOf("all") } // all | active | expired | hotspot | pppoe
     var viaChannel by remember { mutableStateOf("wa") } // wa | sms | inbox | both
     var subject by remember { mutableStateOf("Informasi Layanan ${ApiClient.companyName}") }
-    var messageBody by remember {
+    var messageText by remember {
         mutableStateOf("Halo *[[name]]* (@[[user_name]]),\n\nTerima kasih telah menggunakan layanan internet *[[company_name]]*.")
     }
     var isSending by remember { mutableStateOf(false) }
@@ -1313,20 +1131,22 @@ fun AdminSendMessageScreen() {
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 100.dp)
+            .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 95.dp)
     ) {
-        Text("Kirim Pesan & Broadcast", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Text("Kirim Pesan Pelanggan", fontWeight = FontWeight.Bold, fontSize = 19.sp)
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(
                 selected = mode == "single",
                 onClick = { mode = "single" },
-                label = { Text("Pelanggan Tunggal", fontWeight = FontWeight.SemiBold) }
+                label = { Text("Per Pelanggan") },
+                leadingIcon = { Icon(Icons.Filled.Person, contentDescription = null, modifier = Modifier.size(16.dp)) }
             )
             FilterChip(
                 selected = mode == "broadcast",
                 onClick = { mode = "broadcast" },
-                label = { Text("Broadcast Massal", fontWeight = FontWeight.SemiBold) }
+                label = { Text("Broadcast Massal") },
+                leadingIcon = { Icon(Icons.Filled.Groups, contentDescription = null, modifier = Modifier.size(16.dp)) }
             )
         }
 
@@ -1336,7 +1156,7 @@ fun AdminSendMessageScreen() {
                 onCustomerSelected = { selectedCustomer = it }
             )
         } else {
-            Text("Pilih Kelompok Tujuan:", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = ArnetaGoldPrimary)
+            Text("Kelompok Penerima Broadcast:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ArnetaGoldPrimary)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier.horizontalScroll(rememberScrollState())
@@ -1344,7 +1164,7 @@ fun AdminSendMessageScreen() {
                 listOf(
                     "all" to "Semua Pelanggan",
                     "active" to "Pelanggan Aktif",
-                    "expired" to "Pelanggan Kedaluwarsa",
+                    "expired" to "Kedaluwarsa",
                     "hotspot" to "Khusus Hotspot",
                     "pppoe" to "Khusus PPPoE"
                 ).forEach { (gKey, gLabel) ->
@@ -1357,16 +1177,16 @@ fun AdminSendMessageScreen() {
             }
         }
 
-        Text("Jalur Pengiriman:", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = ArnetaCyanIncome)
+        Text("Jalur Pengiriman:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ArnetaCyanIncome)
         Row(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier.horizontalScroll(rememberScrollState())
         ) {
             listOf(
-                "wa" to "WhatsApp Gateway",
-                "inbox" to "Inbox Aplikasi/Web",
-                "both" to "WA + Inbox Sekaligus",
-                "sms" to "SMS Gateway"
+                "wa" to "WhatsApp",
+                "inbox" to "Inbox Aplikasi",
+                "sms" to "SMS",
+                "both" to "WA + Inbox"
             ).forEach { (vKey, vLabel) ->
                 FilterChip(
                     selected = viaChannel == vKey,
@@ -1382,28 +1202,28 @@ fun AdminSendMessageScreen() {
                 onValueChange = { subject = it },
                 label = { Text("Judul Pesan Inbox") },
                 singleLine = true,
-                shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
             )
         }
 
         OutlinedTextField(
-            value = messageBody,
-            onValueChange = { messageBody = it },
+            value = messageText,
+            onValueChange = { messageText = it },
             label = { Text("Isi Pesan") },
             minLines = 5,
-            shape = RoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth()
         )
 
         Text(
-            text = "Placeholder otomatis: [[name]], [[user_name]], [[phone]], [[balance]], [[company_name]]",
+            text = "Variabel otomatis: [[name]], [[user_name]], [[phone]], [[balance]], [[company_name]]",
             fontSize = 11.sp,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
         )
 
+        val canSend = !isSending && messageText.isNotBlank() && (mode == "broadcast" || selectedCustomer != null)
+
         Button(
-            enabled = !isSending && messageBody.isNotBlank() && (mode == "broadcast" || selectedCustomer != null),
+            enabled = canSend,
             onClick = {
                 isSending = true
                 scope.launch {
@@ -1415,20 +1235,23 @@ fun AdminSendMessageScreen() {
                             "group" to targetGroup,
                             "via" to viaChannel,
                             "subject" to subject.trim(),
-                            "message" to messageBody
+                            "message" to messageText.trim()
                         )
                     )
                     isSending = false
                     Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
                 }
             },
-            colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = ArnetaGoldPrimary,
+                contentColor = Color(0xFF0B0F19)
+            ),
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(50.dp)
+                .height(48.dp)
         ) {
-            Icon(Icons.Filled.Send, contentDescription = null)
+            Icon(Icons.Filled.Send, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = if (isSending) "MENGIRIM PESAN..." else "KIRIM PESAN SEKARANG",
@@ -1438,23 +1261,18 @@ fun AdminSendMessageScreen() {
     }
 }
 
-@Composable
-fun AdminMessagesScreen() {
-    AdminSendMessageScreen()
-}
-
 /**
- * 4. EDITOR HALAMAN STATIS (pages/*.html)
+ * 4. LAYAR TEMPLATE & HALAMAN STATIS
  */
 @Composable
 fun AdminPagesScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var isLoading by remember { mutableStateOf(true) }
     var pages by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
-    var selectedPageName by remember { mutableStateOf("") }
+    var selectedPage by remember { mutableStateOf<JSONObject?>(null) }
     var contentText by remember { mutableStateOf("") }
+    var isLoading by remember { mutableStateOf(true) }
     var isSaving by remember { mutableStateOf(false) }
 
     fun loadPages() {
@@ -1465,10 +1283,9 @@ fun AdminPagesScreen() {
             val list = mutableListOf<JSONObject>()
             for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
             pages = list
-            if (list.isNotEmpty() && selectedPageName.isEmpty()) {
-                val first = list.first()
-                selectedPageName = first.optString("name")
-                contentText = first.optString("content")
+            if (list.isNotEmpty() && selectedPage == null) {
+                selectedPage = list.first()
+                contentText = list.first().optString("content", "")
             }
             isLoading = false
         }
@@ -1484,7 +1301,7 @@ fun AdminPagesScreen() {
             .fillMaxSize()
             .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 95.dp)
     ) {
-        Text("Editor Halaman Statis & Template", fontSize = 19.sp, fontWeight = FontWeight.Bold)
+        Text("Template & Halaman Statis", fontWeight = FontWeight.Bold, fontSize = 19.sp)
 
         if (isLoading) {
             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -1498,14 +1315,14 @@ fun AdminPagesScreen() {
                     .horizontalScroll(rememberScrollState())
             ) {
                 pages.forEach { p ->
-                    val name = p.optString("name")
+                    val pName = p.optString("name")
                     FilterChip(
-                        selected = selectedPageName == name,
+                        selected = selectedPage?.optString("name") == pName,
                         onClick = {
-                            selectedPageName = name
-                            contentText = p.optString("content")
+                            selectedPage = p
+                            contentText = p.optString("content", "")
                         },
-                        label = { Text(p.optString("title", name), fontSize = 11.5.sp) }
+                        label = { Text(p.optString("title", pName), fontSize = 12.sp) }
                     )
                 }
             }
@@ -1513,27 +1330,31 @@ fun AdminPagesScreen() {
             OutlinedTextField(
                 value = contentText,
                 onValueChange = { contentText = it },
-                label = { Text("Kode HTML ($selectedPageName.html)") },
+                label = { Text("Kode HTML (${selectedPage?.optString("title") ?: "-"})") },
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
             )
 
             Button(
-                enabled = !isSaving && selectedPageName.isNotEmpty(),
+                enabled = !isSaving && selectedPage != null,
                 onClick = {
+                    val p = selectedPage ?: return@Button
                     isSaving = true
                     scope.launch {
                         val res = ApiClient.request(
                             "admin_page_save",
-                            mapOf("name" to selectedPageName, "content" to contentText)
+                            mapOf("name" to p.optString("name"), "content" to contentText)
                         )
                         isSaving = false
                         Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
                         if (res.status) loadPages()
                     }
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = ArnetaGoldPrimary,
+                    contentColor = Color(0xFF0B0F19)
+                ),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1541,38 +1362,39 @@ fun AdminPagesScreen() {
             ) {
                 Icon(Icons.Filled.Save, contentDescription = null)
                 Spacer(modifier = Modifier.width(6.dp))
-                Text(if (isSaving) "MENYIMPAN..." else "SIMPAN HALAMAN", fontWeight = FontWeight.ExtraBold)
+                Text(if (isSaving) "Menyimpan..." else "Simpan Halaman", fontWeight = FontWeight.ExtraBold)
             }
         }
     }
 }
 
 /**
- * 5. PENGATURAN SISTEM, MANAJEMEN STAF, SYSTEM TOOLS & LOG AKTIVITAS
+ * 5. LAYAR PENGATURAN SISTEM, STAF ADMIN, SYSTEM TOOLS & LOG AKTIVITAS
  */
 @Composable
-fun AdminSettingsScreen(
-    initialTab: Int = 0,
-    onLogout: () -> Unit = {}
+fun AdminSettingsAndLogsScreen(
+    initialTab: Int = 0
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
     var currentTab by remember { mutableIntStateOf(initialTab) }
-    var isLoading by remember { mutableStateOf(false) }
 
     // State Pengaturan Umum
     var companyName by remember { mutableStateOf(ApiClient.companyName) }
     var companyPhone by remember { mutableStateOf("") }
     var companyAddress by remember { mutableStateOf("") }
     var currencyCode by remember { mutableStateOf(ApiClient.currencyCode) }
-    var paymentUsings by remember { mutableStateOf("Cash,Transfer") }
+    var paymentUsings by remember { mutableStateOf("Cash,Transfer Bank") }
     var activeGateways by remember { mutableStateOf("") }
     var enableBalance by remember { mutableStateOf("yes") }
+    var invoiceNote by remember { mutableStateOf("") }
+    var isSavingSettings by remember { mutableStateOf(false) }
 
-    // State Staf & Logs
+    // State Staf & Log
     var staffList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var logsList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(false) }
     var showAddStaffDialog by remember { mutableStateOf(false) }
 
     fun loadTabData() {
@@ -1585,10 +1407,11 @@ fun AdminSettingsScreen(
                         companyName = res.data.optString("CompanyName", companyName)
                         companyPhone = res.data.optString("phone", "")
                         companyAddress = res.data.optString("address", "")
-                        currencyCode = res.data.optString("currency_code", "Rp.")
-                        paymentUsings = res.data.optString("payment_usings", "Cash,Transfer")
-                        activeGateways = res.data.optString("payment_gateway", "viaqris")
+                        currencyCode = res.data.optString("currency_code", currencyCode)
+                        paymentUsings = res.data.optString("payment_usings", "Cash")
+                        activeGateways = res.data.optString("payment_gateway", "")
                         enableBalance = res.data.optString("enable_balance", "yes")
+                        invoiceNote = res.data.optString("note", "")
                     }
                 }
                 1 -> {
@@ -1598,7 +1421,7 @@ fun AdminSettingsScreen(
                     for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
                     staffList = list
                 }
-                3 -> {
+                2 -> {
                     val res = ApiClient.request("admin_logs")
                     val arr = res.dataArray ?: JSONArray()
                     val list = mutableListOf<JSONObject>()
@@ -1622,21 +1445,20 @@ fun AdminSettingsScreen(
         Spacer(modifier = Modifier.height(10.dp))
 
         Row(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
         ) {
             listOf(
                 0 to "Pengaturan Umum",
-                1 to "Staf / Admin",
-                2 to "Alat Sistem",
-                3 to "Log Aktivitas"
+                1 to "Manajemen Staf",
+                2 to "Log Aktivitas"
             ).forEach { (idx, title) ->
                 FilterChip(
                     selected = currentTab == idx,
                     onClick = { currentTab = idx },
-                    label = { Text(title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+                    label = { Text(title, fontWeight = FontWeight.SemiBold, fontSize = 12.sp) }
                 )
             }
         }
@@ -1650,8 +1472,42 @@ fun AdminSettingsScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(rememberScrollState())
-                        .padding(bottom = 100.dp)
+                        .padding(bottom = 95.dp)
                 ) {
+                    // System Tools Cepat (Bersihkan Cache & Jalankan Cron)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        FilledTonalButton(
+                            onClick = {
+                                scope.launch {
+                                    val r = ApiClient.request("admin_system_tools", mapOf("tool" to "clear_cache"))
+                                    Toast.makeText(context, r.message, Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Filled.CleaningServices, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Bersihkan Cache", fontSize = 12.sp)
+                        }
+
+                        FilledTonalButton(
+                            onClick = {
+                                scope.launch {
+                                    val r = ApiClient.request("admin_system_tools", mapOf("tool" to "run_cron"))
+                                    Toast.makeText(context, r.message, Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Filled.Schedule, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Jalankan Cron", fontSize = 12.sp)
+                        }
+                    }
+
                     OutlinedTextField(
                         value = companyName,
                         onValueChange = { companyName = it },
@@ -1676,7 +1532,7 @@ fun AdminSettingsScreen(
                         OutlinedTextField(
                             value = currencyCode,
                             onValueChange = { currencyCode = it },
-                            label = { Text("Kode Mata Uang") },
+                            label = { Text("Mata Uang") },
                             singleLine = true,
                             modifier = Modifier.weight(1f)
                         )
@@ -1691,20 +1547,29 @@ fun AdminSettingsScreen(
                     OutlinedTextField(
                         value = paymentUsings,
                         onValueChange = { paymentUsings = it },
-                        label = { Text("Metode Pembayaran Kasir (Pisahkan koma)") },
+                        label = { Text("Metode Pembayaran Kasir (Pisahkan dengan koma)") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
                         value = activeGateways,
                         onValueChange = { activeGateways = it },
-                        label = { Text("Payment Gateway Aktif (viaqris,tripay,duitku,xendit,paypal)") },
+                        label = { Text("Payment Gateway Aktif") },
+                        placeholder = { Text("viaqris,tripay,duitku,xendit,paypal") },
                         singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = invoiceNote,
+                        onValueChange = { invoiceNote = it },
+                        label = { Text("Catatan Kaki Struk / Invoice") },
                         modifier = Modifier.fillMaxWidth()
                     )
 
                     Button(
+                        enabled = !isSavingSettings,
                         onClick = {
+                            isSavingSettings = true
                             scope.launch {
                                 val res = ApiClient.request(
                                     "admin_settings_save",
@@ -1716,10 +1581,12 @@ fun AdminSettingsScreen(
                                             "currency_code" to currencyCode.trim(),
                                             "payment_usings" to paymentUsings.trim(),
                                             "payment_gateway" to activeGateways.trim(),
-                                            "enable_balance" to enableBalance.trim()
+                                            "enable_balance" to enableBalance.trim(),
+                                            "note" to invoiceNote.trim()
                                         )
                                     )
                                 )
+                                isSavingSettings = false
                                 if (res.status) {
                                     ApiClient.companyName = companyName.trim()
                                     ApiClient.currencyCode = currencyCode.trim()
@@ -1727,7 +1594,10 @@ fun AdminSettingsScreen(
                                 Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ArnetaGoldPrimary,
+                            contentColor = Color(0xFF0B0F19)
+                        ),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1735,7 +1605,7 @@ fun AdminSettingsScreen(
                     ) {
                         Icon(Icons.Filled.Save, contentDescription = null)
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("SIMPAN PENGATURAN", fontWeight = FontWeight.ExtraBold)
+                        Text(if (isSavingSettings) "Menyimpan..." else "Simpan Pengaturan", fontWeight = FontWeight.ExtraBold)
                     }
                 }
             }
@@ -1747,15 +1617,20 @@ fun AdminSettingsScreen(
                 ) {
                     Icon(Icons.Filled.PersonAdd, contentDescription = null)
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Tambah Akun Staf", fontWeight = FontWeight.Bold)
+                    Text("Tambah Staf / Agen", fontWeight = FontWeight.Bold)
                 }
                 Spacer(modifier = Modifier.height(8.dp))
+
                 LazyColumn(
                     contentPadding = PaddingValues(bottom = 95.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(staffList) { st ->
-                        Card(modifier = Modifier.fillMaxWidth()) {
+                        Card(
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
                             Row(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically,
@@ -1766,9 +1641,9 @@ fun AdminSettingsScreen(
                                 Column {
                                     Text(st.optString("fullname"), fontWeight = FontWeight.Bold, fontSize = 15.sp)
                                     Text(
-                                        "@${st.optString("username")} • ${st.optString("user_type")}",
-                                        fontSize = 12.sp,
-                                        color = ArnetaGoldPrimary
+                                        "@${st.optString("username")} • ${st.optString("user_type")} • Login: ${st.optString("last_login", "-")}",
+                                        fontSize = 11.5.sp,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                                     )
                                 }
                                 IconButton(
@@ -1789,69 +1664,13 @@ fun AdminSettingsScreen(
             }
 
             2 -> {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(14.dp)
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Bersihkan Cache Sistem", fontWeight = FontWeight.Bold)
-                                Text("Hapus file cache template Smarty & sistem", fontSize = 12.sp)
-                            }
-                            Button(
-                                onClick = {
-                                    scope.launch {
-                                        val res = ApiClient.request("admin_system_tools", mapOf("tool" to "clear_cache"))
-                                        Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            ) {
-                                Text("Jalankan")
-                            }
-                        }
-                    }
-
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Row(
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(14.dp)
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Jalankan Cronjob Kedaluwarsa", fontWeight = FontWeight.Bold)
-                                Text("Periksa & nonaktifkan paket pelanggan yang sudah lewat masa aktif", fontSize = 12.sp)
-                            }
-                            Button(
-                                onClick = {
-                                    scope.launch {
-                                        val res = ApiClient.request("admin_system_tools", mapOf("tool" to "run_cron"))
-                                        Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            ) {
-                                Text("Jalankan")
-                            }
-                        }
-                    }
-                }
-            }
-
-            3 -> {
                 LazyColumn(
                     contentPadding = PaddingValues(bottom = 95.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(logsList) { log ->
+                    items(logsList) { lg ->
                         Card(
+                            shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -1861,19 +1680,19 @@ fun AdminSettingsScreen(
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Text(
-                                        text = log.optString("type", "System"),
+                                        text = lg.optString("type", "Admin"),
+                                        fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 11.5.sp,
                                         color = ArnetaGoldPrimary
                                     )
                                     Text(
-                                        text = log.optString("date"),
-                                        fontSize = 11.sp,
+                                        text = "${lg.optString("date")} • ${lg.optString("ip")}",
+                                        fontSize = 10.5.sp,
                                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                     )
                                 }
-                                Spacer(modifier = Modifier.height(3.dp))
-                                Text(text = log.optString("description"), fontSize = 12.5.sp)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(lg.optString("description"), fontSize = 12.5.sp)
                             }
                         }
                     }
@@ -1890,7 +1709,7 @@ fun AdminSettingsScreen(
 
         AlertDialog(
             onDismissRequest = { showAddStaffDialog = false },
-            title = { Text("Tambah Akun Staf Baru", fontWeight = FontWeight.Bold) },
+            title = { Text("Tambah Staf / Agen", fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(value = sUser, onValueChange = { sUser = it }, label = { Text("Username") }, singleLine = true)
@@ -1898,7 +1717,11 @@ fun AdminSettingsScreen(
                     OutlinedTextField(value = sPass, onValueChange = { sPass = it }, label = { Text("Password") }, singleLine = true)
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf("Admin", "Agent", "Sales").forEach { r ->
-                            FilterChip(selected = sRole == r, onClick = { sRole = r }, label = { Text(r, fontSize = 11.sp) })
+                            FilterChip(
+                                selected = sRole == r,
+                                onClick = { sRole = r },
+                                label = { Text(r, fontSize = 11.5.sp) }
+                            )
                         }
                     }
                 }
@@ -1925,19 +1748,6 @@ fun AdminSettingsScreen(
             dismissButton = {
                 TextButton(onClick = { showAddStaffDialog = false }) { Text("Batal") }
             }
-        )
+        }
     }
-}
-
-@Composable
-fun AdminSettingsAndLogsScreen(
-    initialTab: Int = 0,
-    onLogout: () -> Unit = {}
-) {
-    AdminSettingsScreen(initialTab = initialTab, onLogout = onLogout)
-}
-
-@Composable
-fun AdminLogsScreen() {
-    AdminSettingsScreen(initialTab = 3)
 }
