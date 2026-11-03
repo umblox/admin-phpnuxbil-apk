@@ -12,135 +12,203 @@ import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.text.NumberFormat
+import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
+import java.util.zip.GZIPInputStream
 
-data class ApiResult(
+data class ApiResponse(
     val status: Boolean,
     val message: String,
     val data: JSONObject? = null,
-    val dataArray: JSONArray? = null,
-    val rawData: Any? = null,
-    val code: Int = 200
+    val dataArray: JSONArray? = null
 )
 
 object ApiClient {
-    private const val PREF_NAME = "arneta_admin_prefs_v9"
+    private const val PREF_NAME = "arneta_admin_prefs"
     private const val DEFAULT_BASE_URL = "https://phpnuxbill.arneta.biz.id"
-
     private lateinit var prefs: SharedPreferences
+
+    private data class CacheEntry(
+        val response: ApiResponse,
+        val timestamp: Long
+    )
+
+    private val memoryCache = ConcurrentHashMap<String, CacheEntry>()
+
+    // Endpoint yang boleh di-cache singkat (3.5 detik) agar perpindahan tab & buka dialog instan
+    private val cacheableActions = setOf(
+        "admin_plans",
+        "admin_customers",
+        "admin_routers",
+        "admin_pools",
+        "admin_bandwidths"
+    )
+
+    // Endpoint mutasi yang otomatis membersihkan cache agar data selalu segar setelah transaksi
+    private val mutationActions = setOf(
+        "admin_customer_save",
+        "admin_customer_delete",
+        "admin_prepaid_recharge",
+        "admin_prepaid_delete",
+        "admin_deposit",
+        "admin_voucher_generate",
+        "admin_voucher_refill",
+        "admin_voucher_delete",
+        "admin_plan_save",
+        "admin_plan_delete",
+        "admin_bandwidth_save",
+        "admin_bandwidth_delete",
+        "admin_router_save",
+        "admin_router_delete",
+        "admin_pool_save",
+        "admin_pool_delete",
+        "admin_coupon_save",
+        "admin_coupon_delete",
+        "admin_asset_save",
+        "admin_asset_delete",
+        "admin_settings_save",
+        "admin_staff_save",
+        "admin_staff_delete",
+        "admin_page_save",
+        "admin_pg_action"
+    )
 
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
     }
 
     var baseUrl: String
-        get() = (prefs.getString("base_url", DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL).trimEnd('/')
-        set(value) = prefs.edit().putString("base_url", value.trimEnd('/')).apply()
+        get() = (if (::prefs.isInitialized) prefs.getString("base_url", DEFAULT_BASE_URL) else DEFAULT_BASE_URL)
+            ?.trimEnd('/') ?: DEFAULT_BASE_URL
+        set(value) {
+            val clean = value.trim().trimEnd('/')
+            if (::prefs.isInitialized) {
+                prefs.edit().putString("base_url", clean.ifEmpty { DEFAULT_BASE_URL }).apply()
+            }
+            clearCache()
+        }
 
     var token: String
-        get() = prefs.getString("admin_token", "") ?: ""
-        set(value) = prefs.edit().putString("admin_token", value).apply()
+        get() = (if (::prefs.isInitialized) prefs.getString("token", "") else "") ?: ""
+        set(value) {
+            if (::prefs.isInitialized) prefs.edit().putString("token", value).apply()
+        }
 
     var adminName: String
-        get() = prefs.getString("admin_name", "Administrator") ?: "Administrator"
-        set(value) = prefs.edit().putString("admin_name", value).apply()
+        get() = (if (::prefs.isInitialized) prefs.getString("admin_name", "Administrator") else "Administrator") ?: "Administrator"
+        set(value) {
+            if (::prefs.isInitialized) prefs.edit().putString("admin_name", value).apply()
+        }
 
     var adminUsername: String
-        get() = prefs.getString("admin_username", "admin") ?: "admin"
-        set(value) = prefs.edit().putString("admin_username", value).apply()
+        get() = (if (::prefs.isInitialized) prefs.getString("admin_username", "admin") else "admin") ?: "admin"
+        set(value) {
+            if (::prefs.isInitialized) prefs.edit().putString("admin_username", value).apply()
+        }
 
     var adminRole: String
-        get() = prefs.getString("admin_role", "SuperAdmin") ?: "SuperAdmin"
-        set(value) = prefs.edit().putString("admin_role", value).apply()
+        get() = (if (::prefs.isInitialized) prefs.getString("admin_role", "SuperAdmin") else "SuperAdmin") ?: "SuperAdmin"
+        set(value) {
+            if (::prefs.isInitialized) prefs.edit().putString("admin_role", value).apply()
+        }
 
     var companyName: String
-        get() = prefs.getString("company_name", "Arneta.ID") ?: "Arneta.ID"
-        set(value) = prefs.edit().putString("company_name", value).apply()
+        get() = (if (::prefs.isInitialized) prefs.getString("company_name", "Arneta.ID") else "Arneta.ID") ?: "Arneta.ID"
+        set(value) {
+            if (::prefs.isInitialized) prefs.edit().putString("company_name", value).apply()
+        }
 
     var currencyCode: String
-        get() = prefs.getString("currency_code", "Rp.") ?: "Rp."
-        set(value) = prefs.edit().putString("currency_code", value).apply()
+        get() = (if (::prefs.isInitialized) prefs.getString("currency_code", "Rp.") else "Rp.") ?: "Rp."
+        set(value) {
+            if (::prefs.isInitialized) prefs.edit().putString("currency_code", value).apply()
+        }
 
-    var isDarkMode: Boolean
-        get() = prefs.getBoolean("dark_mode", true)
-        set(value) = prefs.edit().putBoolean("dark_mode", value).apply()
+    fun isLoggedIn(): Boolean = token.isNotBlank()
 
-    var customQuickShortcuts: Set<String>
-        get() = prefs.getStringSet(
-            "quick_shortcuts",
-            setOf("add_customer", "recharge_plan", "deposit_balance", "generate_voucher", "online_users", "audit_qris")
-        ) ?: setOf("add_customer", "recharge_plan", "deposit_balance", "generate_voucher", "online_users", "audit_qris")
-        set(value) = prefs.edit().putStringSet("quick_shortcuts", value).apply()
-
-    fun logout() {
-        prefs.edit().remove("admin_token").apply()
+    fun clearCache() {
+        memoryCache.clear()
     }
 
-    /**
-     * Memanggil endpoint melalui /system/api.php?r=apiv1/<action>&token=<token>
-     * dengan fallback otomatis ke /?_route=apiv1/<action>
-     */
+    fun logout() {
+        token = ""
+        clearCache()
+    }
+
     suspend fun request(
         action: String,
         params: Map<String, Any?> = emptyMap()
-    ): ApiResult = withContext(Dispatchers.IO) {
-        val cleanAction = action.removePrefix("apiv1/").trimStart('/')
-        val primaryUrl = "$baseUrl/system/api.php?r=apiv1/$cleanAction"
-        val res = executeHttpPost(primaryUrl, params)
-        if (res.code == 404 || (!res.status && res.message.contains("Command not found", ignoreCase = true))) {
-            val fallbackUrl = "$baseUrl/?_route=apiv1/$cleanAction"
-            return@withContext executeHttpPost(fallbackUrl, params)
+    ): ApiResponse = withContext(Dispatchers.IO) {
+        if (mutationActions.contains(action)) {
+            clearCache()
         }
+
+        val cacheKey = if (cacheableActions.contains(action)) {
+            "$baseUrl|$action|${params.entries.sortedBy { it.key }.joinToString("&") { "${it.key}=${it.value}" }}"
+        } else null
+
+        if (cacheKey != null) {
+            val cached = memoryCache[cacheKey]
+            if (cached != null && (System.currentTimeMillis() - cached.timestamp) < 3500L) {
+                return@withContext cached.response
+            }
+        }
+
+        val encodedAction = URLEncoder.encode(action, "UTF-8")
+        val primaryEndpoint = "$baseUrl/system/api.php?r=apiv1/$encodedAction"
+        val fallbackEndpoint = "$baseUrl/?_route=apiv1/$encodedAction"
+
+        var res = executeHttpPost(primaryEndpoint, action, params)
+        if (!res.status && res.message.startsWith("HTTP Error")) {
+            val fallbackRes = executeHttpPost(fallbackEndpoint, action, params)
+            if (fallbackRes.status || !fallbackRes.message.startsWith("HTTP Error")) {
+                res = fallbackRes
+            }
+        }
+
+        if (cacheKey != null && res.status) {
+            memoryCache[cacheKey] = CacheEntry(res, System.currentTimeMillis())
+        }
+
         res
     }
 
     private fun executeHttpPost(
-        baseEndpoint: String,
+        endpointUrl: String,
+        action: String,
         params: Map<String, Any?>
-    ): ApiResult {
+    ): ApiResponse {
         var conn: HttpURLConnection? = null
-        try {
-            val queryBuilder = StringBuilder(baseEndpoint)
-            if (token.isNotEmpty()) {
-                val encTok = URLEncoder.encode(token, "UTF-8")
-                queryBuilder.append(if (queryBuilder.contains("?")) "&" else "?").append("token=$encTok")
-            }
-
-            // Siapkan parameter query string (untuk parameter pendek) sekaligus JSON body
-            val jsonBody = JSONObject()
-            for ((k, v) in params) {
-                if (v == null) continue
-                when (v) {
-                    is Map<*, *> -> {
-                        val subObj = JSONObject()
-                        for ((sk, sv) in v) {
-                            if (sk != null && sv != null) subObj.put(sk.toString(), sv)
-                        }
-                        jsonBody.put(k, subObj)
-                    }
-                    is List<*> -> jsonBody.put(k, JSONArray(v))
-                    else -> {
-                        jsonBody.put(k, v)
-                        val strVal = v.toString()
-                        if (strVal.length < 100 && !k.contains("password", ignoreCase = true) && !k.contains("content", ignoreCase = true) && !k.contains("message", ignoreCase = true)) {
-                            val ek = URLEncoder.encode(k, "UTF-8")
-                            val ev = URLEncoder.encode(strVal, "UTF-8")
-                            queryBuilder.append("&").append("$ek=$ev")
-                        }
-                    }
+        return try {
+            val url = URL(endpointUrl)
+            conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                connectTimeout = 12000
+                readTimeout = 18000
+                doInput = true
+                doOutput = true
+                useCaches = false
+                setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+                setRequestProperty("Accept", "application/json")
+                setRequestProperty("Accept-Encoding", "gzip")
+                setRequestProperty("Connection", "keep-alive")
+                if (token.isNotBlank()) {
+                    setRequestProperty("Authorization", "Bearer $token")
                 }
             }
 
-            val url = URL(queryBuilder.toString())
-            conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                connectTimeout = 15000
-                readTimeout = 20000
-                doInput = true
-                doOutput = true
-                setRequestProperty("Content-Type", "application/json; charset=utf-8")
-                setRequestProperty("Accept", "application/json")
-                if (token.isNotEmpty()) {
-                    setRequestProperty("Authorization", "Bearer $token")
+            val jsonBody = JSONObject()
+            jsonBody.put("action", action)
+            if (token.isNotBlank()) {
+                jsonBody.put("token", token)
+            }
+            for ((k, v) in params) {
+                when (v) {
+                    null -> jsonBody.put(k, JSONObject.NULL)
+                    is Collection<*> -> jsonBody.put(k, JSONArray(v))
+                    is Array<*> -> jsonBody.put(k, JSONArray(v.toList()))
+                    else -> jsonBody.put(k, v)
                 }
             }
 
@@ -149,44 +217,59 @@ object ApiClient {
                 writer.flush()
             }
 
-            val responseCode = conn.responseCode
-            val stream = if (responseCode in 200..299) conn.inputStream else conn.errorStream
-            val rawResponse = BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use {
+            val code = conn.responseCode
+            val rawStream = if (code in 200..299) conn.inputStream else (conn.errorStream ?: conn.inputStream)
+            val contentEncoding = conn.contentEncoding ?: ""
+            val decodedStream = if (contentEncoding.equals("gzip", ignoreCase = true)) {
+                GZIPInputStream(rawStream)
+            } else {
+                rawStream
+            }
+
+            val responseText = BufferedReader(InputStreamReader(decodedStream, Charsets.UTF_8)).use {
                 it.readText()
             }.trim()
 
-            val firstBrace = rawResponse.indexOf('{')
-            val cleanJson = if (firstBrace >= 0) rawResponse.substring(firstBrace) else rawResponse
+            if (responseText.isEmpty()) {
+                return ApiResponse(false, "HTTP Error $code: Respon server kosong.")
+            }
 
-            val json = JSONObject(cleanJson)
-            val status = if (json.has("status")) json.optBoolean("status", false) else json.optBoolean("success", false)
-            val message = json.optString("message", if (status) "Berhasil" else "Permintaan gagal")
-            val rawPayload = if (json.has("data") && !json.isNull("data")) json.opt("data") else json.opt("result")
+            val jsonStart = responseText.indexOf('{')
+            val cleanJson = if (jsonStart > 0) responseText.substring(jsonStart) else responseText
 
-            val dataObj = rawPayload as? JSONObject
-            val dataArr = rawPayload as? JSONArray
+            val root = JSONObject(cleanJson)
+            val ok = root.optBoolean("status", root.optBoolean("success", false))
+            val msg = root.optString("message", if (ok) "Berhasil" else "Permintaan gagal")
 
-            return ApiResult(
-                status = status,
-                message = message,
+            val dataObj = root.optJSONObject("data") ?: root.optJSONObject("result")
+            val dataArr = root.optJSONArray("data") ?: root.optJSONArray("result")
+
+            ApiResponse(
+                status = ok,
+                message = msg,
                 data = dataObj,
-                dataArray = dataArr,
-                rawData = rawPayload,
-                code = responseCode
+                dataArray = dataArr
             )
         } catch (e: Exception) {
-            return ApiResult(
-                status = false,
-                message = "Gangguan jaringan: ${e.localizedMessage ?: "Timeout"}",
-                code = 500
-            )
+            ApiResponse(false, "Gangguan jaringan: ${e.localizedMessage ?: e.javaClass.simpleName}")
         } finally {
             conn?.disconnect()
         }
     }
 }
 
-fun formatRupiah(amount: Double, prefix: String = ApiClient.currencyCode): String {
-    val formatted = String.format("%,.0f", amount).replace(',', '.')
-    return "$prefix $formatted"
+fun formatRupiah(amount: Double, currencyPrefix: String = ApiClient.currencyCode): String {
+    val cleanCur = currencyPrefix.trim()
+    if (cleanCur.equals("USD", ignoreCase = true) || cleanCur == "$") {
+        val usFormat = NumberFormat.getNumberInstance(Locale.US).apply {
+            minimumFractionDigits = 2
+            maximumFractionDigits = 2
+        }
+        return "USD ${usFormat.format(amount)}"
+    }
+    val idFormat = NumberFormat.getNumberInstance(Locale("in", "ID")).apply {
+        maximumFractionDigits = 0
+    }
+    val prefix = if (cleanCur.isEmpty()) "Rp." else cleanCur
+    return "$prefix ${idFormat.format(amount)}"
 }
