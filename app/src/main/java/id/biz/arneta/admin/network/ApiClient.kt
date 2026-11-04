@@ -29,6 +29,18 @@ object ApiClient {
     private const val DEFAULT_BASE_URL = "https://phpnuxbill.arneta.biz.id"
     private lateinit var prefs: SharedPreferences
 
+    private val defaultShortcuts = setOf(
+        "add_customer",
+        "recharge_plan",
+        "deposit_balance",
+        "generate_voucher",
+        "online_users",
+        "audit_qris",
+        "live_monitor",
+        "broadcast_wa",
+        "webview_admin"
+    )
+
     private data class CacheEntry(
         val response: ApiResponse,
         val timestamp: Long
@@ -36,7 +48,6 @@ object ApiClient {
 
     private val memoryCache = ConcurrentHashMap<String, CacheEntry>()
 
-    // Endpoint yang boleh di-cache singkat (3.5 detik) agar perpindahan tab & buka dialog instan
     private val cacheableActions = setOf(
         "admin_plans",
         "admin_customers",
@@ -45,7 +56,6 @@ object ApiClient {
         "admin_bandwidths"
     )
 
-    // Endpoint mutasi yang otomatis membersihkan cache agar data selalu segar setelah transaksi
     private val mutationActions = setOf(
         "admin_customer_save",
         "admin_customer_delete",
@@ -71,7 +81,8 @@ object ApiClient {
         "admin_staff_save",
         "admin_staff_delete",
         "admin_page_save",
-        "admin_pg_action"
+        "admin_pg_action",
+        "pg_action"
     )
 
     fun init(context: Context) {
@@ -123,6 +134,24 @@ object ApiClient {
         get() = (if (::prefs.isInitialized) prefs.getString("currency_code", "Rp.") else "Rp.") ?: "Rp."
         set(value) {
             if (::prefs.isInitialized) prefs.edit().putString("currency_code", value).apply()
+        }
+
+    var isDarkMode: Boolean
+        get() = if (::prefs.isInitialized) prefs.getBoolean("is_dark_mode", true) else true
+        set(value) {
+            if (::prefs.isInitialized) prefs.edit().putBoolean("is_dark_mode", value).apply()
+        }
+
+    var customQuickShortcuts: Set<String>
+        get() = if (::prefs.isInitialized) {
+            prefs.getStringSet("custom_quick_shortcuts", defaultShortcuts) ?: defaultShortcuts
+        } else {
+            defaultShortcuts
+        }
+        set(value) {
+            if (::prefs.isInitialized) {
+                prefs.edit().putStringSet("custom_quick_shortcuts", value).apply()
+            }
         }
 
     fun isLoggedIn(): Boolean = token.isNotBlank()
