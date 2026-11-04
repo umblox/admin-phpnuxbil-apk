@@ -1794,8 +1794,10 @@ fun AdminSettingsAndToolsScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showAddStaffDialog = false }) { Text("Batal") }
+                TextButton(onClick = { showAddStaffDialog = false }) {
+                    Text("Batal")
+                }
             }
-        }
+        )
     }
 }
