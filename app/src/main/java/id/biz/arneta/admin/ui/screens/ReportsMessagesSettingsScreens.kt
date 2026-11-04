@@ -55,22 +55,27 @@ private data class HubMenuItem(
 )
 
 /**
- * 1. LAYAR MENU HUB LENGKAP
+ * 1. LAYAR MENU HUB LENGKAP (Sesuai Pemanggilan di MainActivity.kt)
  */
 @Composable
 fun AdminMenuHubScreen(
-    unpaidQrisCount: Int,
-    onOpenSubScreen: (String) -> Unit,
-    onOpenInAppWeb: (String, String) -> Unit,
-    onLogout: () -> Unit
+    unpaidQrisCount: Int = 0,
+    onOpenScreen: (String) -> Unit
 ) {
     val menuItems = listOf(
         HubMenuItem(
-            key = "network",
+            key = "live_monitor",
             title = "MikroTik Monitor & Jaringan",
             subtitle = "Trafik interface, health, user online, log & router",
             icon = Icons.Filled.Router,
             accent = ArnetaCyanIncome
+        ),
+        HubMenuItem(
+            key = "online_users",
+            title = "User Online & Kick Sesi",
+            subtitle = "Pantau pengguna Hotspot & PPPoE yang sedang aktif",
+            icon = Icons.Filled.WifiTethering,
+            accent = ArnetaGreenSuccess
         ),
         HubMenuItem(
             key = "plans",
@@ -103,13 +108,13 @@ fun AdminMenuHubScreen(
         ),
         HubMenuItem(
             key = "assets",
-            title = "Inventaris & Aset Jaringan",
+            title = "Asset Manager & Inventaris",
             subtitle = "Data ODP, ODC, ONT/Modem, kabel & nilai investasi",
-            icon = Icons.Filled.Inventory2,
-            accent = ArnetaPurpleUsers
+            icon = Icons.Filled.AccountTree,
+            accent = Color(0xFF8B5CF6)
         ),
         HubMenuItem(
-            key = "messages",
+            key = "broadcast",
             title = "Kirim Pesan & Broadcast",
             subtitle = "Kirim pesan WhatsApp, SMS & Inbox ke pelanggan",
             icon = Icons.Filled.Campaign,
@@ -125,9 +130,16 @@ fun AdminMenuHubScreen(
         HubMenuItem(
             key = "settings",
             title = "Pengaturan, Staf & Log Sistem",
-            subtitle = "Konfigurasi aplikasi, akun staf, cronjob & bersihkan cache",
+            subtitle = "Konfigurasi aplikasi, shortcut, staf, cronjob & cache",
             icon = Icons.Filled.Settings,
             accent = ArnetaIndigoAccent
+        ),
+        HubMenuItem(
+            key = "webview_admin",
+            title = "Web Admin Panel",
+            subtitle = "Buka halaman web PHPNuxBill dengan login SSO otomatis",
+            icon = Icons.Filled.Language,
+            accent = ArnetaGoldPrimary
         )
     )
 
@@ -181,13 +193,8 @@ fun AdminMenuHubScreen(
                         }
                     }
 
-                    OutlinedButton(
-                        onClick = onLogout,
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ArnetaRedDanger)
-                    ) {
-                        Icon(Icons.Filled.Logout, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Keluar", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    IconButton(onClick = { onOpenScreen("settings") }) {
+                        Icon(Icons.Filled.Settings, contentDescription = "Pengaturan", tint = ArnetaGoldPrimary)
                     }
                 }
             }
@@ -209,7 +216,7 @@ fun AdminMenuHubScreen(
                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onOpenSubScreen(item.key) }
+                    .clickable { onOpenScreen(item.key) }
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -259,38 +266,11 @@ fun AdminMenuHubScreen(
                             )
                         }
                     }
-                    Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f))
-                }
-            }
-        }
-
-        item {
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "Panel Web Internal (SSO Otomatis)",
-                fontWeight = FontWeight.Bold,
-                fontSize = 15.sp
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-            ) {
-                listOf(
-                    "dashboard" to "Dasbor Web",
-                    "pluginmanager" to "Plugin Manager",
-                    "paymentgateway" to "Payment Gateway",
-                    "radius" to "FreeRADIUS"
-                ).forEach { (route, label) ->
-                    FilledTonalButton(
-                        onClick = { onOpenInAppWeb(route, label) }
-                    ) {
-                        Icon(Icons.Filled.Language, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    }
+                    Icon(
+                        imageVector = Icons.Filled.ChevronRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+                    )
                 }
             }
         }
@@ -302,15 +282,16 @@ fun AdminMenuHubScreen(
  *    (ViaQRIS, Tripay, Duitku, Xendit, PayPal)
  */
 @Composable
-fun AdminReportsAndQrisScreen(
-    initialTab: Int = 0
+fun AdminReportsAndPgScreen(
+    initialTab: String = "reports"
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var currentTab by remember { mutableIntStateOf(initialTab) }
+    var currentTab by remember {
+        mutableIntStateOf(if (initialTab.equals("payment_gateway", ignoreCase = true)) 1 else 0)
+    }
 
-    // State Tab 0: Laporan Keuangan
     val todayDate = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()) }
     val monthStartDate = remember { SimpleDateFormat("yyyy-MM-01", Locale.US).format(Date()) }
     var startDate by remember { mutableStateOf(monthStartDate) }
@@ -323,9 +304,8 @@ fun AdminReportsAndQrisScreen(
     var gatewayBreakdown by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var transactions by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
 
-    // State Tab 1: Audit Payment Gateway (ViaQRIS, Tripay, Duitku, Xendit, PayPal)
-    var pgStatusFilter by remember { mutableStateOf("All") } // All | 1 | 2 | 3 | 4
-    var pgGatewayFilter by remember { mutableStateOf("All") } // All | viaqris | tripay | duitku | xendit | paypal
+    var pgStatusFilter by remember { mutableStateOf("All") }
+    var pgGatewayFilter by remember { mutableStateOf("All") }
     var pgSearch by remember { mutableStateOf("") }
     var isLoadingPg by remember { mutableStateOf(false) }
     var pgItems by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
@@ -458,9 +438,6 @@ fun AdminReportsAndQrisScreen(
         Spacer(modifier = Modifier.height(8.dp))
 
         if (currentTab == 0) {
-            // =================================================================
-            // TAB 0: LAPORAN TRANSAKSI & REKAP PER METODE / GATEWAY
-            // =================================================================
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -495,7 +472,6 @@ fun AdminReportsAndQrisScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Kartu Ringkasan Total Pendapatan & Breakdown Metode Pembayaran
             Card(
                 shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF141B2D)),
@@ -706,9 +682,6 @@ fun AdminReportsAndQrisScreen(
                 }
             }
         } else {
-            // =================================================================
-            // TAB 1: AUDIT SEMUA PAYMENT GATEWAY (ViaQRIS, Tripay, Duitku, Xendit, PayPal)
-            // =================================================================
             Card(
                 shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF141B2D)),
@@ -785,7 +758,6 @@ fun AdminReportsAndQrisScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Baris Filter Gateway (Semua, ViaQRIS, Tripay, Duitku, Xendit, PayPal)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier
@@ -814,7 +786,6 @@ fun AdminReportsAndQrisScreen(
                 }
             }
 
-            // Baris Filter Status Tagihan
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 modifier = Modifier
@@ -978,7 +949,6 @@ fun AdminReportsAndQrisScreen(
                                     )
                                 }
 
-                                // Jika ada Kode Bayar / Nomor Virtual Account (Tripay / Duitku)
                                 if (payCode.isNotEmpty()) {
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Surface(
@@ -1016,7 +986,6 @@ fun AdminReportsAndQrisScreen(
                                     }
                                 }
 
-                                // Tombol Aksi untuk Tagihan Berstatus Menunggu Pembayaran (status == 1)
                                 if (st == 1) {
                                     Spacer(modifier = Modifier.height(10.dp))
                                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
@@ -1109,17 +1078,17 @@ fun AdminReportsAndQrisScreen(
 }
 
 /**
- * 3. LAYAR KIRIM PESAN & BROADCAST WHATSAPP / SMS / INBOX
+ * 3. LAYAR KIRIM PESAN & BROADCAST WHATSAPP / SMS / INBOX (Sesuai MainActivity.kt)
  */
 @Composable
-fun AdminMessagesScreen() {
+fun AdminBroadcastMessageScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var mode by remember { mutableStateOf("single") } // single | broadcast
+    var mode by remember { mutableStateOf("single") }
     var selectedCustomer by remember { mutableStateOf<JSONObject?>(null) }
-    var targetGroup by remember { mutableStateOf("all") } // all | active | expired | hotspot | pppoe
-    var viaChannel by remember { mutableStateOf("wa") } // wa | sms | inbox | both
+    var targetGroup by remember { mutableStateOf("all") }
+    var viaChannel by remember { mutableStateOf("wa") }
     var subject by remember { mutableStateOf("Informasi Layanan ${ApiClient.companyName}") }
     var messageText by remember {
         mutableStateOf("Halo *[[name]]* (@[[user_name]]),\n\nTerima kasih telah menggunakan layanan internet *[[company_name]]*.")
@@ -1262,10 +1231,10 @@ fun AdminMessagesScreen() {
 }
 
 /**
- * 4. LAYAR TEMPLATE & HALAMAN STATIS
+ * 4. LAYAR TEMPLATE & HALAMAN STATIS (Sesuai MainActivity.kt)
  */
 @Composable
-fun AdminPagesScreen() {
+fun AdminStaticPagesScreen() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -1369,18 +1338,18 @@ fun AdminPagesScreen() {
 }
 
 /**
- * 5. LAYAR PENGATURAN SISTEM, STAF ADMIN, SYSTEM TOOLS & LOG AKTIVITAS
+ * 5. LAYAR PENGATURAN SISTEM, SHORTCUT, STAF ADMIN, SYSTEM TOOLS & LOG AKTIVITAS (Sesuai MainActivity.kt)
  */
 @Composable
-fun AdminSettingsAndLogsScreen(
-    initialTab: Int = 0
+fun AdminSettingsAndToolsScreen(
+    onCustomShortcutsChanged: () -> Unit = {},
+    onLogout: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var currentTab by remember { mutableIntStateOf(initialTab) }
+    var currentTab by remember { mutableIntStateOf(0) }
 
-    // State Pengaturan Umum
     var companyName by remember { mutableStateOf(ApiClient.companyName) }
     var companyPhone by remember { mutableStateOf("") }
     var companyAddress by remember { mutableStateOf("") }
@@ -1391,7 +1360,8 @@ fun AdminSettingsAndLogsScreen(
     var invoiceNote by remember { mutableStateOf("") }
     var isSavingSettings by remember { mutableStateOf(false) }
 
-    // State Staf & Log
+    var selectedShortcuts by remember { mutableStateOf(ApiClient.customQuickShortcuts) }
+
     var staffList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var logsList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
@@ -1434,7 +1404,7 @@ fun AdminSettingsAndLogsScreen(
     }
 
     LaunchedEffect(currentTab) {
-        loadTabData()
+        if (currentTab in 0..2) loadTabData()
     }
 
     Column(
@@ -1453,7 +1423,8 @@ fun AdminSettingsAndLogsScreen(
             listOf(
                 0 to "Pengaturan Umum",
                 1 to "Manajemen Staf",
-                2 to "Log Aktivitas"
+                2 to "Log Aktivitas",
+                3 to "Shortcut Cepat"
             ).forEach { (idx, title) ->
                 FilterChip(
                     selected = currentTab == idx,
@@ -1474,7 +1445,6 @@ fun AdminSettingsAndLogsScreen(
                         .verticalScroll(rememberScrollState())
                         .padding(bottom = 95.dp)
                 ) {
-                    // System Tools Cepat (Bersihkan Cache & Jalankan Cron)
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxWidth()
@@ -1607,6 +1577,19 @@ fun AdminSettingsAndLogsScreen(
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(if (isSavingSettings) "Menyimpan..." else "Simpan Pengaturan", fontWeight = FontWeight.ExtraBold)
                     }
+
+                    OutlinedButton(
+                        onClick = onLogout,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ArnetaRedDanger),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp)
+                    ) {
+                        Icon(Icons.Filled.Logout, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Keluar dari Akun Admin", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
 
@@ -1693,6 +1676,71 @@ fun AdminSettingsAndLogsScreen(
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(lg.optString("description"), fontSize = 12.5.sp)
+                            }
+                        }
+                    }
+                }
+            }
+
+            3 -> {
+                val allShortcuts = listOf(
+                    "add_customer" to "Add Customer Baru",
+                    "recharge_plan" to "Isi Ulang Paket",
+                    "deposit_balance" to "Isi Ulang Saldo",
+                    "generate_voucher" to "Generate & Cetak Voucher",
+                    "online_users" to "User Online & Kick Sesi",
+                    "audit_qris" to "Audit Payment Gateway",
+                    "live_monitor" to "Live Speed MikroTik",
+                    "broadcast_wa" to "Broadcast WhatsApp",
+                    "webview_admin" to "Web Admin Panel"
+                )
+
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(bottom = 95.dp)
+                ) {
+                    Text(
+                        text = "Pilih menu yang ditampilkan saat tombol petir di tengah navigasi bawah ditekan:",
+                        fontSize = 12.5.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    )
+
+                    allShortcuts.forEach { (sKey, sTitle) ->
+                        val checked = selectedShortcuts.contains(sKey)
+                        Card(
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val next = selectedShortcuts.toMutableSet()
+                                    if (checked) next.remove(sKey) else next.add(sKey)
+                                    selectedShortcuts = next
+                                    ApiClient.customQuickShortcuts = next
+                                    onCustomShortcutsChanged()
+                                }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                            ) {
+                                Text(sTitle, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                Checkbox(
+                                    checked = checked,
+                                    onCheckedChange = { isChecked ->
+                                        val next = selectedShortcuts.toMutableSet()
+                                        if (isChecked) next.add(sKey) else next.remove(sKey)
+                                        selectedShortcuts = next
+                                        ApiClient.customQuickShortcuts = next
+                                        onCustomShortcutsChanged()
+                                    }
+                                )
                             }
                         }
                     }
