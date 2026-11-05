@@ -595,7 +595,7 @@ fun AdminCustomersScreen(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Ketik 1 huruf untuk mencari otomatis",
+                    text = "Ketik Nama Pelanggan",
                     fontSize = 11.5.sp,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                 )
