@@ -61,42 +61,92 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Auto-Generate App Icons from logo.png (If Uploaded)
-        if: steps.vault.outputs.vault_only != 'true'
+      - name: Auto-Generate App Icons from logo.png (Full Adaptive Icon Tanpa Background Putih)
         run: |
           mkdir -p app/src/main/res/mipmap-mdpi
           mkdir -p app/src/main/res/mipmap-hdpi
           mkdir -p app/src/main/res/mipmap-xhdpi
           mkdir -p app/src/main/res/mipmap-xxhdpi
           mkdir -p app/src/main/res/mipmap-xxxhdpi
+          mkdir -p app/src/main/res/mipmap-anydpi-v26
           mkdir -p app/src/main/res/drawable-nodpi
+          mkdir -p app/src/main/res/values
 
           LOGO_FILE=""
-          if [ -f "logo.png" ]; then
-            LOGO_FILE="logo.png"
-          elif [ -f "1000060058.png" ]; then
-            LOGO_FILE="1000060058.png"
-          elif [ -f "play_store_512.png" ]; then
-            LOGO_FILE="play_store_512.png"
-          fi
+          for candidate in "logo.png" "1000060058.png" "play_store_512.png" "app/src/main/res/drawable-nodpi/arneta_logo_full.png"; do
+            if [ -f "$candidate" ]; then
+              LOGO_FILE="$candidate"
+              break
+            fi
+          done
 
           if [ -n "$LOGO_FILE" ]; then
             if ! command -v convert &> /dev/null; then
               sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick
             fi
 
-            convert "$LOGO_FILE" -resize 48x48 PNG32:app/src/main/res/mipmap-mdpi/ic_launcher.png
-            convert "$LOGO_FILE" -resize 72x72 PNG32:app/src/main/res/mipmap-hdpi/ic_launcher.png
-            convert "$LOGO_FILE" -resize 96x96 PNG32:app/src/main/res/mipmap-xhdpi/ic_launcher.png
-            convert "$LOGO_FILE" -resize 144x144 PNG32:app/src/main/res/mipmap-xxhdpi/ic_launcher.png
-            convert "$LOGO_FILE" -resize 192x192 PNG32:app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
-            convert "$LOGO_FILE" -resize 512x512 PNG32:app/src/main/res/drawable-nodpi/arneta_logo_full.png
+            cp "$LOGO_FILE" /tmp/source_logo.png
 
+            # Ambil warna gelap dari sudut logo agar perluasan background menyatu 100% tanpa garis batas
+            RAW_HEX=$(convert /tmp/source_logo.png -depth 8 -crop 1x1+4+4 txt:- | grep -oE '#[0-9A-Fa-f]{6}' | head -n 1)
+            if [ -z "$RAW_HEX" ] || [ "$RAW_HEX" = "#FFFFFF" ] || [ "$RAW_HEX" = "#ffffff" ]; then
+              BG_HEX="#070B14"
+            else
+              BG_HEX="$RAW_HEX"
+            fi
+            echo "Menggunakan warna background Adaptive Icon: $BG_HEX"
+
+            # Simpan logo resolusi penuh untuk tampilan di dalam aplikasi
+            convert /tmp/source_logo.png -resize 512x512 -background "$BG_HEX" -gravity center -extent 512x512 PNG32:app/src/main/res/drawable-nodpi/arneta_logo_full.png
+
+            # 1. Generate Layer Foreground Adaptive Icon (Kanvas 108dp dengan Safe-Zone 68dp di tengah agar tidak terpotong lingkaran launcher)
+            convert /tmp/source_logo.png -shave 2x2 -resize 68x68 -background "$BG_HEX" -gravity center -extent 108x108 PNG32:app/src/main/res/mipmap-mdpi/ic_launcher_foreground.png
+            convert /tmp/source_logo.png -shave 2x2 -resize 102x102 -background "$BG_HEX" -gravity center -extent 162x162 PNG32:app/src/main/res/mipmap-hdpi/ic_launcher_foreground.png
+            convert /tmp/source_logo.png -shave 2x2 -resize 136x136 -background "$BG_HEX" -gravity center -extent 216x216 PNG32:app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.png
+            convert /tmp/source_logo.png -shave 2x2 -resize 204x204 -background "$BG_HEX" -gravity center -extent 324x324 PNG32:app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png
+            convert /tmp/source_logo.png -shave 2x2 -resize 272x272 -background "$BG_HEX" -gravity center -extent 432x432 PNG32:app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png
+
+            # 2. Generate Legacy Icon & Round Icon (Untuk Android versi lama)
+            for pair in "mdpi:48:42" "hdpi:72:64" "xhdpi:96:84" "xxhdpi:144:126" "xxxhdpi:192:168"; do
+              IFS=":" read -r dpi full inner <<< "$pair"
+              convert /tmp/source_logo.png -shave 2x2 -resize ${inner}x${inner} -background "$BG_HEX" -gravity center -extent ${full}x${full} PNG32:app/src/main/res/mipmap-${dpi}/ic_launcher.png
+              cp app/src/main/res/mipmap-${dpi}/ic_launcher.png app/src/main/res/mipmap-${dpi}/ic_launcher_round.png
+            done
+
+            # 3. Buat file warna background & XML Adaptive Icon (Android 8.0 s/d Android 16)
+            cat << EOF > app/src/main/res/values/ic_launcher_background.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="ic_launcher_background">${BG_HEX}</color>
+          </resources>
+          EOF
+
+            cat << 'EOF' > app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/ic_launcher_background"/>
+              <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+          </adaptive-icon>
+          EOF
+
+            cat << 'EOF' > app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/ic_launcher_background"/>
+              <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+          </adaptive-icon>
+          EOF
+
+            # 4. Pastikan AndroidManifest.xml memakai @mipmap/ic_launcher & @mipmap/ic_launcher_round
             if [ -f "app/src/main/AndroidManifest.xml" ]; then
               sed -i 's|@drawable/ic_arneta_shield|@mipmap/ic_launcher|g' app/src/main/AndroidManifest.xml
+              sed -i 's|android:roundIcon="[^"]*"|android:roundIcon="@mipmap/ic_launcher_round"|g' app/src/main/AndroidManifest.xml
+              if ! grep -q "android:roundIcon=" app/src/main/AndroidManifest.xml; then
+                sed -i 's|android:icon="@mipmap/ic_launcher"|android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round"|g' app/src/main/AndroidManifest.xml
+              fi
             fi
           fi
-
+          
       - name: Setup Gradle
         if: steps.vault.outputs.vault_only != 'true'
         uses: gradle/actions/setup-gradle@v4
