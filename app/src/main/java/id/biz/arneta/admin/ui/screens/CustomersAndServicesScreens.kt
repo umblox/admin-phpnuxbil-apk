@@ -1636,6 +1636,7 @@ fun AdminServicesScreen(
 
     var showGenVoucherDialog by remember { mutableStateOf(false) }
     var showCouponDialog by remember { mutableStateOf(false) }
+    var detailActiveCustomerTarget by remember { mutableStateOf<JSONObject?>(null) }
 
     fun loadCurrentTab() {
         isLoading = true
@@ -1829,7 +1830,10 @@ fun AdminServicesScreen(
                             Card(
                                 shape = RoundedCornerShape(14.dp),
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .clickable { detailActiveCustomerTarget = item }
                             ) {
                                 Column(modifier = Modifier.padding(14.dp)) {
                                     Row(
@@ -1868,9 +1872,28 @@ fun AdminServicesScreen(
 
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Row(
+                                        verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.End,
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
+                                        TextButton(
+                                            onClick = { detailActiveCustomerTarget = item }
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Info,
+                                                contentDescription = null,
+                                                tint = ArnetaCyanIncome,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "Detail",
+                                                fontSize = 12.sp,
+                                                color = ArnetaCyanIncome,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+
                                         TextButton(
                                             onClick = {
                                                 scope.launch {
@@ -1934,10 +1957,6 @@ fun AdminServicesScreen(
                                     }
                                 }
                             }
-                        }
-                    }
-                }
-            }
 
             "recharge_plan", "deposit_balance" -> {
                 val isDeposit = currentSubTab == "deposit_balance"
@@ -2519,6 +2538,14 @@ fun AdminServicesScreen(
                 showCouponDialog = false
                 loadCurrentTab()
             }
+        )
+    }
+
+    if (detailActiveCustomerTarget != null) {
+        UserDetailAndLiveSpeedDialog(
+            initialUserObj = detailActiveCustomerTarget!!,
+            onDismiss = { detailActiveCustomerTarget = null },
+            onUserKicked = { loadCurrentTab() }
         )
     }
 }
