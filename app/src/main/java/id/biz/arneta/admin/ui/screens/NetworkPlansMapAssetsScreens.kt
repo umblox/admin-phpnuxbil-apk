@@ -2988,7 +2988,11 @@ fun UserDetailAndLiveSpeedDialog(
             }
         },
         confirmButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 if (phoneStr.isNotEmpty() && phoneStr != "-") {
                     FilledTonalButton(
                         onClick = {
@@ -2998,11 +3002,16 @@ fun UserDetailAndLiveSpeedDialog(
                         colors = ButtonDefaults.filledTonalButtonColors(
                             containerColor = ArnetaGreenSuccess.copy(alpha = 0.2f),
                             contentColor = ArnetaGreenSuccess
-                        )
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(40.dp)
                     ) {
                         Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(15.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("WA", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Text("WA", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
                     }
                 }
 
@@ -3012,19 +3021,31 @@ fun UserDetailAndLiveSpeedDialog(
                         colors = ButtonDefaults.buttonColors(
                             containerColor = ArnetaRedDanger,
                             contentColor = Color.White
-                        )
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(40.dp)
                     ) {
                         Icon(Icons.Filled.LinkOff, contentDescription = null, modifier = Modifier.size(15.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Kick Sesi", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Text("Kick Sesi", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
                     }
                 }
 
                 OutlinedButton(
                     onClick = onDismiss,
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = ArnetaGoldPrimary)
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = ArnetaGoldPrimary),
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(40.dp)
                 ) {
-                    Text("Tutup", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(15.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Tutup", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
                 }
             }
         }
