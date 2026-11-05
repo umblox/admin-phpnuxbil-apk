@@ -530,6 +530,9 @@ fun AdminCustomersScreen(
     var quickActionCustomer by remember { mutableStateOf<JSONObject?>(null) }
     var quickActionMode by remember { mutableStateOf("recharge") } // recharge | deposit
 
+    var detailCustomerTarget by remember { mutableStateOf<JSONObject?>(null) }
+    var deletingCustomerTarget by remember { mutableStateOf<JSONObject?>(null) }
+
     fun loadCustomers(query: String = "") {
         scope.launch {
             if (allCustomers.isEmpty()) isLoading = true
@@ -711,7 +714,19 @@ fun AdminCustomersScreen(
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable {
+                                val enriched = JSONObject(cust.toString()).apply {
+                                    put("customer_id", cust.optInt("id"))
+                                    if (pkg != null) {
+                                        put("routers", pkg.optString("routers"))
+                                        put("namebp", pkg.optString("namebp"))
+                                    }
+                                }
+                                detailCustomerTarget = enriched
+                            }
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
                             Row(
@@ -792,6 +807,7 @@ fun AdminCustomersScreen(
 
                             Row(
                                 horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 AssistChip(
@@ -816,13 +832,28 @@ fun AdminCustomersScreen(
 
                                 IconButton(
                                     onClick = {
+                                        val enriched = JSONObject(cust.toString()).apply {
+                                            put("customer_id", cust.optInt("id"))
+                                            if (pkg != null) {
+                                                put("routers", pkg.optString("routers"))
+                                                put("namebp", pkg.optString("namebp"))
+                                            }
+                                        }
+                                        detailCustomerTarget = enriched
+                                    }
+                                ) {
+                                    Icon(Icons.Filled.Info, contentDescription = "Detail & Live Speed", tint = ArnetaCyanIncome)
+                                }
+
+                                IconButton(
+                                    onClick = {
                                         scope.launch {
                                             val sRes = ApiClient.request("admin_customer_sync", mapOf("id" to cust.optInt("id")))
                                             Toast.makeText(context, sRes.message, Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 ) {
-                                    Icon(Icons.Filled.Sync, contentDescription = "Sync Router", tint = ArnetaCyanIncome)
+                                    Icon(Icons.Filled.Sync, contentDescription = "Sync Router", tint = ArnetaGreenSuccess)
                                 }
 
                                 IconButton(
@@ -835,13 +866,7 @@ fun AdminCustomersScreen(
                                 }
 
                                 IconButton(
-                                    onClick = {
-                                        scope.launch {
-                                            val dRes = ApiClient.request("admin_customer_delete", mapOf("id" to cust.optInt("id")))
-                                            Toast.makeText(context, dRes.message, Toast.LENGTH_SHORT).show()
-                                            if (dRes.status) loadCustomers(searchQuery)
-                                        }
-                                    }
+                                    onClick = { deletingCustomerTarget = cust }
                                 ) {
                                     Icon(Icons.Filled.DeleteOutline, contentDescription = "Hapus", tint = ArnetaRedDanger)
                                 }
@@ -872,6 +897,32 @@ fun AdminCustomersScreen(
             onSuccess = {
                 showRechargeDialog = false
                 loadCustomers(searchQuery)
+            }
+        )
+    }
+
+    if (detailCustomerTarget != null) {
+        UserDetailAndLiveSpeedDialog(
+            initialUserObj = detailCustomerTarget!!,
+            onDismiss = { detailCustomerTarget = null },
+            onUserKicked = { loadCustomers(searchQuery) }
+        )
+    }
+
+    if (deletingCustomerTarget != null) {
+        val target = deletingCustomerTarget!!
+        ConfirmDeleteArnetaDialog(
+            title = "Hapus Akun Pelanggan",
+            subtitle = "${target.optString("fullname")} (@${target.optString("username")})",
+            description = "Menghapus pelanggan ini akan menghapus data profil dan paket aktifnya dari sistem. Lanjutkan?",
+            onDismiss = { deletingCustomerTarget = null },
+            onConfirm = {
+                deletingCustomerTarget = null
+                scope.launch {
+                    val dRes = ApiClient.request("admin_customer_delete", mapOf("id" to target.optInt("id")))
+                    Toast.makeText(context, dRes.message, Toast.LENGTH_SHORT).show()
+                    if (dRes.status) loadCustomers(searchQuery)
+                }
             }
         )
     }
@@ -906,7 +957,11 @@ private fun CustomerFormDialog(
 
     var allInternetPlans by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var routerOptions by remember { mutableStateOf(listOf("All" to "Semua Router")) }
-    var selectedRouterFilter by remember { mutableStateOf("All") }
+    var selectedRouterFilter by remember {
+        mutableStateOf(
+            initial?.optJSONObject("active_package")?.optString("routers", "")?.takeIf { it.isNotEmpty() } ?: "All"
+        )
+    }
     var paymentUsings by remember { mutableStateOf(listOf("Cash", "Recharge Zero")) }
     var selectedPlan by remember { mutableStateOf<JSONObject?>(null) }
     var selectedUsing by remember { mutableStateOf("") } // Kosong di awal agar Admin memilih manual
@@ -1637,6 +1692,7 @@ fun AdminServicesScreen(
     var showGenVoucherDialog by remember { mutableStateOf(false) }
     var showCouponDialog by remember { mutableStateOf(false) }
     var detailActiveCustomerTarget by remember { mutableStateOf<JSONObject?>(null) }
+    var deletingActivePlanTarget by remember { mutableStateOf<JSONObject?>(null) }
 
     fun loadCurrentTab() {
         isLoading = true
@@ -1944,19 +2000,17 @@ fun AdminServicesScreen(
                                         }
 
                                         IconButton(
-                                            onClick = {
-                                                scope.launch {
-                                                    val dRes = ApiClient.request("admin_prepaid_delete", mapOf("id" to item.optInt("id")))
-                                                    Toast.makeText(context, dRes.message, Toast.LENGTH_SHORT).show()
-                                                    if (dRes.status) loadCurrentTab()
-                                                }
-                                            }
+                                            onClick = { deletingActivePlanTarget = item }
                                         ) {
                                             Icon(Icons.Filled.DeleteOutline, contentDescription = "Hapus", tint = ArnetaRedDanger)
                                         }
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+            }
 
             "recharge_plan", "deposit_balance" -> {
                 val isDeposit = currentSubTab == "deposit_balance"
@@ -2483,7 +2537,10 @@ fun AdminServicesScreen(
                         Card(
                             shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { detailActiveCustomerTarget = u }
                         ) {
                             Row(
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -2493,7 +2550,16 @@ fun AdminServicesScreen(
                                     .padding(12.dp)
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(u.optString("username"), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(u.optString("username"), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Icon(
+                                            imageVector = Icons.Filled.Speed,
+                                            contentDescription = "Lihat Live Speed",
+                                            tint = ArnetaGoldPrimary,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
                                     Text(
                                         "${u.optString("service")} • IP: ${u.optString("ip_address")} • Uptime: ${u.optString("uptime")}",
                                         fontSize = 11.sp,
@@ -2548,6 +2614,104 @@ fun AdminServicesScreen(
             onUserKicked = { loadCurrentTab() }
         )
     }
+
+    if (deletingActivePlanTarget != null) {
+        val target = deletingActivePlanTarget!!
+        ConfirmDeleteArnetaDialog(
+            title = "Hapus Paket Pelanggan Aktif",
+            subtitle = "${target.optString("fullname")} (@${target.optString("username")}) • ${target.optString("namebp")}",
+            description = "Paket aktif ini akan dihapus dari daftar langganan serta dicabut dari Router MikroTik. Lanjutkan?",
+            onDismiss = { deletingActivePlanTarget = null },
+            onConfirm = {
+                deletingActivePlanTarget = null
+                scope.launch {
+                    val dRes = ApiClient.request("admin_prepaid_delete", mapOf("id" to target.optInt("id")))
+                    Toast.makeText(context, dRes.message, Toast.LENGTH_SHORT).show()
+                    if (dRes.status) loadCurrentTab()
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun ConfirmDeleteArnetaDialog(
+    title: String,
+    subtitle: String,
+    description: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF141B2D),
+        titleContentColor = Color.White,
+        textContentColor = Color.White,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(ArnetaRedDanger.copy(alpha = 0.2f))
+                        .border(1.dp, ArnetaRedDanger, CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.DeleteForever,
+                        contentDescription = null,
+                        tint = ArnetaRedDanger,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = title,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 15.5.sp,
+                        color = Color.White
+                    )
+                    Text(
+                        text = subtitle,
+                        fontSize = 11.5.sp,
+                        color = ArnetaGoldPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        },
+        text = {
+            Text(
+                text = description,
+                fontSize = 12.5.sp,
+                color = Color.White.copy(alpha = 0.85f)
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = ArnetaRedDanger,
+                    contentColor = Color.White
+                ),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Icon(Icons.Filled.DeleteOutline, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Ya, Hapus", fontWeight = FontWeight.ExtraBold, fontSize = 12.5.sp)
+            }
+        },
+        dismissButton = {
+            OutlinedButton(
+                onClick = onDismiss,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text("Batal", fontSize = 12.5.sp)
+            }
+        }
+    )
 }
 
 @Composable
