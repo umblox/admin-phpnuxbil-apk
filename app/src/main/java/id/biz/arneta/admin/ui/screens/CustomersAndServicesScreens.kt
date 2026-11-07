@@ -1995,80 +1995,106 @@ fun AdminServicesScreen(
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.End,
-                                        modifier = Modifier.fillMaxWidth()
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState())
                                     ) {
-                                        TextButton(
-                                            onClick = { detailActiveCustomerTarget = item }
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Filled.Info,
-                                                contentDescription = null,
-                                                tint = ArnetaCyanIncome,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text(
-                                                text = "Detail",
-                                                fontSize = 12.sp,
-                                                color = ArnetaCyanIncome,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            TextButton(
+                                                onClick = { detailActiveCustomerTarget = item },
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Info,
+                                                    contentDescription = null,
+                                                    tint = ArnetaCyanIncome,
+                                                    modifier = Modifier.size(15.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Detail", fontSize = 11.5.sp, color = ArnetaCyanIncome, fontWeight = FontWeight.Bold)
+                                            }
 
-                                        TextButton(
-                                            onClick = {
-                                                scope.launch {
-                                                    BluetoothPrinterHelper.printReceiptText(
-                                                        context = context,
-                                                        title = "STRUK LAYANAN ${ApiClient.companyName.uppercase()}",
-                                                        lines = listOf(
-                                                            "No. Invoice" to invoiceNo,
-                                                            "Pelanggan" to "${item.optString("fullname")} (${item.optString("username")})",
-                                                            "Paket" to item.optString("namebp"),
-                                                            "Harga" to formatRupiah(itemPrice),
-                                                            "Metode" to item.optString("method"),
-                                                            "Tgl Trx" to trxDateTime,
-                                                            "Aktif s/d" to expDateTime,
-                                                            "Router" to item.optString("routers")
-                                                        )
+                                            if (!isOn) {
+                                                TextButton(
+                                                    onClick = { extendingActivePlanTarget = item },
+                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Filled.Update,
+                                                        contentDescription = null,
+                                                        tint = ArnetaOrangeActive,
+                                                        modifier = Modifier.size(15.dp)
                                                     )
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text("Extend", fontSize = 11.5.sp, color = ArnetaOrangeActive, fontWeight = FontWeight.Bold)
                                                 }
                                             }
-                                        ) {
-                                            Icon(Icons.Filled.Print, contentDescription = null, modifier = Modifier.size(16.dp))
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("Cetak", fontSize = 12.sp)
-                                        }
 
-                                        TextButton(
-                                            onClick = {
-                                                val waMessage = buildString {
-                                                    appendLine("*STRUK LAYANAN ${ApiClient.companyName.uppercase()}*")
-                                                    appendLine("--------------------------------")
-                                                    appendLine("No. Invoice : $invoiceNo")
-                                                    appendLine("Pelanggan   : ${item.optString("fullname")} (${item.optString("username")})")
-                                                    appendLine("Paket       : ${item.optString("namebp")}")
-                                                    appendLine("Harga       : ${formatRupiah(itemPrice)}")
-                                                    appendLine("Metode      : ${item.optString("method")}")
-                                                    appendLine("Tgl Trx     : $trxDateTime")
-                                                    appendLine("Aktif s/d   : $expDateTime")
-                                                    appendLine("Router      : ${item.optString("routers")}")
-                                                    appendLine("--------------------------------")
-                                                    append("Terima kasih telah menggunakan layanan ${ApiClient.companyName}.")
-                                                }
-                                                BluetoothPrinterHelper.shareToWhatsApp(context, waMessage, item.optString("phonenumber"))
+                                            TextButton(
+                                                onClick = {
+                                                    scope.launch {
+                                                        BluetoothPrinterHelper.printReceiptText(
+                                                            context = context,
+                                                            title = "STRUK LAYANAN ${ApiClient.companyName.uppercase()}",
+                                                            lines = listOf(
+                                                                "No. Invoice" to invoiceNo,
+                                                                "Pelanggan" to "${item.optString("fullname")} (${item.optString("username")})",
+                                                                "Paket" to item.optString("namebp"),
+                                                                "Harga" to formatRupiah(itemPrice),
+                                                                "Metode" to item.optString("method"),
+                                                                "Tgl Trx" to trxDateTime,
+                                                                "Aktif s/d" to expDateTime,
+                                                                "Router" to item.optString("routers")
+                                                            )
+                                                        )
+                                                    }
+                                                },
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                                            ) {
+                                                Icon(Icons.Filled.Print, contentDescription = null, modifier = Modifier.size(15.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Cetak", fontSize = 11.5.sp)
                                             }
-                                        ) {
-                                            Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(16.dp))
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("WA", fontSize = 12.sp)
+
+                                            TextButton(
+                                                onClick = {
+                                                    val waMessage = buildString {
+                                                        appendLine("*STRUK LAYANAN ${ApiClient.companyName.uppercase()}*")
+                                                        appendLine("--------------------------------")
+                                                        appendLine("No. Invoice : $invoiceNo")
+                                                        appendLine("Pelanggan   : ${item.optString("fullname")} (${item.optString("username")})")
+                                                        appendLine("Paket       : ${item.optString("namebp")}")
+                                                        appendLine("Harga       : ${formatRupiah(itemPrice)}")
+                                                        appendLine("Metode      : ${item.optString("method")}")
+                                                        appendLine("Tgl Trx     : $trxDateTime")
+                                                        appendLine("Aktif s/d   : $expDateTime")
+                                                        appendLine("Router      : ${item.optString("routers")}")
+                                                        appendLine("--------------------------------")
+                                                        append("Terima kasih telah menggunakan layanan ${ApiClient.companyName}.")
+                                                    }
+                                                    BluetoothPrinterHelper.shareToWhatsApp(context, waMessage, item.optString("phonenumber"))
+                                                },
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                                            ) {
+                                                Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(15.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("WA", fontSize = 11.5.sp)
+                                            }
                                         }
 
-                                        IconButton(
-                                            onClick = { deletingActivePlanTarget = item }
-                                        ) {
-                                            Icon(Icons.Filled.DeleteOutline, contentDescription = "Hapus", tint = ArnetaRedDanger)
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            IconButton(
+                                                onClick = { editingActivePlanTarget = item }
+                                            ) {
+                                                Icon(Icons.Filled.Edit, contentDescription = "Edit Masa Aktif / Paket", tint = ArnetaGoldPrimary, modifier = Modifier.size(19.dp))
+                                            }
+
+                                            IconButton(
+                                                onClick = { deletingActivePlanTarget = item }
+                                            ) {
+                                                Icon(Icons.Filled.DeleteOutline, contentDescription = "Hapus", tint = ArnetaRedDanger, modifier = Modifier.size(19.dp))
+                                            }
                                         }
                                     }
                                 }
@@ -2389,25 +2415,51 @@ fun AdminServicesScreen(
                     }
 
                     OutlinedButton(
-                        onClick = {
-                            scope.launch {
-                                val res = ApiClient.request("admin_voucher_delete", mapOf("delete_used" to 1))
-                                Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
-                                loadCurrentTab()
-                            }
-                        }
+                        onClick = { showCleanUsedVoucherDialog = true }
                     ) {
-                        Text("Hapus Terpakai", fontSize = 12.sp, color = ArnetaRedDanger)
+                        Icon(Icons.Filled.DeleteSweep, contentDescription = null, tint = ArnetaRedDanger, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Bersihkan Terpakai", fontSize = 11.5.sp, color = ArnetaRedDanger)
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                ) {
+                    val unusedCnt = voucherList.count { it.optString("status", "0") == "0" }
+                    val usedCnt = voucherList.count { it.optString("status", "0") == "1" }
+                    listOf(
+                        "All" to "Semua (${voucherList.size})",
+                        "0" to "Belum Dipakai ($unusedCnt)",
+                        "1" to "Terpakai ($usedCnt)"
+                    ).forEach { (stKey, stLbl) ->
+                        FilterChip(
+                            selected = voucherStatusFilter == stKey,
+                            onClick = { voucherStatusFilter = stKey },
+                            label = { Text(stLbl, fontSize = 11.5.sp) }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
 
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("Cari kode voucher / nama paket...", fontSize = 13.sp) },
-                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    placeholder = { Text("Cari kode voucher, paket, router, atau pembuat...", fontSize = 12.5.sp) },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = ArnetaGoldPrimary) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Filled.Clear, contentDescription = "Bersihkan")
+                            }
+                        }
+                    },
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
@@ -2421,6 +2473,14 @@ fun AdminServicesScreen(
                 ) {
                     items(filteredVoucherList) { v ->
                         val used = v.optString("status") == "1"
+                        val vCode = v.optString("code")
+                        val vPlan = v.optString("name_plan")
+                        val vType = v.optString("type", "Hotspot")
+                        val vPrice = v.optDouble("price", 0.0)
+                        val vRouter = v.optString("routers", "-")
+                        val vUser = v.optString("user", "0")
+                        val vCreator = v.optString("generated_by_name", "Admin")
+
                         Card(
                             shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -2434,16 +2494,40 @@ fun AdminServicesScreen(
                                     .padding(12.dp)
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(
+                                            text = vCode,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            fontSize = 16.sp,
+                                            color = if (used) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f) else ArnetaGoldPrimary
+                                        )
+                                        Surface(
+                                            color = if (used) ArnetaRedDanger.copy(alpha = 0.18f) else ArnetaGreenSuccess.copy(alpha = 0.18f),
+                                            shape = RoundedCornerShape(4.dp)
+                                        ) {
+                                            Text(
+                                                text = if (used) "TERPAKAI" else "AKTIF / READY",
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = if (used) ArnetaRedDanger else ArnetaGreenSuccess,
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = v.optString("code"),
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 16.sp,
-                                        color = if (used) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f) else ArnetaGoldPrimary
+                                        text = "$vPlan ($vType) • ${formatRupiah(vPrice)} • Router: $vRouter",
+                                        fontSize = 11.5.sp
                                     )
                                     Text(
-                                        text = "${v.optString("name_plan")} • ${formatRupiah(v.optDouble("price", 0.0))} (${v.optString("routers")})",
-                                        fontSize = 12.sp
+                                        text = "Dibuat: $vCreator" +
+                                            if (used && vUser != "0" && vUser.isNotEmpty()) " • Dipakai oleh: @$vUser" else "",
+                                        fontSize = 10.5.sp,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                     )
                                 }
 
@@ -2453,12 +2537,15 @@ fun AdminServicesScreen(
                                             scope.launch {
                                                 BluetoothPrinterHelper.printReceiptText(
                                                     context = context,
-                                                    title = "VOUCHER HOTSPOT",
+                                                    title = "VOUCHER ${ApiClient.companyName.uppercase()}",
                                                     lines = listOf(
-                                                        "KODE VOUCHER" to v.optString("code"),
-                                                        "Paket" to v.optString("name_plan"),
-                                                        "Masa Aktif" to v.optString("validity"),
-                                                        "Harga" to formatRupiah(v.optDouble("price", 0.0))
+                                                        "ID Voucher" to v.optInt("id").toString(),
+                                                        "KODE VOUCHER" to vCode,
+                                                        "Nama Paket" to vPlan,
+                                                        "Layanan" to vType,
+                                                        "Masa Aktif" to v.optString("validity", "-"),
+                                                        "Harga" to formatRupiah(vPrice),
+                                                        "Sales/Admin" to vCreator
                                                     )
                                                 )
                                             }
@@ -2469,11 +2556,28 @@ fun AdminServicesScreen(
 
                                     IconButton(
                                         onClick = {
-                                            scope.launch {
-                                                ApiClient.request("admin_voucher_delete", mapOf("id" to v.optInt("id")))
-                                                loadCurrentTab()
+                                            // Format persis case 'voucher-view' di system/controllers/plan.php
+                                            val waVoucherContent = buildString {
+                                                appendLine("```")
+                                                appendLine(ApiClient.companyName)
+                                                appendLine("==============================")
+                                                appendLine("ID         : ${v.optInt("id")}")
+                                                appendLine("Kode       : $vCode")
+                                                appendLine("Paket      : $vPlan")
+                                                appendLine("Layanan    : $vType")
+                                                appendLine("Harga      : ${formatRupiah(vPrice)}")
+                                                appendLine("Sales      : $vCreator")
+                                                appendLine("==============================")
+                                                append("```")
                                             }
+                                            BluetoothPrinterHelper.shareToWhatsApp(context, waVoucherContent, "")
                                         }
+                                    ) {
+                                        Icon(Icons.Filled.Share, contentDescription = "Kirim WA", tint = ArnetaGreenSuccess)
+                                    }
+
+                                    IconButton(
+                                        onClick = { deletingVoucherTarget = v }
                                     ) {
                                         Icon(Icons.Filled.DeleteOutline, contentDescription = "Hapus", tint = ArnetaRedDanger)
                                     }
@@ -2717,6 +2821,105 @@ fun AdminServicesScreen(
             }
         )
     }
+        if (editingActivePlanTarget != null) {
+        EditActiveCustomerPlanDialog(
+            activeItem = editingActivePlanTarget!!,
+            onDismiss = { editingActivePlanTarget = null },
+            onSaved = {
+                editingActivePlanTarget = null
+                loadCurrentTab()
+            }
+        )
+    }
+
+    if (extendingActivePlanTarget != null) {
+        ExtendCustomerPlanDialog(
+            activeItem = extendingActivePlanTarget!!,
+            onDismiss = { extendingActivePlanTarget = null },
+            onExtended = {
+                extendingActivePlanTarget = null
+                loadCurrentTab()
+            }
+        )
+    }
+
+    if (deletingVoucherTarget != null) {
+        val targetV = deletingVoucherTarget!!
+        ConfirmDeleteArnetaDialog(
+            title = "Hapus Kode Voucher?",
+            subtitle = "${targetV.optString("code")} • ${targetV.optString("name_plan")}",
+            description = "Kode voucher ini akan dihapus permanen dari database.",
+            onDismiss = { deletingVoucherTarget = null },
+            onConfirm = {
+                deletingVoucherTarget = null
+                scope.launch {
+                    val dRes = ApiClient.request("admin_voucher_delete", mapOf("id" to targetV.optInt("id")))
+                    Toast.makeText(context, dRes.message, Toast.LENGTH_SHORT).show()
+                    if (dRes.status) loadCurrentTab()
+                }
+            }
+        )
+    }
+
+    if (showCleanUsedVoucherDialog) {
+        AlertDialog(
+            onDismissRequest = { showCleanUsedVoucherDialog = false },
+            containerColor = Color(0xFF141B2D),
+            titleContentColor = Color.White,
+            textContentColor = Color.White,
+            title = { Text("Bersihkan Voucher Terpakai", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp) },
+            text = {
+                Text(
+                    text = "Pilih metode pembersihan voucher yang sudah berstatus Terpakai (Status = 1):",
+                    fontSize = 12.5.sp,
+                    color = Color.White.copy(alpha = 0.85f)
+                )
+            },
+            confirmButton = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                    Button(
+                        onClick = {
+                            showCleanUsedVoucherDialog = false
+                            scope.launch {
+                                val res = ApiClient.request(
+                                    "admin_voucher_delete",
+                                    mapOf("delete_used" to 1, "older_than_3months" to 1)
+                                )
+                                Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
+                                loadCurrentTab()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Hapus Terpakai > 3 Bulan (Standar Web)", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+
+                    Button(
+                        onClick = {
+                            showCleanUsedVoucherDialog = false
+                            scope.launch {
+                                val res = ApiClient.request("admin_voucher_delete", mapOf("delete_used" to 1))
+                                Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
+                                loadCurrentTab()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ArnetaRedDanger, contentColor = Color.White),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Hapus Seluruh Voucher Terpakai", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+
+                    TextButton(
+                        onClick = { showCleanUsedVoucherDialog = false },
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Text("Batal", color = Color.White)
+                    }
+                }
+            }
+        )
+    }
     ArnetaInteractiveTransactionToast()
 }
 
@@ -2807,47 +3010,82 @@ private fun GenerateVoucherDialog(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var plans by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+
+    var selectedType by remember { mutableStateOf("Hotspot") } // Hotspot | PPPOE (Sesuai add-voucher di plan.php)
+    var allPlans by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var routerOptions by remember { mutableStateOf(listOf("All" to "Semua Router")) }
     var selectedRouter by remember { mutableStateOf("All") }
     var selectedPlan by remember { mutableStateOf<JSONObject?>(null) }
+
+    var voucherFormat by remember { mutableStateOf("up") } // up | low | rand | numbers
     var count by remember { mutableStateOf("10") }
     var prefix by remember { mutableStateOf("ARN-") }
     var lengthCode by remember { mutableStateOf("6") }
+    var isGenerating by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        val res = ApiClient.request("admin_plans", mapOf("type" to "Hotspot"))
+        val res = ApiClient.request("admin_plans")
         if (res.status && res.data != null) {
+            val savedPrefix = res.data.optString("voucher_prefix", "")
+            if (savedPrefix.isNotEmpty()) {
+                prefix = savedPrefix
+            }
             val arr = res.data.optJSONArray("plans") ?: JSONArray()
             val list = mutableListOf<JSONObject>()
-            for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
-            plans = list
+            for (i in 0 until arr.length()) {
+                val p = arr.getJSONObject(i)
+                if (!p.optString("type").equals("Balance", ignoreCase = true) && p.optInt("enabled", 1) == 1) {
+                    list.add(p)
+                }
+            }
+            allPlans = list
             routerOptions = extractRouterOptions(list, res.data.optJSONArray("routers"))
-            if (list.isNotEmpty()) selectedPlan = list.first()
         }
     }
 
-    val filteredPlans = remember(plans, selectedRouter) {
-        if (selectedRouter == "All") plans
-        else plans.filter { it.optString("routers", "").equals(selectedRouter, ignoreCase = true) }
+    val filteredPlans = remember(allPlans, selectedType, selectedRouter) {
+        allPlans.filter { p ->
+            val matchType = p.optString("type", "").equals(selectedType, ignoreCase = true)
+            val matchRouter = selectedRouter == "All" ||
+                (selectedRouter.equals("Radius", ignoreCase = true) && p.optInt("is_radius", 0) == 1) ||
+                p.optString("routers", "").equals(selectedRouter, ignoreCase = true)
+            matchType && matchRouter
+        }
     }
 
     LaunchedEffect(filteredPlans) {
         if (filteredPlans.isNotEmpty() && (selectedPlan == null || filteredPlans.none { it.optInt("id") == selectedPlan?.optInt("id") })) {
             selectedPlan = filteredPlans.first()
+        } else if (filteredPlans.isEmpty()) {
+            selectedPlan = null
         }
     }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Generate Voucher Hotspot", fontWeight = FontWeight.Bold) },
+        title = {
+            Text("Generate Voucher ($selectedType)", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+        },
         text = {
             Column(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.verticalScroll(rememberScrollState())
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
             ) {
+                Text("Tipe Layanan Voucher:", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = ArnetaGoldPrimary)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("Hotspot" to "Hotspot", "PPPOE" to "PPPoE").forEach { (tKey, tLbl) ->
+                        FilterChip(
+                            selected = selectedType.equals(tKey, ignoreCase = true),
+                            onClick = { selectedType = tKey },
+                            label = { Text(tLbl, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
+                        )
+                    }
+                }
+
                 CompactDropdownSelector(
-                    label = "Filter Lokasi Router",
+                    label = "Lokasi Server / Router",
                     selectedValue = selectedRouter,
                     options = routerOptions,
                     icon = Icons.Filled.Router,
@@ -2855,58 +3093,304 @@ private fun GenerateVoucherDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Text("Pilih Paket Hotspot (${filteredPlans.size}):", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                filteredPlans.forEach { p ->
-                    SelectablePlanCard(
-                        plan = p,
-                        isSelected = selectedPlan?.optInt("id") == p.optInt("id"),
-                        onClick = { selectedPlan = p }
+                Text(
+                    text = "Pilih Paket $selectedType (${filteredPlans.size}):",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = ArnetaCyanIncome
+                )
+
+                if (filteredPlans.isEmpty()) {
+                    Text("Tidak ada paket $selectedType aktif pada router ini.", fontSize = 11.5.sp)
+                } else {
+                    filteredPlans.forEach { p ->
+                        SelectablePlanCard(
+                            plan = p,
+                            isSelected = selectedPlan?.optInt("id") == p.optInt("id"),
+                            onClick = { selectedPlan = p }
+                        )
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+
+                CompactDropdownSelector(
+                    label = "Format Karakter Voucher",
+                    selectedValue = voucherFormat,
+                    options = listOf(
+                        "up" to "UPPERCASE (HURUF BESAR & ANGKA)",
+                        "low" to "lowercase (huruf kecil & angka)",
+                        "rand" to "Random Case (Acak Besar & Kecil)",
+                        "numbers" to "Numbers (Angka Unik, Min. 6 Digit)"
+                    ),
+                    icon = Icons.Filled.Password,
+                    onValueSelected = {
+                        voucherFormat = it
+                        if (it == "numbers" && (lengthCode.toIntOrNull() ?: 6) < 6) {
+                            lengthCode = "6"
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = count,
+                        onValueChange = { count = it },
+                        label = { Text("Jumlah Voucher") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = lengthCode,
+                        onValueChange = { lengthCode = it },
+                        label = { Text("Panjang Kode") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
                     )
                 }
-                OutlinedTextField(
-                    value = count,
-                    onValueChange = { count = it },
-                    label = { Text("Jumlah Voucher") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true
-                )
+
                 OutlinedTextField(
                     value = prefix,
                     onValueChange = { prefix = it },
-                    label = { Text("Prefix Kode (Opsional)") },
-                    singleLine = true
-                )
-                OutlinedTextField(
-                    value = lengthCode,
-                    onValueChange = { lengthCode = it },
-                    label = { Text("Panjang Karakter Acak") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true
+                    label = { Text("Voucher Prefix (Otomatis Disimpan ke Web)") },
+                    placeholder = { Text("Misal: ARN-") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
         },
         confirmButton = {
             Button(
-                enabled = selectedPlan != null,
+                enabled = !isGenerating && selectedPlan != null && (count.toIntOrNull() ?: 0) > 0,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = ArnetaGoldPrimary,
+                    contentColor = Color(0xFF0B0F19)
+                ),
                 onClick = {
                     val p = selectedPlan ?: return@Button
+                    isGenerating = true
                     scope.launch {
+                        val srv = if (p.optInt("is_radius", 0) == 1) "radius" else p.optString("routers")
                         val res = ApiClient.request(
                             "admin_voucher_generate",
                             mapOf(
+                                "type" to selectedType,
                                 "plan_id" to p.optInt("id"),
-                                "server" to p.optString("routers"),
+                                "plan" to p.optInt("id"),
+                                "server" to srv,
+                                "voucher_format" to voucherFormat,
                                 "count" to (count.toIntOrNull() ?: 10),
+                                "numbervoucher" to (count.toIntOrNull() ?: 10),
                                 "prefix" to prefix,
-                                "length_code" to (lengthCode.toIntOrNull() ?: 6)
+                                "length_code" to (lengthCode.toIntOrNull() ?: 6),
+                                "lengthcode" to (lengthCode.toIntOrNull() ?: 6)
                             )
                         )
+                        isGenerating = false
                         Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
                         if (res.status) onGenerated()
                     }
                 }
             ) {
-                Text("Generate")
+                Text(if (isGenerating) "Membuat..." else "Generate Voucher", fontWeight = FontWeight.ExtraBold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Batal") }
+        }
+    )
+}
+
+/**
+ * DIALOG EDIT PAKET & MASA AKTIF PELANGGAN AKTIF (Sesuai case 'edit-post' di plan.php)
+ */
+@Composable
+private fun EditActiveCustomerPlanDialog(
+    activeItem: JSONObject,
+    onDismiss: () -> Unit,
+    onSaved: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    val rechargeId = activeItem.optInt("id")
+    val currentType = activeItem.optString("type", "Hotspot")
+    var selectedPlanId by remember { mutableIntStateOf(activeItem.optInt("plan_id", 0)) }
+    var expirationDate by remember { mutableStateOf(activeItem.optString("expiration", "")) }
+    var expirationTime by remember { mutableStateOf(activeItem.optString("time", "23:59:59")) }
+    var availablePlans by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var isSaving by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        val res = ApiClient.request("admin_plans", mapOf("type" to currentType))
+        val arr = res.data?.optJSONArray("plans") ?: JSONArray()
+        val list = mutableListOf<JSONObject>()
+        for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
+        availablePlans = list
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Edit Langganan @${activeItem.optString("username")}",
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 16.sp
+            )
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    text = "Mengubah paket akan otomatis memindahkan profil pelanggan di Router MikroTik.",
+                    fontSize = 11.5.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                )
+
+                if (availablePlans.isNotEmpty()) {
+                    CompactDropdownSelector(
+                        label = "Pilih Paket Langganan ($currentType)",
+                        selectedValue = selectedPlanId.toString(),
+                        options = availablePlans.map { p ->
+                            p.optInt("id").toString() to "${p.optString("name_plan")} (${formatRupiah(p.optDouble("price", 0.0))})"
+                        },
+                        icon = Icons.Filled.Speed,
+                        onValueSelected = { selectedPlanId = it.toIntOrNull() ?: selectedPlanId },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                OutlinedTextField(
+                    value = expirationDate,
+                    onValueChange = { expirationDate = it },
+                    label = { Text("Tanggal Berakhir (YYYY-MM-DD)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = expirationTime,
+                    onValueChange = { expirationTime = it },
+                    label = { Text("Jam Berakhir (HH:MM:SS)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = !isSaving && selectedPlanId > 0 && expirationDate.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = ArnetaGoldPrimary,
+                    contentColor = Color(0xFF0B0F19)
+                ),
+                onClick = {
+                    isSaving = true
+                    scope.launch {
+                        val res = ApiClient.request(
+                            "admin_prepaid_edit",
+                            mapOf(
+                                "id" to rechargeId,
+                                "id_plan" to selectedPlanId,
+                                "expiration" to expirationDate.trim(),
+                                "time" to expirationTime.trim()
+                            )
+                        )
+                        isSaving = false
+                        Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
+                        if (res.status) onSaved()
+                    }
+                }
+            ) {
+                Text(if (isSaving) "Menyimpan..." else "Simpan Perubahan", fontWeight = FontWeight.ExtraBold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Batal") }
+        }
+    )
+}
+
+/**
+ * DIALOG EXTEND / PERPANJANG SEMENTARA PAKET EXPIRED (Sesuai case 'extend' di plan.php)
+ */
+@Composable
+private fun ExtendCustomerPlanDialog(
+    activeItem: JSONObject,
+    onDismiss: () -> Unit,
+    onExtended: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val rechargeId = activeItem.optInt("id")
+    var extendDays by remember { mutableStateOf("3") }
+    var isProcessing by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Extend Masa Aktif @${activeItem.optString("username")}",
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 16.sp
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Perpanjang masa aktif paket ${activeItem.optString("namebp")} dan aktifkan kembali akun di Router MikroTik:",
+                    fontSize = 12.sp
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("1", "2", "3", "7", "14", "30").forEach { d ->
+                        FilterChip(
+                            selected = extendDays == d,
+                            onClick = { extendDays = d },
+                            label = { Text("$d Hari", fontSize = 11.5.sp) }
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = extendDays,
+                    onValueChange = { extendDays = it },
+                    label = { Text("Jumlah Hari Extend") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = !isProcessing && (extendDays.toIntOrNull() ?: 0) > 0,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = ArnetaGoldPrimary,
+                    contentColor = Color(0xFF0B0F19)
+                ),
+                onClick = {
+                    isProcessing = true
+                    scope.launch {
+                        val res = ApiClient.request(
+                            "admin_prepaid_extend",
+                            mapOf(
+                                "id" to rechargeId,
+                                "days" to (extendDays.toIntOrNull() ?: 3)
+                            )
+                        )
+                        isProcessing = false
+                        Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
+                        if (res.status) onExtended()
+                    }
+                }
+            ) {
+                Text(if (isProcessing) "Memproses..." else "Extend Sekarang", fontWeight = FontWeight.ExtraBold)
             }
         },
         dismissButton = {
