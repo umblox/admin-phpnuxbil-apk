@@ -389,7 +389,7 @@ private fun extractRouterOptions(plans: List<JSONObject>, routersArray: JSONArra
 }
 
 /**
- * KARTU PILIHAN PAKET DENGAN RADIO BUTTON + BADGE LOKASI ROUTER, PREPAID/POSTPAID & HIDDEN
+ * KARTU PILIHAN PAKET DENGAN RADIO BUTTON + BADGE LOKASI ROUTER, PREPAID/POSTPAID, HARGA CORET & HIDDEN
  */
 @Composable
 private fun SelectablePlanCard(
@@ -399,9 +399,13 @@ private fun SelectablePlanCard(
 ) {
     val isPostpaid = plan.optString("prepaid", "yes").equals("no", ignoreCase = true)
     val isHidden = plan.optBoolean("is_hidden", false) || plan.optInt("enabled", 1) == 0
+    val isRadius = plan.optInt("is_radius", 0) == 1
     val pType = plan.optString("type", "Hotspot")
-    val routerName = plan.optString("routers", "-")
+    val planCategory = plan.optString("plan_type", "Personal")
+    val routerName = if (isRadius) "Radius Server" else plan.optString("routers", "-")
     val validityStr = "${plan.optInt("validity", 30)} ${plan.optString("validity_unit", "Days")}"
+    val priceVal = plan.optDouble("price", 0.0)
+    val priceOldVal = plan.optString("price_old", "").toDoubleOrNull() ?: 0.0
 
     Surface(
         color = if (isSelected) ArnetaGoldPrimary.copy(alpha = 0.18f) else MaterialTheme.colorScheme.surface,
@@ -462,6 +466,21 @@ private fun SelectablePlanCard(
                                     modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                                 )
                             }
+
+                            if (planCategory.equals("Business", ignoreCase = true)) {
+                                Surface(
+                                    color = ArnetaIndigoAccent.copy(alpha = 0.22f),
+                                    shape = RoundedCornerShape(4.dp)
+                                ) {
+                                    Text(
+                                        text = "Business",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = ArnetaGoldLight,
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
                         }
 
                         if (isHidden) {
@@ -497,12 +516,21 @@ private fun SelectablePlanCard(
 
             Spacer(modifier = Modifier.width(8.dp))
 
-            Text(
-                text = formatRupiah(plan.optDouble("price", 0.0)),
-                fontWeight = FontWeight.ExtraBold,
-                color = ArnetaGoldPrimary,
-                fontSize = 13.5.sp
-            )
+            Column(horizontalAlignment = Alignment.End) {
+                if (priceOldVal > priceVal) {
+                    Text(
+                        text = formatRupiah(priceOldVal),
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+                    )
+                }
+                Text(
+                    text = formatRupiah(priceVal),
+                    fontWeight = FontWeight.ExtraBold,
+                    color = ArnetaGoldPrimary,
+                    fontSize = 13.5.sp
+                )
+            }
         }
     }
 }
@@ -1722,6 +1750,12 @@ fun AdminServicesScreen(
     var showCouponDialog by remember { mutableStateOf(false) }
     var detailActiveCustomerTarget by remember { mutableStateOf<JSONObject?>(null) }
     var deletingActivePlanTarget by remember { mutableStateOf<JSONObject?>(null) }
+    var editingActivePlanTarget by remember { mutableStateOf<JSONObject?>(null) }
+    var extendingActivePlanTarget by remember { mutableStateOf<JSONObject?>(null) }
+
+    var voucherStatusFilter by remember { mutableStateOf("All") } // All | 0 | 1
+    var showCleanUsedVoucherDialog by remember { mutableStateOf(false) }
+    var deletingVoucherTarget by remember { mutableStateOf<JSONObject?>(null) }
 
     fun loadCurrentTab() {
         isLoading = true
@@ -1836,14 +1870,17 @@ fun AdminServicesScreen(
         }
     }
 
-    val filteredVoucherList = remember(voucherList, searchQuery) {
+    val filteredVoucherList = remember(voucherList, searchQuery, voucherStatusFilter) {
         val q = searchQuery.trim().lowercase()
-        if (q.isEmpty()) voucherList
-        else voucherList.filter { v ->
-            v.optString("code", "").lowercase().contains(q) ||
+        voucherList.filter { v ->
+            val matchStatus = voucherStatusFilter == "All" || v.optString("status", "0") == voucherStatusFilter
+            val matchQuery = q.isEmpty() ||
+                v.optString("code", "").lowercase().contains(q) ||
                 v.optString("name_plan", "").lowercase().contains(q) ||
                 v.optString("routers", "").lowercase().contains(q) ||
-                v.optString("user", "").lowercase().contains(q)
+                v.optString("user", "").lowercase().contains(q) ||
+                v.optString("generated_by_name", "").lowercase().contains(q)
+            matchStatus && matchQuery
         }
     }
 
