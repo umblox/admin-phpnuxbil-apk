@@ -1757,6 +1757,10 @@ fun AdminServicesScreen(
     var showCleanUsedVoucherDialog by remember { mutableStateOf(false) }
     var deletingVoucherTarget by remember { mutableStateOf<JSONObject?>(null) }
 
+    var editingCouponTarget by remember { mutableStateOf<JSONObject?>(null) }
+    var deletingCouponTarget by remember { mutableStateOf<JSONObject?>(null) }
+    var couponStatusFilter by remember { mutableStateOf("All") } // All | active | inactive
+
     fun loadCurrentTab() {
         isLoading = true
         scope.launch {
@@ -1880,6 +1884,21 @@ fun AdminServicesScreen(
                 v.optString("routers", "").lowercase().contains(q) ||
                 v.optString("user", "").lowercase().contains(q) ||
                 v.optString("generated_by_name", "").lowercase().contains(q)
+            matchStatus && matchQuery
+        }
+    }
+
+    val filteredCouponList = remember(couponList, searchQuery, couponStatusFilter) {
+        val q = searchQuery.trim().lowercase()
+        couponList.filter { c ->
+            val st = c.optString("status", "active").lowercase()
+            val matchStatus = couponStatusFilter == "All" || st == couponStatusFilter.lowercase()
+            val matchQuery = q.isEmpty() ||
+                c.optString("code", "").lowercase().contains(q) ||
+                c.optString("description", "").lowercase().contains(q) ||
+                c.optString("type", "").lowercase().contains(q) ||
+                c.optString("value", "").lowercase().contains(q) ||
+                st.contains(q)
             matchStatus && matchQuery
         }
     }
@@ -2646,41 +2665,241 @@ fun AdminServicesScreen(
             }
 
             "coupons" -> {
-                Button(
-                    onClick = { showCouponDialog = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black)
+                Row(
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(Icons.Filled.LocalOffer, contentDescription = null)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Tambah Kupon Promo", fontWeight = FontWeight.Bold)
+                    Button(
+                        onClick = {
+                            editingCouponTarget = null
+                            showCouponDialog = true
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black)
+                    ) {
+                        Icon(Icons.Filled.LocalOffer, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Tambah Kupon Promo", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+
+                    IconButton(onClick = { loadCurrentTab() }) {
+                        Icon(Icons.Filled.Refresh, contentDescription = "Segarkan", tint = ArnetaGoldPrimary)
+                    }
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                LazyColumn(
-                    contentPadding = PaddingValues(bottom = 95.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
                 ) {
-                    items(couponList) { c ->
-                        Card(modifier = Modifier.fillMaxWidth()) {
-                            Row(
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
+                    val activeCnt = couponList.count { it.optString("status", "active").equals("active", true) }
+                    val inactiveCnt = couponList.count { !it.optString("status", "active").equals("active", true) }
+                    listOf(
+                        "All" to "Semua (${couponList.size})",
+                        "active" to "Aktif ($activeCnt)",
+                        "inactive" to "Nonaktif ($inactiveCnt)"
+                    ).forEach { (stKey, stLbl) ->
+                        FilterChip(
+                            selected = couponStatusFilter == stKey,
+                            onClick = { couponStatusFilter = stKey },
+                            label = { Text(stLbl, fontSize = 11.5.sp) }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Cari kode kupon, deskripsi, atau nilai diskon...", fontSize = 12.5.sp) },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = ArnetaGoldPrimary) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Filled.Clear, contentDescription = "Bersihkan")
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                if (isLoading) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                        CircularProgressIndicator(color = ArnetaGoldPrimary)
+                    }
+                } else if (filteredCouponList.isEmpty()) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                        Text("Belum ada data kupon promo yang cocok.", fontSize = 13.sp)
+                    }
+                } else {
+                    LazyColumn(
+                        contentPadding = PaddingValues(bottom = 95.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(filteredCouponList) { c ->
+                            val cId = c.optInt("id")
+                            val cCode = c.optString("code")
+                            val cType = c.optString("type", "fixed") // fixed | percent
+                            val cVal = c.optDouble("value", 0.0)
+                            val cDesc = c.optString("description", "-")
+                            val maxUsage = c.optInt("max_usage", 0)
+                            val usageCount = c.optInt("usage_count", 0)
+                            val minOrder = c.optDouble("min_order_amount", 0.0)
+                            val maxDisc = c.optDouble("max_discount_amount", 0.0)
+                            val isActive = c.optString("status", "active").equals("active", ignoreCase = true)
+                            val startDate = c.optString("start_date", "-")
+                            val endDate = c.optString("end_date", c.optString("expired_date", "-"))
+
+                            val discountLabel = if (cType.equals("percent", ignoreCase = true)) {
+                                "${cVal.toInt()}% (Maks: ${formatRupiah(maxDisc)})"
+                            } else {
+                                formatRupiah(cVal)
+                            }
+
+                            Card(
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(14.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .clickable {
+                                        editingCouponTarget = c
+                                        showCouponDialog = true
+                                    }
                             ) {
-                                Column {
-                                    Text(c.optString("code"), fontWeight = FontWeight.ExtraBold, color = ArnetaGoldPrimary, fontSize = 15.sp)
-                                    Text("Diskon: ${formatRupiah(c.optDouble("value", 0.0))} • Exp: ${c.optString("expired_date")}", fontSize = 12.sp)
-                                }
-                                IconButton(
-                                    onClick = {
-                                        scope.launch {
-                                            ApiClient.request("admin_coupon_delete", mapOf("id" to c.optInt("id")))
-                                            loadCurrentTab()
+                                Column(modifier = Modifier.padding(14.dp)) {
+                                    Row(
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text(
+                                                text = cCode,
+                                                fontFamily = FontFamily.Monospace,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = if (isActive) ArnetaGoldPrimary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
+                                                fontSize = 16.sp
+                                            )
+                                            Surface(
+                                                color = if (isActive) ArnetaGreenSuccess.copy(alpha = 0.18f) else ArnetaRedDanger.copy(alpha = 0.18f),
+                                                shape = RoundedCornerShape(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = if (isActive) "ACTIVE" else "INACTIVE",
+                                                    fontSize = 9.5.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    color = if (isActive) ArnetaGreenSuccess else ArnetaRedDanger,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                            Surface(
+                                                color = ArnetaCyanIncome.copy(alpha = 0.16f),
+                                                shape = RoundedCornerShape(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = if (cType.equals("percent", true)) "Persen (%)" else "Nominal (Rp)",
+                                                    fontSize = 9.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = ArnetaCyanIncome,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+
+                                        Text(
+                                            text = discountLabel,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = ArnetaGoldPrimary,
+                                            fontSize = 13.5.sp
+                                        )
+                                    }
+
+                                    if (cDesc.isNotEmpty() && cDesc != "-") {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = cDesc,
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f)
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Min. Order: ${formatRupiah(minOrder)} • Pemakaian: $usageCount / ${if (maxUsage <= 0) "∞" else maxUsage}",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f)
+                                    )
+                                    Text(
+                                        text = "Periode Aktif: $startDate s/d $endDate",
+                                        fontSize = 11.sp,
+                                        color = ArnetaCyanIncome
+                                    )
+
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+
+                                    Row(
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        TextButton(
+                                            onClick = {
+                                                val nextStatus = if (isActive) "inactive" else "active"
+                                                scope.launch {
+                                                    val sRes = ApiClient.request(
+                                                        "admin_coupon_status",
+                                                        mapOf("id" to cId, "status" to nextStatus)
+                                                    )
+                                                    Toast.makeText(context, sRes.message, Toast.LENGTH_SHORT).show()
+                                                    if (sRes.status) loadCurrentTab()
+                                                }
+                                            }
+                                        ) {
+                                            Icon(
+                                                imageVector = if (isActive) Icons.Filled.ToggleOn else Icons.Filled.ToggleOff,
+                                                contentDescription = null,
+                                                tint = if (isActive) ArnetaGreenSuccess else ArnetaOrangeActive,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = if (isActive) "Nonaktifkan" else "Aktifkan",
+                                                fontSize = 11.5.sp,
+                                                color = if (isActive) ArnetaOrangeActive else ArnetaGreenSuccess,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            IconButton(
+                                                onClick = {
+                                                    editingCouponTarget = c
+                                                    showCouponDialog = true
+                                                }
+                                            ) {
+                                                Icon(Icons.Filled.Edit, contentDescription = "Edit Kupon", tint = ArnetaGoldPrimary)
+                                            }
+                                            IconButton(
+                                                onClick = { deletingCouponTarget = c }
+                                            ) {
+                                                Icon(Icons.Filled.DeleteOutline, contentDescription = "Hapus Kupon", tint = ArnetaRedDanger)
+                                            }
                                         }
                                     }
-                                ) {
-                                    Icon(Icons.Filled.DeleteOutline, contentDescription = null, tint = ArnetaRedDanger)
                                 }
                             }
                         }
@@ -2788,10 +3007,33 @@ fun AdminServicesScreen(
 
     if (showCouponDialog) {
         AddCouponDialog(
-            onDismiss = { showCouponDialog = false },
+            initial = editingCouponTarget,
+            onDismiss = {
+                showCouponDialog = false
+                editingCouponTarget = null
+            },
             onSaved = {
                 showCouponDialog = false
+                editingCouponTarget = null
                 loadCurrentTab()
+            }
+        )
+    }
+
+    if (deletingCouponTarget != null) {
+        val targetC = deletingCouponTarget!!
+        ConfirmDeleteArnetaDialog(
+            title = "Hapus Kupon Promo?",
+            subtitle = "${targetC.optString("code")} • ${targetC.optString("description")}",
+            description = "Kupon promo ini akan dihapus secara permanen dari database.",
+            onDismiss = { deletingCouponTarget = null },
+            onConfirm = {
+                deletingCouponTarget = null
+                scope.launch {
+                    val dRes = ApiClient.request("admin_coupon_delete", mapOf("id" to targetC.optInt("id")))
+                    Toast.makeText(context, dRes.message, Toast.LENGTH_SHORT).show()
+                    if (dRes.status) loadCurrentTab()
+                }
             }
         )
     }
@@ -3401,48 +3643,226 @@ private fun ExtendCustomerPlanDialog(
 
 @Composable
 private fun AddCouponDialog(
+    initial: JSONObject? = null,
     onDismiss: () -> Unit,
     onSaved: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var code by remember { mutableStateOf("") }
-    var value by remember { mutableStateOf("5000") }
+    val isEdit = initial != null
+
+    val defaultStart = remember {
+        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+    }
+    val defaultEnd = remember {
+        val cal = java.util.Calendar.getInstance()
+        cal.add(java.util.Calendar.DAY_OF_YEAR, 30)
+        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(cal.time)
+    }
+
+    var code by remember { mutableStateOf(initial?.optString("code") ?: "") }
+    var type by remember { mutableStateOf(initial?.optString("type")?.ifEmpty { null } ?: "fixed") } // fixed | percent
+    var value by remember {
+        mutableStateOf(
+            if (initial != null) initial.optDouble("value", 0.0).toLong().toString() else "5000"
+        )
+    }
+    var description by remember { mutableStateOf(initial?.optString("description") ?: "") }
+    var maxUsage by remember { mutableStateOf(initial?.optInt("max_usage", 0)?.toString() ?: "0") }
+    var minOrderAmount by remember {
+        mutableStateOf(
+            if (initial != null) initial.optDouble("min_order_amount", 0.0).toLong().toString() else "10000"
+        )
+    }
+    var maxDiscountAmount by remember {
+        mutableStateOf(
+            if (initial != null) initial.optInt("max_discount_amount", 0).toString() else "5000"
+        )
+    }
+    var status by remember { mutableStateOf(initial?.optString("status")?.ifEmpty { null } ?: "active") } // active | inactive
+    var startDate by remember {
+        mutableStateOf(initial?.optString("start_date")?.ifEmpty { null } ?: defaultStart)
+    }
+    var endDate by remember {
+        mutableStateOf(
+            initial?.optString("end_date")?.ifEmpty { null }
+                ?: initial?.optString("expired_date")?.ifEmpty { null }
+                ?: defaultEnd
+        )
+    }
+    var isSaving by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Tambah Kupon Promo", fontWeight = FontWeight.Bold) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = code,
-                    onValueChange = { code = it.uppercase() },
-                    label = { Text("Kode Kupon (Misal: ARNETA10)") },
-                    singleLine = true
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = if (isEdit) Icons.Filled.Edit else Icons.Filled.LocalOffer,
+                    contentDescription = null,
+                    tint = ArnetaGoldPrimary
                 )
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = { value = it },
-                    label = { Text("Nominal Potongan (Rp)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (isEdit) "Edit Kupon: $code" else "Tambah Kupon Promo",
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 16.sp
                 )
             }
         },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    FilterChip(
+                        selected = status.equals("active", true),
+                        onClick = { status = "active" },
+                        label = { Text("Status: Active", fontSize = 11.5.sp) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    FilterChip(
+                        selected = status.equals("inactive", true),
+                        onClick = { status = "inactive" },
+                        label = { Text("Status: Inactive", fontSize = 11.5.sp) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                OutlinedTextField(
+                    value = code,
+                    onValueChange = { code = it.uppercase().replace("[^A-Z0-9]".toRegex(), "") },
+                    label = { Text("Kode Kupon (Alfanumerik, Misal: ARNETA10)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Text("Tipe Potongan Kupon:", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = ArnetaGoldPrimary)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = type == "fixed",
+                        onClick = { type = "fixed" },
+                        label = { Text("Fixed (Nominal Rp)", fontSize = 11.5.sp) }
+                    )
+                    FilterChip(
+                        selected = type == "percent",
+                        onClick = { type = "percent" },
+                        label = { Text("Percent (Persentase %)", fontSize = 11.5.sp) }
+                    )
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = value,
+                        onValueChange = {
+                            value = it
+                            if (type == "fixed") maxDiscountAmount = it
+                        },
+                        label = { Text(if (type == "percent") "Nilai Diskon (%)" else "Nominal Diskon (Rp)", fontSize = 11.sp) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = maxDiscountAmount,
+                        onValueChange = { maxDiscountAmount = it },
+                        label = { Text("Maks. Diskon (Rp)", fontSize = 11.sp) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = minOrderAmount,
+                        onValueChange = { minOrderAmount = it },
+                        label = { Text("Min. Pembelian (Rp)", fontSize = 11.sp) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = maxUsage,
+                        onValueChange = { maxUsage = it },
+                        label = { Text("Maks. Pakai (0=Bebas)", fontSize = 11.sp) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Deskripsi Kupon (Wajib)") },
+                    placeholder = { Text("Contoh: Diskon pelanggan baru bulan ini") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = startDate,
+                        onValueChange = { startDate = it },
+                        label = { Text("Mulai (YYYY-MM-DD)", fontSize = 11.sp) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = endDate,
+                        onValueChange = { endDate = it },
+                        label = { Text("Berakhir (YYYY-MM-DD)", fontSize = 11.sp) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        },
         confirmButton = {
+            val canSave = !isSaving && code.isNotBlank() && (value.toDoubleOrNull() ?: 0.0) > 0.0 &&
+                startDate.isNotBlank() && endDate.isNotBlank()
+
             Button(
+                enabled = canSave,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = ArnetaGoldPrimary,
+                    contentColor = Color(0xFF0B0F19)
+                ),
                 onClick = {
+                    isSaving = true
                     scope.launch {
+                        val valNum = value.toDoubleOrNull() ?: 0.0
+                        val maxDiscNum = maxDiscountAmount.toIntOrNull()?.takeIf { it > 0 } ?: valNum.toInt()
+                        val minOrdNum = minOrderAmount.toDoubleOrNull()?.takeIf { it > 0.0 } ?: 1.0
+
                         val res = ApiClient.request(
                             "admin_coupon_save",
-                            mapOf("code" to code, "value" to (value.toDoubleOrNull() ?: 0.0), "type" to "fixed")
+                            mapOf(
+                                "id" to (initial?.optInt("id") ?: 0),
+                                "code" to code.trim(),
+                                "type" to type,
+                                "value" to valNum,
+                                "description" to description.trim().ifEmpty { "Promo Diskon $code" },
+                                "max_usage" to (maxUsage.toIntOrNull() ?: 0),
+                                "min_order_amount" to minOrdNum,
+                                "max_discount_amount" to maxDiscNum,
+                                "status" to status,
+                                "start_date" to startDate.trim(),
+                                "end_date" to endDate.trim()
+                            )
                         )
+                        isSaving = false
                         Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
                         if (res.status) onSaved()
                     }
                 }
             ) {
-                Text("Simpan")
+                Text(if (isSaving) "Menyimpan..." else if (isEdit) "Simpan Perubahan" else "Simpan Kupon", fontWeight = FontWeight.ExtraBold)
             }
         },
         dismissButton = {
