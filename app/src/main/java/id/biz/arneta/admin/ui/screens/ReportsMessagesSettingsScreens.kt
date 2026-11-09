@@ -1395,10 +1395,12 @@ fun AdminSettingsAndToolsScreen(
 
     // State Shortcut Cepat
     var selectedShortcuts by remember { mutableStateOf(ApiClient.customQuickShortcuts) }
-
-    // State Template Notifikasi (notifications.json & notifications.default.json)
-    var notifMap by remember { mutableStateOf>(emptyMap()) }
-    var defaultNotifMap by remember { mutableStateOf>(emptyMap()) }
+    var notifMap by remember {
+        mutableStateOf(mapOf("init" to "").filterKeys { it != "init" })
+    }
+    var defaultNotifMap by remember {
+        mutableStateOf(mapOf("init" to "").filterKeys { it != "init" })
+    }
     var selectedNotifKey by remember { mutableStateOf("invoice_paid") }
 
     // State Staf Admin (tbl_users)
