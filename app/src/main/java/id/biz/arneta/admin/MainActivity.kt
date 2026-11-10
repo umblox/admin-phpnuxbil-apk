@@ -92,6 +92,7 @@ fun ArnetaAdminMainShell(
     var servicesSubTabParam by remember { mutableStateOf("active_users") }
     var webViewRouteParam by remember { mutableStateOf("dashboard") }
 
+    var companyTitle by remember { mutableStateOf(ApiClient.companyName) }
     var unpaidBadgeCount by remember { mutableIntStateOf(0) }
     var showQuickActionSheet by remember { mutableStateOf(false) }
     var quickShortcuts by remember { mutableStateOf(ApiClient.customQuickShortcuts) }
@@ -100,6 +101,7 @@ fun ArnetaAdminMainShell(
     var expandLayananMenu by remember { mutableStateOf(true) }
 
     fun navigateTo(screenKey: String) {
+        companyTitle = ApiClient.companyName
         activeScreenKey = screenKey
         when (screenKey) {
             "dashboard" -> currentBottomTab = AdminNavTab.DASHBOARD
@@ -229,6 +231,14 @@ fun ArnetaAdminMainShell(
                     )
 
                     SidebarMainItem(
+                        icon = Icons.Filled.Payments,
+                        label = "Audit Payment Gateway",
+                        selected = activeScreenKey == "payment_gateway",
+                        hasArrow = true,
+                        onClick = { navigateTo("payment_gateway") }
+                    )
+
+                    SidebarMainItem(
                         icon = Icons.Filled.ChatBubble,
                         label = "Mengirim pesan",
                         selected = activeScreenKey == "broadcast",
@@ -241,6 +251,14 @@ fun ArnetaAdminMainShell(
                         label = "Asset Manager",
                         selected = activeScreenKey == "assets",
                         onClick = { navigateTo("assets") }
+                    )
+
+                    SidebarMainItem(
+                        icon = Icons.Filled.SettingsInputAntenna,
+                        label = "GenieACS (TR-069)",
+                        selected = activeScreenKey == "genieacs",
+                        hasArrow = true,
+                        onClick = { navigateTo("genieacs") }
                     )
 
                     SidebarMainItem(
@@ -269,7 +287,7 @@ fun ArnetaAdminMainShell(
 
                     SidebarMainItem(
                         icon = Icons.Filled.Language,
-                        label = "Web Admin (?_route=admin)",
+                        label = "Web Admin Panel",
                         selected = activeScreenKey == "webview_admin",
                         onClick = {
                             webViewRouteParam = "dashboard"
@@ -284,7 +302,7 @@ fun ArnetaAdminMainShell(
             topBar = {
                 if (activeScreenKey != "webview_admin") {
                     ArnetaTopHeader(
-                        companyName = ApiClient.companyName,
+                        companyName = companyTitle,
                         isDarkMode = isDarkMode,
                         onMenuClick = {
                             scope.launch {
@@ -323,8 +341,6 @@ fun ArnetaAdminMainShell(
                 )
             }
         ) { innerPadding ->
-            // PERBAIKAN UTAMA: Mengangkat batas bawah konten di atas Navigation Bar sistem (||| O <)
-            // ditambah ruang aman ekstra agar kartu/tombol paling bawah tidak pernah tertutup navigasi bawah
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -341,7 +357,10 @@ fun ArnetaAdminMainShell(
                         },
                         onNavigateToPrepaid = { sub -> navigateTo(sub) },
                         onNavigateToSubScreen = { target -> navigateTo(target) },
-                        onUnpaidCountLoaded = { cnt -> unpaidBadgeCount = cnt }
+                        onUnpaidCountLoaded = { cnt ->
+                            unpaidBadgeCount = cnt
+                            companyTitle = ApiClient.companyName
+                        }
                     )
                     "customers", "add_customer" -> key(openAddCustomerDialog) {
                         AdminCustomersScreen(
@@ -358,9 +377,9 @@ fun ArnetaAdminMainShell(
                         unpaidQrisCount = unpaidBadgeCount,
                         onOpenScreen = { key -> navigateTo(key) }
                     )
-                    "live_monitor", "online_users", "routers", "pools" -> key(activeScreenKey) {
+                    "live_monitor", "online_users", "routers", "pools", "genieacs" -> key(activeScreenKey) {
                         AdminNetworkAndOnlineScreen(
-                            initialTab = activeScreenKey
+                            initialTab = if (activeScreenKey == "genieacs") "routers" else activeScreenKey
                         )
                     }
                     "plans" -> AdminPlansScreen()
@@ -379,7 +398,7 @@ fun ArnetaAdminMainShell(
                     )
                     "webview_admin" -> AdminInAppWebViewScreen(
                         initialRouteOrUrl = webViewRouteParam,
-                        title = "Arneta.ID Web Admin",
+                        title = "${ApiClient.companyName} Web Admin",
                         onBack = { navigateTo("dashboard") }
                     )
                 }
@@ -419,10 +438,10 @@ fun ArnetaAdminMainShell(
                     Triple("deposit_balance", "Isi Ulang Saldo", "Top-up saldo deposit pelanggan") to { navigateTo("deposit_balance") },
                     Triple("generate_voucher", "Generate & Cetak Voucher", "Buat kode voucher massal") to { navigateTo("vouchers") },
                     Triple("online_users", "User Online & Kick Sesi", "Pantau & putuskan sesi MikroTik") to { navigateTo("online_users") },
-                    Triple("audit_qris", "Cek Pembayaran QRIS", "Verifikasi atau approve tagihan QRIS") to { navigateTo("payment_gateway") },
+                    Triple("audit_qris", "Audit Payment Gateway", "Verifikasi atau setujui manual tagihan PG") to { navigateTo("payment_gateway") },
                     Triple("live_monitor", "Live Speed MikroTik", "Pantau Mbps Download/Upload & CPU real-time") to { navigateTo("live_monitor") },
                     Triple("broadcast_wa", "Broadcast WhatsApp", "Kirim pesan ke pelanggan") to { navigateTo("broadcast") },
-                    Triple("webview_admin", "Web Admin (?_route=admin)", "Buka halaman web asli di dalam aplikasi") to {
+                    Triple("webview_admin", "Web Admin Panel", "Buka halaman web asli dengan SSO otomatis") to {
                         webViewRouteParam = "dashboard"
                         navigateTo("webview_admin")
                     }
