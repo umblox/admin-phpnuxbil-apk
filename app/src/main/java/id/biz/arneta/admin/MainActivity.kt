@@ -377,10 +377,9 @@ fun ArnetaAdminMainShell(
                         unpaidQrisCount = unpaidBadgeCount,
                         onOpenScreen = { key -> navigateTo(key) }
                     )
-                    "live_monitor", "online_users", "routers", "pools", "genieacs" -> key(activeScreenKey) {
-                        AdminNetworkAndOnlineScreen(
-                            initialTab = if (activeScreenKey == "genieacs") "routers" else activeScreenKey
-                        )
+                    "live_monitor", "online_users", "routers", "pools" -> key(activeScreenKey) {
+                        AdminNetworkAndOnlineScreen(initialTab = activeScreenKey) }
+                    "genieacs" -> GenieAcsScreen()
                     }
                     "plans" -> AdminPlansScreen()
                     "map" -> AdminMapScreen()
