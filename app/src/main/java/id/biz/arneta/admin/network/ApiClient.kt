@@ -60,6 +60,8 @@ object ApiClient {
         "admin_customer_save",
         "admin_customer_delete",
         "admin_prepaid_recharge",
+        "admin_prepaid_edit",
+        "admin_prepaid_extend",
         "admin_prepaid_delete",
         "admin_deposit",
         "admin_voucher_generate",
@@ -67,6 +69,7 @@ object ApiClient {
         "admin_voucher_delete",
         "admin_plan_save",
         "admin_plan_delete",
+        "admin_plan_sync",
         "admin_bandwidth_save",
         "admin_bandwidth_delete",
         "admin_router_save",
@@ -74,15 +77,23 @@ object ApiClient {
         "admin_pool_save",
         "admin_pool_delete",
         "admin_coupon_save",
+        "admin_coupon_status",
         "admin_coupon_delete",
         "admin_asset_save",
         "admin_asset_delete",
         "admin_settings_save",
+        "admin_notifications_save",
         "admin_staff_save",
         "admin_staff_delete",
+        "admin_change_password",
         "admin_page_save",
         "admin_pg_action",
-        "pg_action"
+        "pg_action",
+        "admin_genieacs_host_save",
+        "admin_genieacs_host_action",
+        "admin_genieacs_device_action",
+        "admin_genieacs_wan_save",
+        "admin_genieacs_wlan_save"
     )
 
     fun init(context: Context) {
@@ -93,7 +104,7 @@ object ApiClient {
         get() = (if (::prefs.isInitialized) prefs.getString("base_url", DEFAULT_BASE_URL) else DEFAULT_BASE_URL)
             ?.trimEnd('/') ?: DEFAULT_BASE_URL
         set(value) {
-            val clean = value.trim().trimEnd('/')
+            val clean = value.trim().trimEnd('/').removeSuffix("/system")
             if (::prefs.isInitialized) {
                 prefs.edit().putString("base_url", clean.ifEmpty { DEFAULT_BASE_URL }).apply()
             }
@@ -165,6 +176,12 @@ object ApiClient {
         clearCache()
     }
 
+    fun buildWebViewSsoUrl(redirect: String = "dashboard"): String {
+        val encodedRedirect = URLEncoder.encode(redirect, "UTF-8")
+        val encodedToken = URLEncoder.encode(token, "UTF-8")
+        return "$baseUrl/system/api.php?r=plugin/mobile_api/webview_sso&redirect=$encodedRedirect&token=$encodedToken"
+    }
+
     suspend fun request(
         action: String,
         params: Map<String, Any?> = emptyMap()
@@ -185,16 +202,9 @@ object ApiClient {
         }
 
         val encodedAction = URLEncoder.encode(action, "UTF-8")
-        val primaryEndpoint = "$baseUrl/system/api.php?r=apiv1/$encodedAction"
-        val fallbackEndpoint = "$baseUrl/?_route=apiv1/$encodedAction"
+        val endpoint = "$baseUrl/system/api.php?r=plugin/mobile_api/$encodedAction"
 
-        var res = executeHttpPost(primaryEndpoint, action, params)
-        if (!res.status && res.message.startsWith("HTTP Error")) {
-            val fallbackRes = executeHttpPost(fallbackEndpoint, action, params)
-            if (fallbackRes.status || !fallbackRes.message.startsWith("HTTP Error")) {
-                res = fallbackRes
-            }
-        }
+        val res = executeHttpPost(endpoint, action, params)
 
         if (cacheKey != null && res.status) {
             memoryCache[cacheKey] = CacheEntry(res, System.currentTimeMillis())
