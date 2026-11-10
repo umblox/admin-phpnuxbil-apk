@@ -36,7 +36,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         ApiClient.init(applicationContext)
 
-        // Wajib untuk Android 15 (API 35) & Android 16 (API 36) agar Edge-to-Edge & Safe Area akurat
         enableEdgeToEdge(
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.parseColor("#0B1120"))
@@ -84,7 +83,6 @@ fun ArnetaAdminMainShell(
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
-    // Navigasi Utama & Sub-Screen
     var currentBottomTab by remember { mutableStateOf(AdminNavTab.DASHBOARD) }
     var activeScreenKey by remember { mutableStateOf("dashboard") }
     var customerSearchParam by remember { mutableStateOf("") }
@@ -97,7 +95,6 @@ fun ArnetaAdminMainShell(
     var showQuickActionSheet by remember { mutableStateOf(false) }
     var quickShortcuts by remember { mutableStateOf(ApiClient.customQuickShortcuts) }
 
-    // Dropdown state di Sidebar Drawer
     var expandLayananMenu by remember { mutableStateOf(true) }
 
     fun navigateTo(screenKey: String) {
@@ -118,7 +115,6 @@ fun ArnetaAdminMainShell(
         scope.launch { drawerState.close() }
     }
 
-    // Tangani tombol Back HP agar kembali ke Dasbor terlebih dahulu sebelum menutup aplikasi
     BackHandler(enabled = activeScreenKey != "dashboard") {
         navigateTo("dashboard")
     }
@@ -169,7 +165,12 @@ fun ArnetaAdminMainShell(
                             .padding(horizontal = 16.dp, vertical = 13.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Filled.ConfirmationNumber, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                            Icon(
+                                imageVector = Icons.Filled.ConfirmationNumber,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
                             Spacer(modifier = Modifier.width(14.dp))
                             Text("Layanan", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                         }
@@ -378,9 +379,11 @@ fun ArnetaAdminMainShell(
                         onOpenScreen = { key -> navigateTo(key) }
                     )
                     "live_monitor", "online_users", "routers", "pools" -> key(activeScreenKey) {
-                        AdminNetworkAndOnlineScreen(initialTab = activeScreenKey) }
-                    "genieacs" -> GenieAcsScreen()
+                        AdminNetworkAndOnlineScreen(
+                            initialTab = activeScreenKey
+                        )
                     }
+                    "genieacs" -> GenieAcsScreen()
                     "plans" -> AdminPlansScreen()
                     "map" -> AdminMapScreen()
                     "assets" -> AdminAssetsScreen()
@@ -468,7 +471,12 @@ fun ArnetaAdminMainShell(
                                 Text(info.second, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                 Text(info.third, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f))
                             }
-                            Icon(Icons.Filled.ArrowForwardIos, contentDescription = null, tint = ArnetaGoldPrimary, modifier = Modifier.size(16.dp))
+                            Icon(
+                                imageVector = Icons.Filled.ArrowForwardIos,
+                                contentDescription = null,
+                                tint = ArnetaGoldPrimary,
+                                modifier = Modifier.size(16.dp)
+                            )
                         }
                     }
                 }
