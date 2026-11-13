@@ -380,7 +380,7 @@ internal fun TestNotificationDialog(
                             Text(if (channel == "email") "Alamat Email Tujuan Tes" else "Nomor HP / WA Tujuan Tes")
                         },
                         placeholder = {
-                            Text(if (channel == "email") "admin@arneta.biz.id" else "08123456789")
+                            Text(if (channel == "email") "admin@domainanda.com" else "08123456789")
                         },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
