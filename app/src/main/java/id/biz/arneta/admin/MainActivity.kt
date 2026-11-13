@@ -43,7 +43,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             var isDarkMode by remember { mutableStateOf(ApiClient.isDarkMode) }
-            var isLoggedIn by remember { mutableStateOf(ApiClient.token.isNotEmpty()) }
+            var isLoggedIn by remember { mutableStateOf(ApiClient.isLoggedIn()) }
 
             ArnetaAdminTheme(darkTheme = isDarkMode) {
                 Surface(
@@ -98,6 +98,10 @@ fun ArnetaAdminMainShell(
     var expandLayananMenu by remember { mutableStateOf(true) }
 
     fun navigateTo(screenKey: String) {
+        if (!ApiClient.isLoggedIn()) {
+            onLogout()
+            return
+        }
         companyTitle = ApiClient.companyName
         activeScreenKey = screenKey
         when (screenKey) {
@@ -306,6 +310,7 @@ fun ArnetaAdminMainShell(
                         companyName = companyTitle,
                         isDarkMode = isDarkMode,
                         onMenuClick = {
+                            companyTitle = ApiClient.companyName
                             scope.launch {
                                 if (drawerState.isClosed) drawerState.open() else drawerState.close()
                             }
@@ -321,6 +326,11 @@ fun ArnetaAdminMainShell(
                     currentTab = currentBottomTab,
                     unpaidBadgeCount = unpaidBadgeCount,
                     onTabSelected = { tab ->
+                        if (!ApiClient.isLoggedIn()) {
+                            onLogout()
+                            return@ArnetaBottomBar
+                        }
+                        companyTitle = ApiClient.companyName
                         currentBottomTab = tab
                         activeScreenKey = when (tab) {
                             AdminNavTab.DASHBOARD -> "dashboard"
@@ -395,7 +405,10 @@ fun ArnetaAdminMainShell(
                     "broadcast" -> AdminBroadcastMessageScreen()
                     "pages" -> AdminStaticPagesScreen()
                     "settings" -> AdminSettingsAndToolsScreen(
-                        onCustomShortcutsChanged = { quickShortcuts = ApiClient.customQuickShortcuts },
+                        onCustomShortcutsChanged = {
+                            quickShortcuts = ApiClient.customQuickShortcuts
+                            companyTitle = ApiClient.companyName
+                        },
                         onLogout = onLogout
                     )
                     "webview_admin" -> AdminInAppWebViewScreen(
