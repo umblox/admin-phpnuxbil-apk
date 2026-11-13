@@ -1095,7 +1095,7 @@ private fun CustomerLiveSpeedChart(
                 )
             }
 
-            fun drawLineSeries(points: List<Float>, color: Color, alphaFill: Float) {
+            fun drawLineSeries(points: List<Float>, strokeColor: Color, fillAlpha: Float) {
                 if (points.size < 2) return
                 val strokePath = Path()
                 val fillPath = Path()
@@ -1126,12 +1126,12 @@ private fun CustomerLiveSpeedChart(
                 drawPath(
                     path = fillPath,
                     brush = Brush.verticalGradient(
-                        colors = listOf(color.copy(alpha = fillAlpha), Color.Transparent)
+                        colors = listOf(strokeColor.copy(alpha = fillAlpha), Color.Transparent)
                     )
                 )
                 drawPath(
                     path = strokePath,
-                    color = color,
+                    color = strokeColor,
                     style = Stroke(width = 3.5f, cap = StrokeCap.Round)
                 )
             }
