@@ -33,7 +33,7 @@ import org.json.JSONObject
 import kotlin.math.ceil
 
 /**
- * LAYAR UTAMA GENIEACS TR-069 PRO (Multi-Host HTTP/HTTPS, Dasbor Optik, Filter/Sort Perangkat)
+ * LAYAR UTAMA GENIEACS TR-069 PRO (Multi-Host HTTP/HTTPS, Dasbor Optik & Router HTB/Non-Optik)
  */
 @Composable
 fun GenieAcsScreen() {
@@ -354,7 +354,7 @@ fun GenieAcsScreen() {
                             Text("Belum Ada Server GenieACS Terdaftar", fontWeight = FontWeight.ExtraBold, fontSize = 15.5.sp)
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Tambahkan IP Lokal (HTTP port 7557) atau Domain Tunnel (HTTPS) server GenieACS Anda untuk memantau redaman optik, WAN, dan mengatur WiFi ONT pelanggan.",
+                                text = "Tambahkan IP Lokal (HTTP port 7557) atau Domain Tunnel (HTTPS) server GenieACS Anda untuk memantau ONT maupun Router pelanggan.",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                             )
@@ -381,7 +381,6 @@ fun GenieAcsScreen() {
                         contentPadding = PaddingValues(bottom = 95.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        // 4 Kartu Statistik Utama (Sesuai genieacs_dashboard.tpl + Kartu Redaman Buruk)
                         item {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Row(
@@ -429,7 +428,7 @@ fun GenieAcsScreen() {
                                     GenieAcsStatCard(
                                         value = "$badRxCount",
                                         label = "Redaman Kritis / LOS",
-                                        subLabel = "RX < -28 dBm",
+                                        subLabel = "Khusus ONT Optik",
                                         accentColor = ArnetaOrangeActive,
                                         onClick = {
                                             statusFilter = "bad_rx"
@@ -491,7 +490,6 @@ fun GenieAcsScreen() {
             }
 
             "devices" -> {
-                // Kolom Pencarian
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
@@ -519,7 +517,6 @@ fun GenieAcsScreen() {
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                // Baris Filter Status & Urutan (Sorting sesuai genieacs_devices.tpl)
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -595,7 +592,6 @@ fun GenieAcsScreen() {
                             )
                         }
 
-                        // Paginasi Halaman (Jika total > 50 perangkat)
                         if (totalFilteredDevices > pageSize) {
                             item {
                                 val totalPages = ceil(totalFilteredDevices.toDouble() / pageSize).toInt().coerceAtLeast(1)
@@ -613,7 +609,7 @@ fun GenieAcsScreen() {
                                         Text("← Sebelumnya", fontSize = 12.sp)
                                     }
                                     Text(
-                                        text = "Hal $currentPage dari $totalPages ($totalFilteredDevices ONT)",
+                                        text = "Hal $currentPage dari $totalPages ($totalFilteredDevices Perangkat)",
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -784,7 +780,6 @@ fun GenieAcsScreen() {
         }
     }
 
-    // Dialog Tambah / Edit Host GenieACS (Di GenieAcsDialogs.kt)
     if (showHostDialog) {
         GenieAcsHostFormDialog(
             initial = editingHost,
@@ -797,7 +792,6 @@ fun GenieAcsScreen() {
         )
     }
 
-    // Dialog Detail Perangkat, WAN, WLAN, Connected Hosts & Raw JSON (Di GenieAcsDialogs.kt)
     if (selectedDeviceIdForDetail != null) {
         GenieAcsDeviceDetailDialog(
             deviceId = selectedDeviceIdForDetail!!,
@@ -810,7 +804,6 @@ fun GenieAcsScreen() {
         )
     }
 
-    // Konfirmasi Reboot Perangkat
     if (confirmRebootDeviceTarget != null) {
         val target = confirmRebootDeviceTarget!!
         val devId = target.optString("id")
@@ -850,7 +843,6 @@ fun GenieAcsScreen() {
         )
     }
 
-    // Konfirmasi Hapus Host GenieACS
     if (confirmDeleteHostTarget != null) {
         val h = confirmDeleteHostTarget!!
         ConfirmDeleteArnetaDialog(
@@ -918,7 +910,7 @@ private fun GenieAcsStatCard(
 }
 
 /**
- * KARTU PERANGKAT GENIEACS (Menampilkan Badge Warna RX Power, Suhu, Pelanggan, Tags & Aksi Cepat)
+ * KARTU PERANGKAT GENIEACS (Otomatis menyesuaikan tampilan untuk ONT Optik maupun Router HTB/Wireless)
  */
 @Composable
 internal fun GenieAcsDeviceCard(
@@ -940,7 +932,11 @@ internal fun GenieAcsDeviceCard(
     val rxStatus = device.optString("rx_power_status", "unknown")
     val connected = device.optInt("connected_devices", 0)
     val lastInform = device.optString("last_inform", "-")
+    val uptime = device.optString("uptime", "-")
     val tagsArr = device.optJSONArray("tags") ?: JSONArray()
+
+    val hasOpticalRx = rxPower != "N/A" && rxPower.isNotBlank()
+    val hasTempSensor = temp != "N/A" && temp.isNotBlank()
 
     Card(
         shape = RoundedCornerShape(14.dp),
@@ -973,8 +969,9 @@ internal fun GenieAcsDeviceCard(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                        val pppoeLabel = if (pppoe != "N/A" && pppoe.isNotBlank()) " • PPPoE: $pppoe" else ""
                         Text(
-                            text = "${device.optString("manufacturer", "-")} ${device.optString("product_class", "-")} • PPPoE: $pppoe",
+                            text = "${device.optString("manufacturer", "-")} ${device.optString("product_class", "-")}$pppoeLabel",
                             fontSize = 11.5.sp,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
                             maxLines = 1,
@@ -999,7 +996,7 @@ internal fun GenieAcsDeviceCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Baris Badge Indikator Optik RX Power, Suhu & Jumlah Perangkat Terhubung
+            // Baris Badge: Menyembunyikan RX: N/A & Temp: N/A pada router non-ONT (seperti TOTOLINK di jaringan HTB)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1007,8 +1004,26 @@ internal fun GenieAcsDeviceCard(
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState())
             ) {
-                GenieAcsRxPowerBadge(rxPower = rxPower, rxStatus = rxStatus)
-                GenieAcsTemperatureBadge(temperature = temp, tempStatus = tempStatus)
+                if (hasOpticalRx) {
+                    GenieAcsRxPowerBadge(rxPower = rxPower, rxStatus = rxStatus)
+                }
+                if (hasTempSensor) {
+                    GenieAcsTemperatureBadge(temperature = temp, tempStatus = tempStatus)
+                }
+                if (!hasOpticalRx && !hasTempSensor) {
+                    Surface(
+                        color = ArnetaIndigoAccent.copy(alpha = 0.22f),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = "🔌 Router / HTB (Non-Optik)",
+                            color = ArnetaGoldLight,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                        )
+                    }
+                }
 
                 Surface(
                     color = ArnetaCyanIncome.copy(alpha = 0.15f),
@@ -1024,7 +1039,7 @@ internal fun GenieAcsDeviceCard(
                 }
 
                 val ipDisplay = if (tr069Ip != "N/A") tr069Ip else wanIp
-                if (ipDisplay != "N/A") {
+                if (ipDisplay != "N/A" && ipDisplay.isNotBlank()) {
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
                         shape = RoundedCornerShape(6.dp)
@@ -1067,23 +1082,17 @@ internal fun GenieAcsDeviceCard(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            Row(
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = "Last Inform: $lastInform • Uptime: ${device.optString("uptime", "-")}",
-                    fontSize = 10.5.sp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                )
-            }
+            Text(
+                text = "Last Inform: $lastInform • Uptime: $uptime" +
+                    if (isOnline && uptime == "-") " (Tekan Summon untuk tarik parameter)" else "",
+                fontSize = 10.5.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+            )
 
             Spacer(modifier = Modifier.height(8.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Tombol Aksi Cepat (Detail/WiFi/WAN, Summon, Reboot)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilledTonalButton(
                     onClick = onClickDetail,
@@ -1125,9 +1134,6 @@ internal fun GenieAcsDeviceCard(
     }
 }
 
-/**
- * BADGE INDIKATOR WARNA REDAMAN OPTIK (RX POWER) SESUAI STANDAR GENIEACS_DEVICES.TPL
- */
 @Composable
 internal fun GenieAcsRxPowerBadge(
     rxPower: String,
@@ -1156,9 +1162,6 @@ internal fun GenieAcsRxPowerBadge(
     }
 }
 
-/**
- * BADGE INDIKATOR WARNA SUHU ONT SESUAI STANDAR GENIEACS_DEVICES.TPL
- */
 @Composable
 internal fun GenieAcsTemperatureBadge(
     temperature: String,
