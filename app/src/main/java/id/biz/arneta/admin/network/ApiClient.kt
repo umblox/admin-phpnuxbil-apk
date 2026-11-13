@@ -26,7 +26,6 @@ data class ApiResponse(
 
 object ApiClient {
     private const val PREF_NAME = "arneta_admin_prefs"
-    private const val DEFAULT_BASE_URL = "https://phpnuxbill.arneta.biz.id"
     private lateinit var prefs: SharedPreferences
 
     private val defaultShortcuts = setOf(
@@ -101,12 +100,12 @@ object ApiClient {
     }
 
     var baseUrl: String
-        get() = (if (::prefs.isInitialized) prefs.getString("base_url", DEFAULT_BASE_URL) else DEFAULT_BASE_URL)
-            ?.trimEnd('/') ?: DEFAULT_BASE_URL
+        get() = (if (::prefs.isInitialized) prefs.getString("base_url", "") else "")
+            ?.trimEnd('/') ?: ""
         set(value) {
             val clean = value.trim().trimEnd('/').removeSuffix("/system")
             if (::prefs.isInitialized) {
-                prefs.edit().putString("base_url", clean.ifEmpty { DEFAULT_BASE_URL }).apply()
+                prefs.edit().putString("base_url", clean).apply()
             }
             clearCache()
         }
@@ -136,15 +135,19 @@ object ApiClient {
         }
 
     var companyName: String
-        get() = (if (::prefs.isInitialized) prefs.getString("company_name", "Arneta.ID") else "Arneta.ID") ?: "Arneta.ID"
+        get() = (if (::prefs.isInitialized) prefs.getString("company_name", "PHPNuxBill") else "PHPNuxBill")
+            ?.takeIf { it.isNotBlank() } ?: "PHPNuxBill"
         set(value) {
-            if (::prefs.isInitialized) prefs.edit().putString("company_name", value).apply()
+            val cleanName = value.trim().ifEmpty { "PHPNuxBill" }
+            if (::prefs.isInitialized) prefs.edit().putString("company_name", cleanName).apply()
         }
 
     var currencyCode: String
-        get() = (if (::prefs.isInitialized) prefs.getString("currency_code", "Rp.") else "Rp.") ?: "Rp."
+        get() = (if (::prefs.isInitialized) prefs.getString("currency_code", "Rp.") else "Rp.")
+            ?.takeIf { it.isNotBlank() } ?: "Rp."
         set(value) {
-            if (::prefs.isInitialized) prefs.edit().putString("currency_code", value).apply()
+            val cleanCur = value.trim().ifEmpty { "Rp." }
+            if (::prefs.isInitialized) prefs.edit().putString("currency_code", cleanCur).apply()
         }
 
     var isDarkMode: Boolean
@@ -165,7 +168,7 @@ object ApiClient {
             }
         }
 
-    fun isLoggedIn(): Boolean = token.isNotBlank()
+    fun isLoggedIn(): Boolean = token.isNotBlank() && baseUrl.isNotBlank()
 
     fun clearCache() {
         memoryCache.clear()
@@ -186,6 +189,13 @@ object ApiClient {
         action: String,
         params: Map<String, Any?> = emptyMap()
     ): ApiResponse = withContext(Dispatchers.IO) {
+        if (baseUrl.isBlank()) {
+            return@withContext ApiResponse(
+                status = false,
+                message = "Server PHPNuxBill belum diatur. Silakan atur URL Server terlebih dahulu."
+            )
+        }
+
         if (mutationActions.contains(action)) {
             clearCache()
         }
@@ -269,6 +279,10 @@ object ApiClient {
                 it.readText()
             }.trim()
 
+            if (code == 401 && action != "admin_login") {
+                logout()
+            }
+
             if (responseText.isEmpty()) {
                 return ApiResponse(false, "HTTP Error $code: Respon server kosong.")
             }
@@ -282,6 +296,23 @@ object ApiClient {
 
             val dataObj = root.optJSONObject("data") ?: root.optJSONObject("result")
             val dataArr = root.optJSONArray("data") ?: root.optJSONArray("result")
+
+            // Sinkronisasi otomatis companyName & currencyCode setiap kali server mengirimkannya
+            if (dataObj != null) {
+                val compObj = dataObj.optJSONObject("company")
+                val dynCompName = compObj?.optString("name", "")?.takeIf { it.isNotBlank() }
+                    ?: dataObj.optString("company_name", "").takeIf { it.isNotBlank() }
+                    ?: dataObj.optString("CompanyName", "").takeIf { it.isNotBlank() }
+                if (!dynCompName.isNullOrBlank()) {
+                    companyName = dynCompName
+                }
+
+                val dynCurr = compObj?.optString("currency", "")?.takeIf { it.isNotBlank() }
+                    ?: dataObj.optString("currency_code", "").takeIf { it.isNotBlank() }
+                if (!dynCurr.isNullOrBlank()) {
+                    currencyCode = dynCurr
+                }
+            }
 
             ApiResponse(
                 status = ok,
