@@ -28,14 +28,12 @@ import id.biz.arneta.admin.network.ApiClient
 import id.biz.arneta.admin.ui.theme.*
 import kotlinx.coroutines.launch
 
-private const val DEFAULT_ARNETA_URL = "https://phpnuxbill.arneta.biz.id"
-
 /**
- * Helper untuk merapikan input Domain / IP Lokal agar user tidak salah ketik format URL
+ * Helper untuk merapikan input Domain / IP Lokal tanpa hardcode server default
  */
 internal fun normalizeServerUrlInput(rawInput: String, preferHttpLocal: Boolean): String {
     var clean = rawInput.trim()
-    if (clean.isEmpty()) return DEFAULT_ARNETA_URL
+    if (clean.isEmpty()) return ""
 
     val routeIdx = clean.indexOf("?_route=")
     if (routeIdx > 0) clean = clean.substring(0, routeIdx)
@@ -47,6 +45,8 @@ internal fun normalizeServerUrlInput(rawInput: String, preferHttpLocal: Boolean)
         .removeSuffix("/system")
         .trimEnd('/', '?')
 
+    if (clean.isEmpty()) return ""
+
     if (!clean.startsWith("http://", ignoreCase = true) && !clean.startsWith("https://", ignoreCase = true)) {
         val looksLikeLocalIp = preferHttpLocal ||
             clean.startsWith("localhost", ignoreCase = true) ||
@@ -57,7 +57,7 @@ internal fun normalizeServerUrlInput(rawInput: String, preferHttpLocal: Boolean)
 }
 
 /**
- * Header Atas Panel Admin
+ * Header Atas Panel Admin (Dinamis mengikuti CompanyName di Pengaturan Server)
  */
 @Composable
 fun ArnetaTopHeader(
@@ -68,6 +68,8 @@ fun ArnetaTopHeader(
     onToggleTheme: () -> Unit,
     onProfileClick: () -> Unit
 ) {
+    val headerTitle = companyName.trim().ifEmpty { ApiClient.companyName }.ifEmpty { "PHPNuxBill" }
+
     Surface(
         color = Color(0xFF141B2D),
         shadowElevation = 6.dp,
@@ -85,11 +87,13 @@ fun ArnetaTopHeader(
                     .padding(vertical = 10.dp)
             ) {
                 Text(
-                    text = companyName,
+                    text = headerTitle,
                     color = Color.White,
                     fontSize = 19.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = 0.5.sp
+                    letterSpacing = 0.5.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
@@ -162,7 +166,7 @@ fun ArnetaTopHeader(
 }
 
 /**
- * Layar Login Khusus Admin (Sesuai system/controllers/admin.php)
+ * Layar Login Khusus Admin (Tanpa Server Default & Dinamis Mengikuti Nama Perusahaan Server)
  */
 @Composable
 fun AdminLoginScreen(
@@ -172,23 +176,32 @@ fun AdminLoginScreen(
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var serverUrl by remember { mutableStateOf(ApiClient.baseUrl) }
-    var showServerDialog by remember { mutableStateOf(false) }
+    var dynamicCompanyName by remember { mutableStateOf(ApiClient.companyName) }
+    var showServerDialog by remember { mutableStateOf(ApiClient.baseUrl.isBlank()) }
     var showPassword by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
 
-    val isCustomServer = !serverUrl.equals(DEFAULT_ARNETA_URL, ignoreCase = true)
+    // Jika serverUrl sudah terisi, ambil nama perusahaan terbaru dari server secara otomatis
+    LaunchedEffect(serverUrl) {
+        if (serverUrl.isNotBlank()) {
+            val res = ApiClient.request("index")
+            if (res.status) {
+                dynamicCompanyName = ApiClient.companyName
+            }
+        }
+    }
+
+    val hasServerConfigured = serverUrl.isNotBlank()
     val isLocalHttp = serverUrl.startsWith("http://", ignoreCase = true)
     val cleanHostDisplay = serverUrl
         .replace("https://", "", ignoreCase = true)
         .replace("http://", "", ignoreCase = true)
 
-    val brandBadgeText = if (!isCustomServer) {
-        "ARNETA ID"
-    } else if (ApiClient.companyName != "Arneta.ID" && ApiClient.companyName.isNotBlank()) {
-        ApiClient.companyName.uppercase()
-    } else {
-        cleanHostDisplay.substringBefore("/").substringBefore(":").uppercase().take(18)
+    val brandBadgeText = when {
+        !hasServerConfigured -> "PHPNUXBILL"
+        dynamicCompanyName.isNotBlank() -> dynamicCompanyName.uppercase()
+        else -> cleanHostDisplay.substringBefore("/").substringBefore(":").uppercase().take(18).ifEmpty { "PHPNUXBILL" }
     }
 
     Box(
@@ -327,8 +340,8 @@ fun AdminLoginScreen(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                val borderColor = if (isCustomServer) ArnetaGreenSuccess.copy(alpha = 0.65f) else ArnetaGoldPrimary.copy(alpha = 0.45f)
-                val containerBg = if (isCustomServer) ArnetaGreenSuccess.copy(alpha = 0.10f) else Color(0xFF0F172A).copy(alpha = 0.75f)
+                val borderColor = if (hasServerConfigured) ArnetaGreenSuccess.copy(alpha = 0.65f) else ArnetaOrangeActive.copy(alpha = 0.75f)
+                val containerBg = if (hasServerConfigured) ArnetaGreenSuccess.copy(alpha = 0.10f) else ArnetaOrangeActive.copy(alpha = 0.12f)
 
                 Surface(
                     color = containerBg,
@@ -349,9 +362,9 @@ fun AdminLoginScreen(
                             modifier = Modifier.weight(1f)
                         ) {
                             Icon(
-                                imageVector = if (isCustomServer) Icons.Filled.CheckCircle else Icons.Outlined.Dns,
+                                imageVector = if (hasServerConfigured) Icons.Filled.CheckCircle else Icons.Outlined.Dns,
                                 contentDescription = null,
-                                tint = if (isCustomServer) ArnetaGreenSuccess else ArnetaGoldLight,
+                                tint = if (hasServerConfigured) ArnetaGreenSuccess else ArnetaOrangeActive,
                                 modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(10.dp))
@@ -361,17 +374,17 @@ fun AdminLoginScreen(
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     Text(
-                                        text = "Server: $cleanHostDisplay",
+                                        text = if (hasServerConfigured) "Server: $cleanHostDisplay" else "Server Belum Diatur",
                                         fontSize = 12.5.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (isCustomServer) Color.White else ArnetaGoldLight,
+                                        color = if (hasServerConfigured) Color.White else ArnetaGoldLight,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.weight(1f, fill = false)
                                     )
                                     Surface(
                                         color = when {
-                                            !isCustomServer -> ArnetaGoldPrimary.copy(alpha = 0.22f)
+                                            !hasServerConfigured -> ArnetaOrangeActive.copy(alpha = 0.25f)
                                             isLocalHttp -> ArnetaCyanIncome.copy(alpha = 0.25f)
                                             else -> ArnetaGreenSuccess.copy(alpha = 0.25f)
                                         },
@@ -379,14 +392,14 @@ fun AdminLoginScreen(
                                     ) {
                                         Text(
                                             text = when {
-                                                !isCustomServer -> "DEFAULT"
-                                                isLocalHttp -> "LOKAL"
-                                                else -> "KUSTOM"
+                                                !hasServerConfigured -> "WAJIB DIISI"
+                                                isLocalHttp -> "HTTP"
+                                                else -> "HTTPS"
                                             },
                                             fontSize = 9.sp,
                                             fontWeight = FontWeight.ExtraBold,
                                             color = when {
-                                                !isCustomServer -> ArnetaGoldLight
+                                                !hasServerConfigured -> ArnetaGoldLight
                                                 isLocalHttp -> ArnetaCyanIncome
                                                 else -> ArnetaGreenSuccess
                                             },
@@ -396,13 +409,13 @@ fun AdminLoginScreen(
                                 }
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = if (!isCustomServer) {
-                                        "Ketuk untuk ganti Domain / IP Server Lokal"
+                                    text = if (!hasServerConfigured) {
+                                        "Ketuk di sini untuk memasukkan Domain / IP Server PHPNuxBill"
                                     } else {
-                                        "Server kustom aktif (${if (isLocalHttp) "HTTP" else "HTTPS"}) • Ketuk untuk ubah"
+                                        "Terhubung ke $dynamicCompanyName • Ketuk untuk ubah server"
                                     },
                                     fontSize = 10.5.sp,
-                                    color = Color.White.copy(alpha = 0.6f),
+                                    color = Color.White.copy(alpha = 0.65f),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -413,7 +426,7 @@ fun AdminLoginScreen(
                         Icon(
                             imageVector = Icons.Filled.Edit,
                             contentDescription = "Ubah Server",
-                            tint = if (isCustomServer) ArnetaGreenSuccess else ArnetaGoldPrimary,
+                            tint = if (hasServerConfigured) ArnetaGreenSuccess else ArnetaGoldPrimary,
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -423,6 +436,11 @@ fun AdminLoginScreen(
 
                 Button(
                     onClick = {
+                        if (serverUrl.isBlank()) {
+                            errorMessage = "Silakan atur URL Server PHPNuxBill terlebih dahulu."
+                            showServerDialog = true
+                            return@Button
+                        }
                         if (username.isBlank() || password.isBlank()) {
                             errorMessage = "Masukkan Username dan Password Admin."
                             return@Button
@@ -446,8 +464,9 @@ fun AdminLoginScreen(
                                 }
                                 val comp = res.data.optJSONObject("company")
                                 if (comp != null) {
-                                    ApiClient.companyName = comp.optString("name", "Arneta.ID")
+                                    ApiClient.companyName = comp.optString("name", ApiClient.companyName)
                                     ApiClient.currencyCode = comp.optString("currency", "Rp.")
+                                    dynamicCompanyName = ApiClient.companyName
                                 }
                                 onLoginSuccess()
                             } else {
@@ -488,9 +507,7 @@ fun AdminLoginScreen(
             onSaveUrl = { newNormalizedUrl ->
                 serverUrl = newNormalizedUrl
                 ApiClient.baseUrl = newNormalizedUrl
-                if (newNormalizedUrl.equals(DEFAULT_ARNETA_URL, ignoreCase = true)) {
-                    ApiClient.companyName = "Arneta.ID"
-                }
+                dynamicCompanyName = ApiClient.companyName
                 errorMessage = ""
                 showServerDialog = false
             }
@@ -538,7 +555,7 @@ private fun ServerConfigDialog(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = "Gunakan aplikasi ini pada server PHPNuxBill Anda sendiri (Domain Publik maupun IP Server Lokal).",
+                    text = "Masukkan alamat server PHPNuxBill Anda (Domain Publik HTTPS maupun IP Server Lokal HTTP).",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
                 )
@@ -579,7 +596,7 @@ private fun ServerConfigDialog(
                     placeholder = {
                         Text(
                             if (useLocalHttp) "192.168.1.100 atau 10.8.0.1/billing"
-                            else "billing.wifianda.id",
+                            else "billing.domainanda.com",
                             fontSize = 12.sp
                         )
                     },
@@ -614,13 +631,17 @@ private fun ServerConfigDialog(
                 ) {
                     Column(modifier = Modifier.padding(10.dp)) {
                         Text(
-                            text = "Endpoint: $previewFinalUrl/system/api.php?r=plugin/mobile_api",
+                            text = if (previewFinalUrl.isNotEmpty()) {
+                                "Endpoint: $previewFinalUrl/system/api.php?r=plugin/mobile_api"
+                            } else {
+                                "Endpoint: (Masukkan domain atau IP server di atas)"
+                            },
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = ArnetaCyanIncome
                         )
                         Text(
-                            text = "Pastikan plugin phpnuxbill-mobile-api-plugin sudah terpasang di menu Plugin Manager server Anda.",
+                            text = "Pastikan plugin phpnuxbill-mobile-api-plugin sudah aktif di server Anda.",
                             fontSize = 10.5.sp,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                         )
@@ -655,60 +676,48 @@ private fun ServerConfigDialog(
                     }
                 }
 
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    OutlinedButton(
-                        enabled = !isTesting,
-                        onClick = {
-                            isTesting = true
-                            testResultStatus = null
-                            val previousUrl = ApiClient.baseUrl
-                            ApiClient.baseUrl = previewFinalUrl
-                            scope.launch {
-                                val res = ApiClient.request("index")
-                                isTesting = false
-                                testResultStatus = res.status
-                                testResultMessage = if (res.status) {
-                                    "Terhubung! ${res.message}"
-                                } else {
-                                    "Gagal terhubung: ${res.message}"
-                                }
+                OutlinedButton(
+                    enabled = !isTesting && previewFinalUrl.isNotBlank(),
+                    onClick = {
+                        isTesting = true
+                        testResultStatus = null
+                        val previousUrl = ApiClient.baseUrl
+                        ApiClient.baseUrl = previewFinalUrl
+                        scope.launch {
+                            val res = ApiClient.request("index")
+                            isTesting = false
+                            testResultStatus = res.status
+                            testResultMessage = if (res.status) {
+                                "Terhubung! ${res.message}"
+                            } else {
+                                "Gagal terhubung: ${res.message}"
+                            }
+                            if (!res.status) {
                                 ApiClient.baseUrl = previousUrl
                             }
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        if (isTesting) {
-                            CircularProgressIndicator(
-                                color = ArnetaGoldPrimary,
-                                strokeWidth = 2.dp,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Mengecek...", fontSize = 11.5.sp)
-                        } else {
-                            Icon(Icons.Filled.NetworkCheck, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Tes Koneksi", fontSize = 11.5.sp)
                         }
-                    }
-
-                    TextButton(
-                        onClick = {
-                            useLocalHttp = false
-                            hostInput = "phpnuxbill.arneta.biz.id"
-                            testResultStatus = null
-                        }
-                    ) {
-                        Text("Reset Default", fontSize = 11.5.sp, color = ArnetaGoldPrimary)
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (isTesting) {
+                        CircularProgressIndicator(
+                            color = ArnetaGoldPrimary,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Mengecek Koneksi Server...", fontSize = 11.5.sp)
+                    } else {
+                        Icon(Icons.Filled.NetworkCheck, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Tes Koneksi Server", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
         },
         confirmButton = {
             Button(
+                enabled = previewFinalUrl.isNotBlank(),
                 onClick = { onSaveUrl(previewFinalUrl) },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = ArnetaGoldPrimary,
@@ -719,8 +728,10 @@ private fun ServerConfigDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Batal")
+            if (currentUrl.isNotBlank()) {
+                TextButton(onClick = onDismiss) {
+                    Text("Batal")
+                }
             }
         }
     )
