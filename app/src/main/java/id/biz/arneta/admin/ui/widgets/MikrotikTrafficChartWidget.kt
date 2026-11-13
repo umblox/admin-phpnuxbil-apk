@@ -52,7 +52,7 @@ internal fun formatSpeedBps(bps: Long): String {
 }
 
 /**
- * KOMPONEN GRAFIK & BAR SPEEDOMETER MURNI DARI /interface/monitor-traffic
+ * KOMPONEN GRAFIK & BAR SPEEDOMETER REAL-TIME MIKROTIK
  */
 @Composable
 internal fun NativeMikrotikTrafficChart(
@@ -70,7 +70,7 @@ internal fun NativeMikrotikTrafficChart(
     val peakScaleKbps = remember(rxPointsKbps, txPointsKbps, currentRxKbps, currentTxKbps) {
         val maxRx = rxPointsKbps.maxOrNull() ?: 0f
         val maxTx = txPointsKbps.maxOrNull() ?: 0f
-        max(512f, max(max(maxRx, maxTx), max(currentRxKbps, currentTxKbps)) * 1.25f)
+        max(64f, max(max(maxRx, maxTx), max(currentRxKbps, currentTxKbps)) * 1.25f)
     }
 
     val animRxRatio by animateFloatAsState(
@@ -100,7 +100,7 @@ internal fun NativeMikrotikTrafficChart(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Filled.ArrowDownward, contentDescription = null, tint = ArnetaCyanIncome, modifier = Modifier.size(15.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("RX (rx-bits-per-second)", fontSize = 10.5.sp, color = Color.White.copy(alpha = 0.75f))
+                        Text("RX Traffic", fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.75f))
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
@@ -133,7 +133,7 @@ internal fun NativeMikrotikTrafficChart(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Filled.ArrowUpward, contentDescription = null, tint = ArnetaGoldPrimary, modifier = Modifier.size(15.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("TX (tx-bits-per-second)", fontSize = 10.5.sp, color = Color.White.copy(alpha = 0.75f))
+                        Text("TX Traffic", fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold, color = Color.White.copy(alpha = 0.75f))
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
@@ -234,11 +234,39 @@ internal fun NativeMikrotikTrafficChart(
 
         Row(
             horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("🔵 Garis Biru: RX Traffic", fontSize = 11.sp, color = ArnetaCyanIncome, fontWeight = FontWeight.SemiBold)
-            Text("🟡 Garis Emas: TX Traffic", fontSize = 11.sp, color = ArnetaGoldPrimary, fontWeight = FontWeight.SemiBold)
-            Text("Skala Grafik: $scaleLabel", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(ArnetaCyanIncome)
+                    )
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text("RX", fontSize = 11.sp, color = ArnetaCyanIncome, fontWeight = FontWeight.Bold)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(ArnetaGoldPrimary)
+                    )
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text("TX", fontSize = 11.sp, color = ArnetaGoldPrimary, fontWeight = FontWeight.Bold)
+                }
+            }
+            Text(
+                text = "Puncak: $scaleLabel",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            )
         }
     }
 }
@@ -958,7 +986,7 @@ private fun CustomerLiveSpeedChart(
     val peakScaleKbps = remember(dlPointsKbps, ulPointsKbps, currentDlKbps, currentUlKbps) {
         val maxDl = dlPointsKbps.maxOrNull() ?: 0f
         val maxUl = ulPointsKbps.maxOrNull() ?: 0f
-        max(256f, max(max(maxDl, maxUl), max(currentDlKbps, currentUlKbps)) * 1.25f)
+        max(64f, max(max(maxDl, maxUl), max(currentDlKbps, currentUlKbps)) * 1.25f)
     }
 
     val animDlRatio by animateFloatAsState(
@@ -1098,7 +1126,7 @@ private fun CustomerLiveSpeedChart(
                 drawPath(
                     path = fillPath,
                     brush = Brush.verticalGradient(
-                        colors = listOf(color.copy(alpha = alphaFill), Color.Transparent)
+                        colors = listOf(color.copy(alpha = fillAlpha), Color.Transparent)
                     )
                 )
                 drawPath(
@@ -1122,11 +1150,35 @@ private fun CustomerLiveSpeedChart(
 
         Row(
             horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("🔵 Download", fontSize = 10.sp, color = ArnetaCyanIncome, fontWeight = FontWeight.SemiBold)
-            Text("🟡 Upload", fontSize = 10.sp, color = ArnetaGoldPrimary, fontWeight = FontWeight.SemiBold)
-            Text("Skala: $scaleText", fontSize = 10.sp, color = Color.White.copy(alpha = 0.55f))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(ArnetaCyanIncome)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Download", fontSize = 10.sp, color = ArnetaCyanIncome, fontWeight = FontWeight.SemiBold)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(ArnetaGoldPrimary)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Upload", fontSize = 10.sp, color = ArnetaGoldPrimary, fontWeight = FontWeight.SemiBold)
+                }
+            }
+            Text("Puncak: $scaleText", fontSize = 10.sp, color = Color.White.copy(alpha = 0.55f))
         }
     }
 }
