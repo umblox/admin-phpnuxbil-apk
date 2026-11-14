@@ -40,9 +40,27 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private val ValidPaymentGatewayIds = setOf(
+    "viaqris",
+    "tripay",
+    "duitku",
+    "xendit",
+    "paypal",
+    "midtrans",
+    "ipaymu",
+    "tokopay",
+    "flip",
+    "moota",
+    "oy",
+    "doku",
+    "faspay",
+    "nicepay",
+    "stripe"
+)
+
 /**
  * LAYAR LAPORAN KEUANGAN & AUDIT SEMUA PAYMENT GATEWAY
- * (ViaQRIS, Tripay, Duitku, Xendit, PayPal)
+ * (ViaQRIS, Tripay, Duitku, Xendit, PayPal, dll.)
  */
 @Composable
 fun AdminReportsAndPgScreen(
@@ -127,15 +145,23 @@ fun AdminReportsAndPgScreen(
 
                 val byGwArr = sum?.optJSONArray("by_gateway") ?: JSONArray()
                 val statList = mutableListOf<JSONObject>()
-                for (i in 0 until byGwArr.length()) statList.add(byGwArr.getJSONObject(i))
+                for (i in 0 until byGwArr.length()) {
+                    val obj = byGwArr.getJSONObject(i)
+                    val gwKey = obj.optString("gateway", "").trim().lowercase()
+                    if (gwKey in ValidPaymentGatewayIds) {
+                        statList.add(obj)
+                    }
+                }
                 pgByGatewayStats = statList
 
                 val gwArr = res.data.optJSONArray("gateways")
                 if (gwArr != null && gwArr.length() > 0) {
                     val gList = mutableListOf<String>()
                     for (i in 0 until gwArr.length()) {
-                        val g = gwArr.optString(i).trim()
-                        if (g.isNotEmpty()) gList.add(g)
+                        val g = gwArr.optString(i).trim().lowercase()
+                        if (g.isNotEmpty() && g in ValidPaymentGatewayIds && g !in gList) {
+                            gList.add(g)
+                        }
                     }
                     if (gList.isNotEmpty()) pgGatewayOptions = gList
                 }
@@ -561,6 +587,10 @@ fun AdminReportsAndPgScreen(
                         "duitku" -> "Duitku"
                         "xendit" -> "Xendit"
                         "paypal" -> "PayPal"
+                        "midtrans" -> "Midtrans"
+                        "ipaymu" -> "iPaymu"
+                        "tokopay" -> "TokoPay"
+                        "flip" -> "Flip"
                         else -> gw.uppercase()
                     }
                     FilterChip(
