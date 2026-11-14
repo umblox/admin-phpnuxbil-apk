@@ -32,7 +32,7 @@ import org.json.JSONObject
 
 /**
  * LAYAR PENGATURAN SISTEM, LOKALISASI, MAINTENANCE, TEMPLATE NOTIFIKASI, STAF, DB & SHORTCUT
- * (100% Sesuai system/controllers/settings.php)
+ * (100% Sesuai system/controllers/settings.php & core_settings_staff.php)
  */
 @Composable
 fun AdminSettingsAndToolsScreen(
@@ -76,6 +76,7 @@ fun AdminSettingsAndToolsScreen(
     var editingStaff by remember { mutableStateOf<JSONObject?>(null) }
     var deletingStaffTarget by remember { mutableStateOf<JSONObject?>(null) }
     var showChangePasswordDialog by remember { mutableStateOf(false) }
+    var showLogoutConfirmDialog by remember { mutableStateOf(false) }
 
     // State Dialog Tes Pengiriman (WA, SMS, Email, Telegram)
     var testChannelTarget by remember { mutableStateOf<String?>(null) } // wa | sms | email | tg
@@ -106,9 +107,16 @@ fun AdminSettingsAndToolsScreen(
                         val keys = res.data.keys()
                         while (keys.hasNext()) {
                             val k = keys.next()
-                            map[k] = res.data.optString(k, "")
+                            if (res.data.optJSONObject(k) == null && res.data.optJSONArray(k) == null) {
+                                map[k] = res.data.optString(k, "")
+                            }
                         }
                         configMap = map
+                        val loadedComp = map["CompanyName"]?.trim() ?: ""
+                        val loadedCurr = map["currency_code"]?.trim() ?: ""
+                        if (loadedComp.isNotEmpty()) ApiClient.companyName = loadedComp
+                        if (loadedCurr.isNotEmpty()) ApiClient.currencyCode = loadedCurr
+                        onCustomShortcutsChanged()
                     }
                 }
                 "notifications" -> {
@@ -187,6 +195,7 @@ fun AdminSettingsAndToolsScreen(
                 val newCurr = configMap["currency_code"]?.trim() ?: ""
                 if (newComp.isNotEmpty()) ApiClient.companyName = newComp
                 if (newCurr.isNotEmpty()) ApiClient.currencyCode = newCurr
+                onCustomShortcutsChanged()
             }
         }
     }
@@ -210,6 +219,15 @@ fun AdminSettingsAndToolsScreen(
                 l.optString("userid", "").lowercase().contains(q) ||
                 l.optString("date", "").lowercase().contains(q)
         }
+    }
+
+    val notifChannelOptions = remember {
+        listOf(
+            "none" to "Tidak Dikirim (None)",
+            "wa" to "WhatsApp Gateway",
+            "sms" to "SMS Gateway",
+            "email" to "Email SMTP"
+        )
     }
 
     Column(
@@ -323,13 +341,23 @@ fun AdminSettingsAndToolsScreen(
                                     label = { Text("Catatan Kaki Struk / Invoice (Footer Note)") },
                                     modifier = Modifier.fillMaxWidth()
                                 )
-                                OutlinedTextField(
-                                    value = configMap["payment_usings"] ?: "Cash,Bank Transfer",
-                                    onValueChange = { updateConfigField("payment_usings", it) },
-                                    label = { Text("Metode Pembayaran Kasir (Pisahkan dengan koma)") },
-                                    singleLine = true,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedTextField(
+                                        value = configMap["payment_usings"] ?: "Cash,Bank Transfer",
+                                        onValueChange = { updateConfigField("payment_usings", it) },
+                                        label = { Text("Metode Bayar Kasir") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1.3f)
+                                    )
+                                    OutlinedTextField(
+                                        value = configMap["voucher_prefix"] ?: "",
+                                        onValueChange = { updateConfigField("voucher_prefix", it) },
+                                        label = { Text("Prefix Voucher") },
+                                        placeholder = { Text("Opsional") },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(0.7f)
+                                    )
+                                }
                                 OutlinedTextField(
                                     value = configMap["payment_gateway"] ?: "",
                                     onValueChange = { updateConfigField("payment_gateway", it) },
@@ -346,7 +374,7 @@ fun AdminSettingsAndToolsScreen(
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                                 modifier = Modifier.padding(14.dp)
                             ) {
-                                Text("Sistem Saldo, Pajak & Reminder Tagihan", fontWeight = FontWeight.ExtraBold, fontSize = 14.5.sp, color = ArnetaCyanIncome)
+                                Text("Sistem Saldo, Pajak & Jalur Notifikasi Pelanggan", fontWeight = FontWeight.ExtraBold, fontSize = 14.5.sp, color = ArnetaCyanIncome)
 
                                 SettingSwitchRow(
                                     title = "Aktifkan Fitur Saldo Pelanggan (enable_balance)",
@@ -387,7 +415,37 @@ fun AdminSettingsAndToolsScreen(
                                 }
 
                                 HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
-                                Text("Pengingat Jatuh Tempo Otomatis:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ArnetaGoldLight)
+                                Text("Jalur Notifikasi Otomatis ke Pelanggan:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ArnetaGoldPrimary)
+
+                                CompactDropdownSelector(
+                                    label = "Notifikasi Saat Pembayaran / Aktifkan Paket",
+                                    selectedValue = (configMap["user_notification_payment"] ?: "wa").ifEmpty { "none" },
+                                    options = notifChannelOptions,
+                                    icon = Icons.Filled.Receipt,
+                                    onValueSelected = { updateConfigField("user_notification_payment", it) },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    CompactDropdownSelector(
+                                        label = "Notifikasi Saat Expired",
+                                        selectedValue = (configMap["user_notification_expired"] ?: "wa").ifEmpty { "none" },
+                                        options = notifChannelOptions,
+                                        icon = Icons.Filled.EventBusy,
+                                        onValueSelected = { updateConfigField("user_notification_expired", it) },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    CompactDropdownSelector(
+                                        label = "Notifikasi Pengingat (Reminder)",
+                                        selectedValue = (configMap["user_notification_reminder"] ?: "wa").ifEmpty { "none" },
+                                        options = notifChannelOptions,
+                                        icon = Icons.Filled.NotificationsActive,
+                                        onValueSelected = { updateConfigField("user_notification_reminder", it) },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+
+                                Text("Jadwal Pengingat Jatuh Tempo:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ArnetaGoldLight)
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     listOf(
                                         "notification_reminder_7days" to "H-7 Hari",
@@ -454,7 +512,7 @@ fun AdminSettingsAndToolsScreen(
                                     )
                                 }
 
-                                Text("Uji Coba Pengiriman Gateway (Sesuai fitur Test di Web):", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = ArnetaGoldPrimary)
+                                Text("Uji Coba Pengiriman Gateway (Simpan dulu jika baru mengubah URL/Token):", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = ArnetaGoldPrimary)
                                 Row(
                                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                                     modifier = Modifier
@@ -500,7 +558,7 @@ fun AdminSettingsAndToolsScreen(
                         }
 
                         OutlinedButton(
-                            onClick = onLogout,
+                            onClick = { showLogoutConfirmDialog = true },
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = ArnetaRedDanger),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
@@ -795,7 +853,7 @@ fun AdminSettingsAndToolsScreen(
                                     value = configMap["maintenance_date"] ?: "",
                                     onValueChange = { updateConfigField("maintenance_date", it) },
                                     label = { Text("Estimasi Tanggal Selesai (YYYY-MM-DD HH:MM)") },
-                                    placeholder = { Text("2026-11-10 18:00") },
+                                    placeholder = { Text("2026-11-20 18:00") },
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth()
                                 )
@@ -836,12 +894,17 @@ fun AdminSettingsAndToolsScreen(
                             Text("Tambah Staf", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
 
-                        FilledTonalButton(
-                            onClick = { showChangePasswordDialog = true }
-                        ) {
-                            Icon(Icons.Filled.Key, contentDescription = null, tint = ArnetaCyanIncome, modifier = Modifier.size(17.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Ganti Password Saya", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            FilledTonalButton(
+                                onClick = { showChangePasswordDialog = true }
+                            ) {
+                                Icon(Icons.Filled.Key, contentDescription = null, tint = ArnetaCyanIncome, modifier = Modifier.size(17.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Ganti Password Saya", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                            IconButton(onClick = { loadTabData() }) {
+                                Icon(Icons.Filled.Refresh, contentDescription = "Segarkan", tint = ArnetaGoldPrimary)
+                            }
                         }
                     }
 
@@ -1228,40 +1291,17 @@ fun AdminSettingsAndToolsScreen(
 
     if (deletingStaffTarget != null) {
         val target = deletingStaffTarget!!
-        AlertDialog(
-            onDismissRequest = { deletingStaffTarget = null },
-            containerColor = Color(0xFF141B2D),
-            titleContentColor = Color.White,
-            textContentColor = Color.White,
-            title = { Text("Hapus Akun Staf @${target.optString("username")}?", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp) },
-            text = {
-                Text(
-                    text = "Apakah Anda yakin ingin menghapus akun staf ${target.optString("fullname")} (${target.optString("user_type")})?",
-                    fontSize = 12.5.sp,
-                    color = Color.White.copy(alpha = 0.85f)
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        deletingStaffTarget = null
-                        scope.launch {
-                            val dRes = ApiClient.request("admin_staff_delete", mapOf("id" to target.optInt("id")))
-                            Toast.makeText(context, dRes.message, Toast.LENGTH_LONG).show()
-                            if (dRes.status) loadTabData()
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = ArnetaRedDanger, contentColor = Color.White)
-                ) {
-                    Text("Ya, Hapus", fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                OutlinedButton(
-                    onClick = { deletingStaffTarget = null },
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
-                ) {
-                    Text("Batal")
+        ConfirmDeleteArnetaDialog(
+            title = "Hapus Akun Staf @${target.optString("username")}?",
+            subtitle = "${target.optString("fullname")} (${target.optString("user_type")})",
+            description = "Akun staf ini akan dihapus secara permanen dari sistem PHPNuxBill.",
+            onDismiss = { deletingStaffTarget = null },
+            onConfirm = {
+                deletingStaffTarget = null
+                scope.launch {
+                    val dRes = ApiClient.request("admin_staff_delete", mapOf("id" to target.optInt("id")))
+                    Toast.makeText(context, dRes.message, Toast.LENGTH_SHORT).show()
+                    if (dRes.status) loadTabData()
                 }
             }
         )
@@ -1277,6 +1317,44 @@ fun AdminSettingsAndToolsScreen(
         TestNotificationDialog(
             channel = testChannelTarget!!,
             onDismiss = { testChannelTarget = null }
+        )
+    }
+
+    if (showLogoutConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showLogoutConfirmDialog = false },
+            containerColor = Color(0xFF141B2D),
+            titleContentColor = Color.White,
+            textContentColor = Color.White,
+            title = {
+                Text("Keluar dari Akun Admin?", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+            },
+            text = {
+                Text(
+                    text = "Sesi login Anda (@${ApiClient.adminUsername}) pada perangkat ini akan diakhiri.",
+                    fontSize = 12.5.sp,
+                    color = Color.White.copy(alpha = 0.85f)
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showLogoutConfirmDialog = false
+                        onLogout()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ArnetaRedDanger, contentColor = Color.White)
+                ) {
+                    Text("Ya, Keluar", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showLogoutConfirmDialog = false },
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                ) {
+                    Text("Batal")
+                }
+            }
         )
     }
 }
