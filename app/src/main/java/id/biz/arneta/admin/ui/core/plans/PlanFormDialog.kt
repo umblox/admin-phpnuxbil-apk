@@ -174,6 +174,12 @@ internal fun PlanFormDialog(
         }
     }
 
+    LaunchedEffect(validityUnitOptions) {
+        if (validityUnitOptions.none { it.first == validityUnit }) {
+            validityUnit = "Days"
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -250,7 +256,7 @@ internal fun PlanFormDialog(
                     OutlinedTextField(
                         value = price,
                         onValueChange = { price = it },
-                        label = { Text("Harga Paket (Rp)") },
+                        label = { Text("Harga Paket (${ApiClient.currencyCode})") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         singleLine = true,
                         modifier = Modifier.weight(1f)
