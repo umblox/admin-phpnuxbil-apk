@@ -14,6 +14,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -25,8 +27,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import id.biz.arneta.admin.network.ApiClient
 import id.biz.arneta.admin.ui.theme.*
 import kotlinx.coroutines.delay
@@ -78,6 +85,18 @@ fun AdminNetworkAndOnlineScreen(
     var editingRouter by remember { mutableStateOf<JSONObject?>(null) }
     var showPoolDialog by remember { mutableStateOf(false) }
     var editingPool by remember { mutableStateOf<JSONObject?>(null) }
+
+    var confirmRebootRouterTarget by remember { mutableStateOf<JSONObject?>(null) }
+    var confirmDeleteRouterTarget by remember { mutableStateOf<JSONObject?>(null) }
+    var confirmDeletePoolTarget by remember { mutableStateOf<JSONObject?>(null) }
+
+    suspend fun fetchRoutersCatalog() {
+        val res = ApiClient.request("admin_routers")
+        val arr = res.dataArray ?: res.data?.optJSONArray("routers") ?: JSONArray()
+        val list = mutableListOf<JSONObject>()
+        for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
+        routerList = list
+    }
 
     suspend fun fetchLiveRouterStatus() {
         val params = mutableMapOf<String, Any?>()
@@ -167,14 +186,9 @@ fun AdminNetworkAndOnlineScreen(
                 }
                 "online_users" -> fetchOnlineUsers()
                 "ros_logs" -> fetchMikrotikExtra()
-                "routers" -> {
-                    val res = ApiClient.request("admin_routers")
-                    val arr = res.dataArray ?: res.data?.optJSONArray("routers") ?: JSONArray()
-                    val list = mutableListOf<JSONObject>()
-                    for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
-                    routerList = list
-                }
+                "routers" -> fetchRoutersCatalog()
                 "pools" -> {
+                    if (routerList.isEmpty()) fetchRoutersCatalog()
                     val res = ApiClient.request("admin_pools")
                     val arr = res.dataArray ?: res.data?.optJSONArray("pools") ?: JSONArray()
                     val list = mutableListOf<JSONObject>()
@@ -221,6 +235,19 @@ fun AdminNetworkAndOnlineScreen(
                 l.optString("topics", "").lowercase().contains(q) ||
                 l.optString("time", "").lowercase().contains(q)
         }
+    }
+
+    val availableRouterNames = remember(routerList, routerStatusList) {
+        val set = linkedSetOf<String>()
+        routerList.forEach { r ->
+            val n = r.optString("name").trim()
+            if (n.isNotEmpty()) set.add(n)
+        }
+        routerStatusList.forEach { r ->
+            val n = r.optString("name").trim()
+            if (n.isNotEmpty()) set.add(n)
+        }
+        set.toList()
     }
 
     Column(
@@ -516,12 +543,7 @@ fun AdminNetworkAndOnlineScreen(
                                             )
                                             Spacer(modifier = Modifier.height(4.dp))
                                             OutlinedButton(
-                                                onClick = {
-                                                    scope.launch {
-                                                        val rbRes = ApiClient.request("admin_router_reboot", mapOf("id" to r.optInt("id")))
-                                                        Toast.makeText(context, rbRes.message, Toast.LENGTH_LONG).show()
-                                                    }
-                                                },
+                                                onClick = { confirmRebootRouterTarget = r },
                                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
                                                 modifier = Modifier.height(28.dp)
                                             ) {
@@ -854,16 +876,26 @@ fun AdminNetworkAndOnlineScreen(
             }
 
             "routers" -> {
-                Button(
-                    onClick = {
-                        editingRouter = null
-                        showRouterDialog = true
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black)
+                Row(
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(Icons.Filled.Add, contentDescription = null)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Tambah Router MikroTik", fontWeight = FontWeight.Bold)
+                    Button(
+                        onClick = {
+                            editingRouter = null
+                            showRouterDialog = true
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black)
+                    ) {
+                        Icon(Icons.Filled.Add, contentDescription = null)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Tambah Router MikroTik", fontWeight = FontWeight.Bold)
+                    }
+
+                    IconButton(onClick = { loadTabContent() }) {
+                        Icon(Icons.Filled.Refresh, contentDescription = "Segarkan", tint = ArnetaGoldPrimary)
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -873,7 +905,19 @@ fun AdminNetworkAndOnlineScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(routerList) { r ->
-                        Card(modifier = Modifier.fillMaxWidth()) {
+                        val isEnabled = r.optInt("enabled", 1) == 1
+                        val descStr = r.optString("description", "").trim()
+                        Card(
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable {
+                                    editingRouter = r
+                                    showRouterDialog = true
+                                }
+                        ) {
                             Row(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically,
@@ -882,10 +926,42 @@ fun AdminNetworkAndOnlineScreen(
                                     .padding(14.dp)
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(r.optString("name"), fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                                    Text("IP/API: ${r.optString("ip_address")} • User: ${r.optString("username")}", fontSize = 12.sp)
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(r.optString("name"), fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                        Surface(
+                                            color = if (isEnabled) ArnetaGreenSuccess.copy(alpha = 0.18f) else ArnetaRedDanger.copy(alpha = 0.18f),
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text(
+                                                text = if (isEnabled) "ENABLED" else "DISABLED",
+                                                fontSize = 9.5.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = if (isEnabled) ArnetaGreenSuccess else ArnetaRedDanger,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = "IP/API: ${r.optString("ip_address")} • User: ${r.optString("username")}",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                                    )
+                                    if (descStr.isNotEmpty()) {
+                                        Text(
+                                            text = descStr,
+                                            fontSize = 11.5.sp,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                                        )
+                                    }
                                     if (r.optString("coordinates").isNotEmpty()) {
-                                        Text("Koordinat: ${r.optString("coordinates")} (Radius ${r.optString("coverage")}m)", fontSize = 11.sp, color = ArnetaCyanIncome)
+                                        Text(
+                                            text = "Koordinat: ${r.optString("coordinates")} (Radius ${r.optString("coverage", "350")}m)",
+                                            fontSize = 11.sp,
+                                            color = ArnetaCyanIncome
+                                        )
                                     }
                                 }
                                 Row {
@@ -893,15 +969,10 @@ fun AdminNetworkAndOnlineScreen(
                                         editingRouter = r
                                         showRouterDialog = true
                                     }) {
-                                        Icon(Icons.Filled.Edit, contentDescription = null, tint = ArnetaGoldPrimary)
+                                        Icon(Icons.Filled.Edit, contentDescription = "Edit Router", tint = ArnetaGoldPrimary)
                                     }
-                                    IconButton(onClick = {
-                                        scope.launch {
-                                            ApiClient.request("admin_router_delete", mapOf("id" to r.optInt("id")))
-                                            loadTabContent()
-                                        }
-                                    }) {
-                                        Icon(Icons.Filled.DeleteOutline, contentDescription = null, tint = ArnetaRedDanger)
+                                    IconButton(onClick = { confirmDeleteRouterTarget = r }) {
+                                        Icon(Icons.Filled.DeleteOutline, contentDescription = "Hapus Router", tint = ArnetaRedDanger)
                                     }
                                 }
                             }
@@ -911,16 +982,26 @@ fun AdminNetworkAndOnlineScreen(
             }
 
             "pools" -> {
-                Button(
-                    onClick = {
-                        editingPool = null
-                        showPoolDialog = true
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black)
+                Row(
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(Icons.Filled.Add, contentDescription = null)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Tambah IP Pool", fontWeight = FontWeight.Bold)
+                    Button(
+                        onClick = {
+                            editingPool = null
+                            showPoolDialog = true
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black)
+                    ) {
+                        Icon(Icons.Filled.Add, contentDescription = null)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Tambah IP Pool", fontWeight = FontWeight.Bold)
+                    }
+
+                    IconButton(onClick = { loadTabContent() }) {
+                        Icon(Icons.Filled.Refresh, contentDescription = "Segarkan", tint = ArnetaGoldPrimary)
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -930,7 +1011,18 @@ fun AdminNetworkAndOnlineScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(poolList) { p ->
-                        Card(modifier = Modifier.fillMaxWidth()) {
+                        val localIpStr = p.optString("local_ip", "").trim()
+                        Card(
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .clickable {
+                                    editingPool = p
+                                    showPoolDialog = true
+                                }
+                        ) {
                             Row(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically,
@@ -938,24 +1030,29 @@ fun AdminNetworkAndOnlineScreen(
                                     .fillMaxWidth()
                                     .padding(14.dp)
                             ) {
-                                Column {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(p.optString("pool_name"), fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                                    Text("Range IP: ${p.optString("range_ip")} • Router: ${p.optString("routers")}", fontSize = 12.sp)
+                                    Text(
+                                        text = "Range IP: ${p.optString("range_ip")}" +
+                                            if (localIpStr.isNotEmpty()) " • Local IP: $localIpStr" else "",
+                                        fontSize = 12.sp,
+                                        color = ArnetaCyanIncome
+                                    )
+                                    Text(
+                                        text = "Router: ${p.optString("routers").ifEmpty { "-" }}",
+                                        fontSize = 11.5.sp,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                                    )
                                 }
                                 Row {
                                     IconButton(onClick = {
                                         editingPool = p
                                         showPoolDialog = true
                                     }) {
-                                        Icon(Icons.Filled.Edit, contentDescription = null, tint = ArnetaGoldPrimary)
+                                        Icon(Icons.Filled.Edit, contentDescription = "Edit Pool", tint = ArnetaGoldPrimary)
                                     }
-                                    IconButton(onClick = {
-                                        scope.launch {
-                                            ApiClient.request("admin_pool_delete", mapOf("id" to p.optInt("id")))
-                                            loadTabContent()
-                                        }
-                                    }) {
-                                        Icon(Icons.Filled.DeleteOutline, contentDescription = null, tint = ArnetaRedDanger)
+                                    IconButton(onClick = { confirmDeletePoolTarget = p }) {
+                                        Icon(Icons.Filled.DeleteOutline, contentDescription = "Hapus Pool", tint = ArnetaRedDanger)
                                     }
                                 }
                             }
@@ -980,10 +1077,89 @@ fun AdminNetworkAndOnlineScreen(
     if (showPoolDialog) {
         PoolFormDialog(
             initial = editingPool,
+            availableRouters = availableRouterNames,
             onDismiss = { showPoolDialog = false },
             onSaved = {
                 showPoolDialog = false
                 loadTabContent()
+            }
+        )
+    }
+
+    if (confirmRebootRouterTarget != null) {
+        val targetR = confirmRebootRouterTarget!!
+        AlertDialog(
+            onDismissRequest = { confirmRebootRouterTarget = null },
+            containerColor = Color(0xFF141B2D),
+            titleContentColor = Color.White,
+            textContentColor = Color.White,
+            title = {
+                Text("Reboot Router ${targetR.optString("name")}?", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+            },
+            text = {
+                Text(
+                    text = "Perintah /system/reboot akan dikirim ke Router MikroTik ${targetR.optString("name")} (${targetR.optString("ip_address")}). Seluruh sesi Hotspot & PPPoE pada router ini akan terputus sementara.",
+                    fontSize = 12.5.sp,
+                    color = Color.White.copy(alpha = 0.85f)
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        confirmRebootRouterTarget = null
+                        scope.launch {
+                            val rbRes = ApiClient.request("admin_router_reboot", mapOf("id" to targetR.optInt("id")))
+                            Toast.makeText(context, rbRes.message, Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ArnetaRedDanger, contentColor = Color.White)
+                ) {
+                    Text("Ya, Reboot Router", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { confirmRebootRouterTarget = null },
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                ) {
+                    Text("Batal")
+                }
+            }
+        )
+    }
+
+    if (confirmDeleteRouterTarget != null) {
+        val targetR = confirmDeleteRouterTarget!!
+        ConfirmDeleteArnetaDialog(
+            title = "Hapus Router MikroTik?",
+            subtitle = "${targetR.optString("name")} (${targetR.optString("ip_address")})",
+            description = "Data router ini akan dihapus dari daftar router PHPNuxBill. Pastikan tidak ada paket aktif yang masih terikat pada router ini.",
+            onDismiss = { confirmDeleteRouterTarget = null },
+            onConfirm = {
+                confirmDeleteRouterTarget = null
+                scope.launch {
+                    val dRes = ApiClient.request("admin_router_delete", mapOf("id" to targetR.optInt("id")))
+                    Toast.makeText(context, dRes.message, Toast.LENGTH_SHORT).show()
+                    if (dRes.status) loadTabContent()
+                }
+            }
+        )
+    }
+
+    if (confirmDeletePoolTarget != null) {
+        val targetP = confirmDeletePoolTarget!!
+        ConfirmDeleteArnetaDialog(
+            title = "Hapus IP Pool?",
+            subtitle = "${targetP.optString("pool_name")} (${targetP.optString("range_ip")})",
+            description = "Rentang IP Pool ini akan dihapus dari database.",
+            onDismiss = { confirmDeletePoolTarget = null },
+            onConfirm = {
+                confirmDeletePoolTarget = null
+                scope.launch {
+                    val dRes = ApiClient.request("admin_pool_delete", mapOf("id" to targetP.optInt("id")))
+                    Toast.makeText(context, dRes.message, Toast.LENGTH_SHORT).show()
+                    if (dRes.status) loadTabContent()
+                }
             }
         )
     }
@@ -1028,6 +1204,9 @@ fun AdminNetworkAndOnlineScreen(
     }
 }
 
+/**
+ * LAYAR PENUH NATIVE: FORM TAMBAH / EDIT ROUTER MIKROTIK
+ */
 @Composable
 internal fun RouterFormDialog(
     initial: JSONObject?,
@@ -1036,89 +1215,505 @@ internal fun RouterFormDialog(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val isEdit = initial != null
+
     var name by remember { mutableStateOf(initial?.optString("name") ?: "") }
     var ip by remember { mutableStateOf(initial?.optString("ip_address") ?: "") }
     var user by remember { mutableStateOf(initial?.optString("username") ?: "admin") }
     var pass by remember { mutableStateOf("") }
+    var showPass by remember { mutableStateOf(false) }
+    var description by remember { mutableStateOf(initial?.optString("description") ?: "") }
     var coords by remember { mutableStateOf(initial?.optString("coordinates") ?: "") }
-    var coverage by remember { mutableStateOf(initial?.optString("coverage") ?: "350") }
+    var coverage by remember { mutableStateOf(initial?.optString("coverage")?.ifEmpty { null } ?: "350") }
+    var enabledStatus by remember { mutableIntStateOf(initial?.optInt("enabled", 1) ?: 1) }
+    var isSaving by remember { mutableStateOf(false) }
 
-    AlertDialog(
+    val canSave = !isSaving && name.isNotBlank() && ip.isNotBlank() && user.isNotBlank()
+
+    Dialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (initial != null) "Edit Router MikroTik" else "Tambah Router MikroTik", fontWeight = FontWeight.Bold) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nama Router") }, singleLine = true)
-                OutlinedTextField(value = ip, onValueChange = { ip = it }, label = { Text("IP Address:Port API (Misal 10.8.0.1:8728)") }, singleLine = true)
-                OutlinedTextField(value = user, onValueChange = { user = it }, label = { Text("Username API MikroTik") }, singleLine = true)
-                OutlinedTextField(value = pass, onValueChange = { pass = it }, label = { Text("Password API MikroTik") }, singleLine = true)
-                OutlinedTextField(value = coords, onValueChange = { coords = it }, label = { Text("Koordinat (Lat, Lng)") }, singleLine = true)
-                OutlinedTextField(value = coverage, onValueChange = { coverage = it }, label = { Text("Radius Coverage (Meter)") }, singleLine = true)
-            }
-        },
-        confirmButton = {
-            Button(onClick = {
-                scope.launch {
-                    val res = ApiClient.request(
-                        "admin_router_save",
-                        mapOf(
-                            "id" to (initial?.optInt("id") ?: 0),
-                            "name" to name,
-                            "ip_address" to ip,
-                            "username" to user,
-                            "password" to pass,
-                            "coordinates" to coords,
-                            "coverage" to coverage
-                        )
-                    )
-                    Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
-                    if (res.status) onSaved()
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
+        Scaffold(
+            modifier = Modifier
+                .fillMaxSize()
+                .imePadding(),
+            containerColor = MaterialTheme.colorScheme.background,
+            topBar = {
+                Surface(
+                    color = Color(0xFF141B2D),
+                    shadowElevation = 6.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .windowInsetsPadding(WindowInsets.statusBars)
+                            .padding(horizontal = 8.dp, vertical = 10.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = onDismiss) {
+                                Icon(Icons.Filled.ArrowBack, contentDescription = "Kembali", tint = Color.White)
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Column {
+                                Text(
+                                    text = if (isEdit) "Edit Router MikroTik" else "Tambah Router MikroTik",
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 17.sp,
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = "Konfigurasi koneksi RouterOS API & cakupan peta",
+                                    fontSize = 11.5.sp,
+                                    color = ArnetaGoldLight
+                                )
+                            }
+                        }
+                    }
                 }
-            }) { Text("Simpan") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Batal") } }
-    )
+            },
+            bottomBar = {
+                Surface(
+                    color = Color(0xFF141B2D),
+                    shadowElevation = 12.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .windowInsetsPadding(WindowInsets.navigationBars)
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onDismiss,
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(0.38f)
+                                .height(48.dp)
+                        ) {
+                            Text("Batal", fontWeight = FontWeight.Bold)
+                        }
+
+                        Button(
+                            enabled = canSave,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = ArnetaGoldPrimary,
+                                contentColor = Color(0xFF0B0F19)
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            onClick = {
+                                isSaving = true
+                                scope.launch {
+                                    val res = ApiClient.request(
+                                        "admin_router_save",
+                                        mapOf(
+                                            "id" to (initial?.optInt("id") ?: 0),
+                                            "name" to name.trim(),
+                                            "ip_address" to ip.trim(),
+                                            "username" to user.trim(),
+                                            "password" to pass,
+                                            "description" to description.trim(),
+                                            "coordinates" to coords.trim(),
+                                            "coverage" to coverage.trim().ifEmpty { "350" },
+                                            "enabled" to enabledStatus
+                                        )
+                                    )
+                                    isSaving = false
+                                    Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
+                                    if (res.status) onSaved()
+                                }
+                            },
+                            modifier = Modifier
+                                .weight(0.62f)
+                                .height(48.dp)
+                        ) {
+                            Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (isSaving) "Menyimpan..." else "Simpan Router",
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 13.5.sp
+                            )
+                        }
+                    }
+                }
+            }
+        ) { innerPadding ->
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 14.dp, vertical = 12.dp)
+            ) {
+                Card(
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.padding(14.dp)
+                    ) {
+                        Text(
+                            text = "Status & Koneksi API RouterOS",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = ArnetaGoldPrimary
+                        )
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(
+                                selected = enabledStatus == 1,
+                                onClick = { enabledStatus = 1 },
+                                label = { Text("Enabled (Aktif)", fontSize = 12.sp) }
+                            )
+                            FilterChip(
+                                selected = enabledStatus == 0,
+                                onClick = { enabledStatus = 0 },
+                                label = { Text("Disabled (Nonaktif)", fontSize = 12.sp) }
+                            )
+                        }
+
+                        OutlinedTextField(
+                            value = name,
+                            onValueChange = { name = it },
+                            label = { Text("Nama Router *") },
+                            placeholder = { Text("Contoh: Router-Utama") },
+                            leadingIcon = { Icon(Icons.Filled.Router, contentDescription = null, tint = ArnetaGoldPrimary) },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        OutlinedTextField(
+                            value = ip,
+                            onValueChange = { ip = it },
+                            label = { Text("IP Address : Port API *") },
+                            placeholder = { Text("Misal: 10.8.0.1:8728 atau 192.168.88.1") },
+                            leadingIcon = { Icon(Icons.Filled.Dns, contentDescription = null, tint = ArnetaCyanIncome) },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = user,
+                                onValueChange = { user = it },
+                                label = { Text("Username API *") },
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f)
+                            )
+
+                            OutlinedTextField(
+                                value = pass,
+                                onValueChange = { pass = it },
+                                label = { Text(if (isEdit) "Password (Opsional)" else "Password API") },
+                                visualTransformation = if (showPass) VisualTransformation.None else PasswordVisualTransformation(),
+                                trailingIcon = {
+                                    IconButton(onClick = { showPass = !showPass }) {
+                                        Icon(
+                                            imageVector = if (showPass) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                            contentDescription = null
+                                        )
+                                    }
+                                },
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+
+                        OutlinedTextField(
+                            value = description,
+                            onValueChange = { description = it },
+                            label = { Text("Deskripsi / Lokasi Server (Opsional)") },
+                            placeholder = { Text("Contoh: POP Pusat / MikroTik RB450Gx4") },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+
+                Card(
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.padding(14.dp)
+                    ) {
+                        Text(
+                            text = "Titik Koordinat & Radius Peta",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = ArnetaCyanIncome
+                        )
+
+                        OutlinedTextField(
+                            value = coords,
+                            onValueChange = { coords = it },
+                            label = { Text("Koordinat Peta (Lat, Lng)") },
+                            placeholder = { Text("-6.200000, 106.816666") },
+                            leadingIcon = { Icon(Icons.Filled.LocationOn, contentDescription = null, tint = ArnetaCyanIncome) },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        OutlinedTextField(
+                            value = coverage,
+                            onValueChange = { coverage = it },
+                            label = { Text("Radius Coverage Area (Meter)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
+/**
+ * LAYAR PENUH NATIVE: FORM TAMBAH / EDIT IP POOL
+ */
 @Composable
 internal fun PoolFormDialog(
     initial: JSONObject?,
+    availableRouters: List<String> = emptyList(),
     onDismiss: () -> Unit,
     onSaved: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var poolName by remember { mutableStateOf(initial?.optString("pool_name") ?: "") }
-    var rangeIp by remember { mutableStateOf(initial?.optString("range_ip") ?: "192.168.10.2-192.168.10.254") }
-    var routers by remember { mutableStateOf(initial?.optString("routers") ?: "") }
+    val isEdit = initial != null
 
-    AlertDialog(
+    var poolName by remember { mutableStateOf(initial?.optString("pool_name") ?: "") }
+    var localIp by remember { mutableStateOf(initial?.optString("local_ip") ?: "") }
+    var rangeIp by remember { mutableStateOf(initial?.optString("range_ip") ?: "192.168.10.2-192.168.10.254") }
+    var routers by remember {
+        mutableStateOf(
+            initial?.optString("routers")?.ifEmpty { null }
+                ?: (availableRouters.firstOrNull() ?: "")
+        )
+    }
+    var isSaving by remember { mutableStateOf(false) }
+
+    val canSave = !isSaving && poolName.isNotBlank() && rangeIp.isNotBlank()
+
+    Dialog(
         onDismissRequest = onDismiss,
-        title = { Text("Tambah / Edit IP Pool", fontWeight = FontWeight.Bold) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = poolName, onValueChange = { poolName = it }, label = { Text("Nama Pool") }, singleLine = true)
-                OutlinedTextField(value = rangeIp, onValueChange = { rangeIp = it }, label = { Text("Rentang IP") }, singleLine = true)
-                OutlinedTextField(value = routers, onValueChange = { routers = it }, label = { Text("Nama Router") }, singleLine = true)
-            }
-        },
-        confirmButton = {
-            Button(onClick = {
-                scope.launch {
-                    val res = ApiClient.request(
-                        "admin_pool_save",
-                        mapOf(
-                            "id" to (initial?.optInt("id") ?: 0),
-                            "pool_name" to poolName,
-                            "range_ip" to rangeIp,
-                            "routers" to routers
-                        )
-                    )
-                    Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
-                    if (res.status) onSaved()
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
+        Scaffold(
+            modifier = Modifier
+                .fillMaxSize()
+                .imePadding(),
+            containerColor = MaterialTheme.colorScheme.background,
+            topBar = {
+                Surface(
+                    color = Color(0xFF141B2D),
+                    shadowElevation = 6.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .windowInsetsPadding(WindowInsets.statusBars)
+                            .padding(horizontal = 8.dp, vertical = 10.dp)
+                    ) {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Filled.ArrowBack, contentDescription = "Kembali", tint = Color.White)
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Column {
+                            Text(
+                                text = if (isEdit) "Edit IP Pool" else "Tambah IP Pool Baru",
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 17.sp,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "Rentang alokasi IP untuk layanan PPPoE / VPN",
+                                fontSize = 11.5.sp,
+                                color = ArnetaGoldLight
+                            )
+                        }
+                    }
                 }
-            }) { Text("Simpan") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Batal") } }
-    )
+            },
+            bottomBar = {
+                Surface(
+                    color = Color(0xFF141B2D),
+                    shadowElevation = 12.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .windowInsetsPadding(WindowInsets.navigationBars)
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onDismiss,
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(0.38f)
+                                .height(48.dp)
+                        ) {
+                            Text("Batal", fontWeight = FontWeight.Bold)
+                        }
+
+                        Button(
+                            enabled = canSave,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = ArnetaGoldPrimary,
+                                contentColor = Color(0xFF0B0F19)
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            onClick = {
+                                isSaving = true
+                                scope.launch {
+                                    val res = ApiClient.request(
+                                        "admin_pool_save",
+                                        mapOf(
+                                            "id" to (initial?.optInt("id") ?: 0),
+                                            "pool_name" to poolName.trim(),
+                                            "local_ip" to localIp.trim(),
+                                            "range_ip" to rangeIp.trim(),
+                                            "routers" to routers.trim()
+                                        )
+                                    )
+                                    isSaving = false
+                                    Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
+                                    if (res.status) onSaved()
+                                }
+                            },
+                            modifier = Modifier
+                                .weight(0.62f)
+                                .height(48.dp)
+                        ) {
+                            Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (isSaving) "Menyimpan..." else "Simpan IP Pool",
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 13.5.sp
+                            )
+                        }
+                    }
+                }
+            }
+        ) { innerPadding ->
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 14.dp, vertical = 12.dp)
+            ) {
+                Card(
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.padding(14.dp)
+                    ) {
+                        Text(
+                            text = "Detail Konfigurasi IP Pool",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = ArnetaGoldPrimary
+                        )
+
+                        OutlinedTextField(
+                            value = poolName,
+                            onValueChange = { poolName = it },
+                            label = { Text("Nama Pool *") },
+                            placeholder = { Text("Contoh: pool-pppoe-1") },
+                            leadingIcon = { Icon(Icons.Filled.Lan, contentDescription = null, tint = ArnetaGoldPrimary) },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        OutlinedTextField(
+                            value = localIp,
+                            onValueChange = { localIp = it },
+                            label = { Text("Local IP Address / Gateway PPPoE (Opsional)") },
+                            placeholder = { Text("Contoh: 192.168.10.1") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        OutlinedTextField(
+                            value = rangeIp,
+                            onValueChange = { rangeIp = it },
+                            label = { Text("Rentang IP (Range IP) *") },
+                            placeholder = { Text("192.168.10.2-192.168.10.254") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        if (availableRouters.isNotEmpty()) {
+                            Text(
+                                text = "Pilih Router MikroTik / Radius:",
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ArnetaCyanIncome
+                            )
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.horizontalScroll(rememberScrollState())
+                            ) {
+                                (availableRouters + "Radius").distinct().forEach { rName ->
+                                    FilterChip(
+                                        selected = routers.equals(rName, ignoreCase = true),
+                                        onClick = { routers = rName },
+                                        label = { Text(rName, fontSize = 11.5.sp) }
+                                    )
+                                }
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = routers,
+                            onValueChange = { routers = it },
+                            label = { Text("Nama Router") },
+                            leadingIcon = { Icon(Icons.Filled.Router, contentDescription = null, tint = ArnetaCyanIncome) },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
