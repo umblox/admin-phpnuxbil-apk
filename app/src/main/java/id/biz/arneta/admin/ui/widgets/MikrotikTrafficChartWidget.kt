@@ -30,6 +30,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import id.biz.arneta.admin.network.ApiClient
 import id.biz.arneta.admin.network.formatRupiah
 import id.biz.arneta.admin.ui.theme.*
@@ -404,7 +406,7 @@ fun ConfirmKickUserDialog(
 }
 
 /**
- * DIALOG DETAIL LENGKAP PELANGGAN & GRAFIK LIVE SPEED REAL-TIME
+ * LAYAR PENUH NATIVE: DETAIL LENGKAP PELANGGAN & GRAFIK LIVE SPEED REAL-TIME
  */
 @Composable
 fun UserDetailAndLiveSpeedDialog(
@@ -541,107 +543,199 @@ fun UserDetailAndLiveSpeedDialog(
         "${initialUserObj.optString("expiration")} ${initialUserObj.optString("time")}".trim()
     }
 
-    AlertDialog(
+    Dialog(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF141B2D),
-        titleContentColor = Color.White,
-        textContentColor = Color.White,
-        title = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                    Box(
-                        contentAlignment = Alignment.Center,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            containerColor = Color(0xFF0B1120),
+            topBar = {
+                Surface(
+                    color = Color(0xFF141B2D),
+                    shadowElevation = 6.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (isOnline) ArnetaGreenSuccess.copy(alpha = 0.2f)
-                                else ArnetaGoldPrimary.copy(alpha = 0.2f)
-                            )
-                            .border(
-                                width = 1.5.dp,
-                                color = if (isOnline) ArnetaGreenSuccess else ArnetaGoldPrimary,
-                                shape = CircleShape
-                            )
+                            .fillMaxWidth()
+                            .windowInsetsPadding(WindowInsets.statusBars)
+                            .padding(horizontal = 8.dp, vertical = 10.dp)
                     ) {
-                        Text(
-                            text = displayFullname.take(1).uppercase(),
-                            fontWeight = FontWeight.ExtraBold,
-                            color = if (isOnline) ArnetaGreenSuccess else ArnetaGoldPrimary,
-                            fontSize = 16.sp
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = displayFullname,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 15.5.sp,
-                            color = Color.White,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            modifier = Modifier.weight(1f)
                         ) {
-                            Text(
-                                text = "@$displayUsername",
-                                fontSize = 11.5.sp,
-                                color = ArnetaGoldLight
-                            )
-                            Surface(
-                                color = if (isOnline) ArnetaGreenSuccess.copy(alpha = 0.2f) else ArnetaRedDanger.copy(alpha = 0.2f),
-                                shape = RoundedCornerShape(4.dp)
+                            IconButton(onClick = onDismiss) {
+                                Icon(Icons.Filled.ArrowBack, contentDescription = "Kembali", tint = Color.White)
+                            }
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (isOnline) ArnetaGreenSuccess.copy(alpha = 0.2f)
+                                        else ArnetaGoldPrimary.copy(alpha = 0.2f)
+                                    )
+                                    .border(
+                                        width = 1.5.dp,
+                                        color = if (isOnline) ArnetaGreenSuccess else ArnetaGoldPrimary,
+                                        shape = CircleShape
+                                    )
                             ) {
                                 Text(
-                                    text = if (isOnline) "ONLINE" else "OFFLINE",
-                                    color = if (isOnline) ArnetaGreenSuccess else ArnetaRedDanger,
-                                    fontSize = 9.5.sp,
+                                    text = displayFullname.take(1).uppercase(),
                                     fontWeight = FontWeight.ExtraBold,
-                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                    color = if (isOnline) ArnetaGreenSuccess else ArnetaGoldPrimary,
+                                    fontSize = 15.sp
                                 )
                             }
-                            Surface(
-                                color = ArnetaCyanIncome.copy(alpha = 0.2f),
-                                shape = RoundedCornerShape(4.dp)
-                            ) {
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = displayService,
-                                    color = ArnetaCyanIncome,
-                                    fontSize = 9.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                    text = displayFullname,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 16.sp,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = "@$displayUsername",
+                                        fontSize = 11.5.sp,
+                                        color = ArnetaGoldLight
+                                    )
+                                    Surface(
+                                        color = if (isOnline) ArnetaGreenSuccess.copy(alpha = 0.2f) else ArnetaRedDanger.copy(alpha = 0.2f),
+                                        shape = RoundedCornerShape(4.dp)
+                                    ) {
+                                        Text(
+                                            text = if (isOnline) "ONLINE" else "OFFLINE",
+                                            color = if (isOnline) ArnetaGreenSuccess else ArnetaRedDanger,
+                                            fontSize = 9.5.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                    Surface(
+                                        color = ArnetaCyanIncome.copy(alpha = 0.2f),
+                                        shape = RoundedCornerShape(4.dp)
+                                    ) {
+                                        Text(
+                                            text = displayService,
+                                            color = ArnetaCyanIncome,
+                                            fontSize = 9.5.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
                             }
+                        }
+
+                        IconButton(
+                            onClick = { scope.launch { fetchUserLiveDetail() } }
+                        ) {
+                            Icon(Icons.Filled.Refresh, contentDescription = "Segarkan", tint = ArnetaGoldPrimary)
                         }
                     }
                 }
+            },
+            bottomBar = {
+                Surface(
+                    color = Color(0xFF141B2D),
+                    shadowElevation = 12.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .windowInsetsPadding(WindowInsets.navigationBars)
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                    ) {
+                        if (phoneStr.isNotEmpty() && phoneStr != "-") {
+                            FilledTonalButton(
+                                onClick = {
+                                    val msg = "Halo *$displayFullname* (@$displayUsername),\nInformasi layanan ${ApiClient.companyName}:\nPaket: *$planName*\nMasa Aktif s/d: *$planExpiration*"
+                                    id.biz.arneta.admin.util.BluetoothPrinterHelper.shareToWhatsApp(context, msg, phoneStr)
+                                },
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = ArnetaGreenSuccess.copy(alpha = 0.2f),
+                                    contentColor = ArnetaGreenSuccess
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(46.dp)
+                            ) {
+                                Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Hubungi WA", fontWeight = FontWeight.Bold, fontSize = 12.5.sp, maxLines = 1)
+                            }
+                        }
 
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.Filled.Close, contentDescription = "Tutup", tint = Color.White.copy(alpha = 0.7f))
+                        if (isOnline) {
+                            Button(
+                                onClick = { showKickConfirm = true },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = ArnetaRedDanger,
+                                    contentColor = Color.White
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(46.dp)
+                            ) {
+                                Icon(Icons.Filled.LinkOff, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Kick Sesi", fontWeight = FontWeight.Bold, fontSize = 12.5.sp, maxLines = 1)
+                            }
+                        }
+
+                        OutlinedButton(
+                            onClick = onDismiss,
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = ArnetaGoldPrimary),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(0.9f)
+                                .height(46.dp)
+                        ) {
+                            Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Tutup", fontWeight = FontWeight.Bold, fontSize = 12.5.sp, maxLines = 1)
+                        }
+                    }
                 }
             }
-        },
-        text = {
+        ) { innerPadding ->
             Column(
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .fillMaxSize()
+                    .padding(innerPadding)
                     .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 14.dp, vertical = 12.dp)
             ) {
                 Surface(
-                    color = Color(0xFF0B1120),
-                    shape = RoundedCornerShape(14.dp),
+                    color = Color(0xFF141B2D),
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, ArnetaGoldPrimary.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
+                        .border(1.dp, ArnetaGoldPrimary.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
                 ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
+                    Column(modifier = Modifier.padding(14.dp)) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -650,22 +744,22 @@ fun UserDetailAndLiveSpeedDialog(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Box(
                                     modifier = Modifier
-                                        .size(8.dp)
+                                        .size(9.dp)
                                         .clip(CircleShape)
                                         .background(if (isOnline && isPollingSpeed) ArnetaGreenSuccess else ArnetaOrangeActive)
                                 )
-                                Spacer(modifier = Modifier.width(6.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Column {
                                     Text(
                                         text = "Grafik Live Speed Pelanggan",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 13.5.sp,
                                         color = ArnetaGoldPrimary
                                     )
                                     Text(
                                         text = if (isLoadingInitial) "Menghubungkan ke MikroTik..."
                                         else "Router: $displayRouter • Update: $lastPollTime",
-                                        fontSize = 10.sp,
+                                        fontSize = 10.5.sp,
                                         color = Color.White.copy(alpha = 0.65f)
                                     )
                                 }
@@ -676,7 +770,7 @@ fun UserDetailAndLiveSpeedDialog(
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
 
                         CustomerLiveSpeedChart(
                             dlPointsKbps = dlHistoryKbps,
@@ -687,9 +781,9 @@ fun UserDetailAndLiveSpeedDialog(
                             ulLabel = currentUlLabel
                         )
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
                         HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
 
                         Row(
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -697,19 +791,19 @@ fun UserDetailAndLiveSpeedDialog(
                         ) {
                             Text(
                                 text = "↓ DL: $displayDownloadBytes",
-                                fontSize = 10.5.sp,
+                                fontSize = 11.sp,
                                 color = ArnetaCyanIncome,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
                                 text = "↑ UL: $displayUploadBytes",
-                                fontSize = 10.5.sp,
+                                fontSize = 11.sp,
                                 color = ArnetaGoldLight,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
                                 text = "Total: $displayTotalBytes",
-                                fontSize = 10.5.sp,
+                                fontSize = 11.sp,
                                 color = ArnetaGreenSuccess,
                                 fontWeight = FontWeight.Bold
                             )
@@ -718,18 +812,18 @@ fun UserDetailAndLiveSpeedDialog(
                 }
 
                 Surface(
-                    color = Color(0xFF0B1120),
-                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFF141B2D),
+                    shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
-                        verticalArrangement = Arrangement.spacedBy(5.dp),
-                        modifier = Modifier.padding(12.dp)
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(14.dp)
                     ) {
                         Text(
                             text = "Detail Koneksi & Sesi MikroTik",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 13.sp,
                             color = ArnetaCyanIncome
                         )
                         HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
@@ -750,18 +844,18 @@ fun UserDetailAndLiveSpeedDialog(
                 }
 
                 Surface(
-                    color = Color(0xFF0B1120),
-                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFF141B2D),
+                    shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
-                        verticalArrangement = Arrangement.spacedBy(5.dp),
-                        modifier = Modifier.padding(12.dp)
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(14.dp)
                     ) {
                         Text(
                             text = "Informasi Paket & Profil Pelanggan",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 13.sp,
                             color = ArnetaGoldPrimary
                         )
                         HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
@@ -796,7 +890,7 @@ fun UserDetailAndLiveSpeedDialog(
 
                         if (customFieldsArr.length() > 0) {
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text("Atribut Tambahan:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = ArnetaGoldLight)
+                            Text("Atribut Tambahan:", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = ArnetaGoldLight)
                             for (i in 0 until customFieldsArr.length()) {
                                 val cf = customFieldsArr.optJSONObject(i) ?: continue
                                 DetailInfoRow(cf.optString("name", "-"), cf.optString("value", "-"))
@@ -807,18 +901,18 @@ fun UserDetailAndLiveSpeedDialog(
 
                 if (recentTrxArr.length() > 0) {
                     Surface(
-                        color = Color(0xFF0B1120),
-                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFF141B2D),
+                        shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(
-                            verticalArrangement = Arrangement.spacedBy(5.dp),
-                            modifier = Modifier.padding(12.dp)
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.padding(14.dp)
                         ) {
                             Text(
                                 text = "Riwayat Transaksi Terakhir",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 13.sp,
                                 color = ArnetaGreenSuccess
                             )
                             HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
@@ -829,24 +923,24 @@ fun UserDetailAndLiveSpeedDialog(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(vertical = 2.dp)
+                                        .padding(vertical = 3.dp)
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             text = "${tr.optString("invoice")} • ${tr.optString("plan_name")}",
-                                            fontSize = 11.sp,
+                                            fontSize = 11.5.sp,
                                             fontWeight = FontWeight.SemiBold,
                                             color = Color.White
                                         )
                                         Text(
                                             text = "${tr.optString("recharged_on")} ${tr.optString("recharged_time")} (${tr.optString("method")})",
-                                            fontSize = 10.sp,
+                                            fontSize = 10.5.sp,
                                             color = Color.White.copy(alpha = 0.6f)
                                         )
                                     }
                                     Text(
                                         text = formatRupiah(tr.optDouble("price", 0.0)),
-                                        fontSize = 11.5.sp,
+                                        fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = ArnetaGoldPrimary
                                     )
@@ -855,71 +949,11 @@ fun UserDetailAndLiveSpeedDialog(
                         }
                     }
                 }
-            }
-        },
-        confirmButton = {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                if (phoneStr.isNotEmpty() && phoneStr != "-") {
-                    FilledTonalButton(
-                        onClick = {
-                            val msg = "Halo *$displayFullname* (@$displayUsername),\nInformasi layanan ${ApiClient.companyName}:\nPaket: *$planName*\nMasa Aktif s/d: *$planExpiration*"
-                            id.biz.arneta.admin.util.BluetoothPrinterHelper.shareToWhatsApp(context, msg, phoneStr)
-                        },
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = ArnetaGreenSuccess.copy(alpha = 0.2f),
-                            contentColor = ArnetaGreenSuccess
-                        ),
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(40.dp)
-                    ) {
-                        Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(15.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("WA", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
-                    }
-                }
 
-                if (isOnline) {
-                    Button(
-                        onClick = { showKickConfirm = true },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = ArnetaRedDanger,
-                            contentColor = Color.White
-                        ),
-                        shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(40.dp)
-                    ) {
-                        Icon(Icons.Filled.LinkOff, contentDescription = null, modifier = Modifier.size(15.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Kick Sesi", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
-                    }
-                }
-
-                OutlinedButton(
-                    onClick = onDismiss,
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = ArnetaGoldPrimary),
-                    shape = RoundedCornerShape(10.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(40.dp)
-                ) {
-                    Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(15.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Tutup", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
-                }
+                Spacer(modifier = Modifier.height(12.dp))
             }
         }
-    )
+    }
 
     if (showKickConfirm) {
         val targetJson = liveData ?: initialUserObj
@@ -957,13 +991,13 @@ private fun DetailInfoRow(label: String, value: String) {
     ) {
         Text(
             text = label,
-            fontSize = 11.sp,
+            fontSize = 11.5.sp,
             color = Color.White.copy(alpha = 0.65f),
             modifier = Modifier.weight(0.42f)
         )
         Text(
             text = value,
-            fontSize = 11.sp,
+            fontSize = 11.5.sp,
             fontWeight = FontWeight.SemiBold,
             color = Color.White,
             modifier = Modifier.weight(0.58f)
@@ -1006,13 +1040,13 @@ private fun CustomerLiveSpeedChart(
             modifier = Modifier.fillMaxWidth()
         ) {
             Surface(
-                color = Color(0xFF141B2D),
+                color = Color(0xFF0B1120),
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier
                     .weight(1f)
                     .border(1.dp, ArnetaCyanIncome.copy(alpha = 0.45f), RoundedCornerShape(10.dp))
             ) {
-                Column(modifier = Modifier.padding(8.dp)) {
+                Column(modifier = Modifier.padding(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Filled.ArrowDownward, contentDescription = null, tint = ArnetaCyanIncome, modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(4.dp))
@@ -1022,7 +1056,7 @@ private fun CustomerLiveSpeedChart(
                     Text(
                         text = dlLabel,
                         fontWeight = FontWeight.ExtraBold,
-                        fontSize = 15.sp,
+                        fontSize = 16.sp,
                         color = ArnetaCyanIncome
                     )
                     Spacer(modifier = Modifier.height(5.dp))
@@ -1039,13 +1073,13 @@ private fun CustomerLiveSpeedChart(
             }
 
             Surface(
-                color = Color(0xFF141B2D),
+                color = Color(0xFF0B1120),
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier
                     .weight(1f)
                     .border(1.dp, ArnetaGoldPrimary.copy(alpha = 0.45f), RoundedCornerShape(10.dp))
             ) {
-                Column(modifier = Modifier.padding(8.dp)) {
+                Column(modifier = Modifier.padding(10.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Filled.ArrowUpward, contentDescription = null, tint = ArnetaGoldPrimary, modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(4.dp))
@@ -1055,7 +1089,7 @@ private fun CustomerLiveSpeedChart(
                     Text(
                         text = ulLabel,
                         fontWeight = FontWeight.ExtraBold,
-                        fontSize = 15.sp,
+                        fontSize = 16.sp,
                         color = ArnetaGoldPrimary
                     )
                     Spacer(modifier = Modifier.height(5.dp))
@@ -1077,9 +1111,9 @@ private fun CustomerLiveSpeedChart(
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(115.dp)
+                .height(135.dp)
                 .clip(RoundedCornerShape(10.dp))
-                .background(Color(0xFF141B2D))
+                .background(Color(0xFF0B1120))
                 .padding(8.dp)
         ) {
             val w = size.width
