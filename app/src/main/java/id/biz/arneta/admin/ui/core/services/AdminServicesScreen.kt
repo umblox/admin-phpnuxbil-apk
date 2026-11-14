@@ -56,6 +56,7 @@ fun AdminServicesScreen(
 
     var isLoading by remember { mutableStateOf(false) }
     var activeList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var activeStatusFilter by remember { mutableStateOf("All") } // All | on | off
     var voucherList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var usageList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var usageSummary by remember { mutableStateOf<JSONObject?>(null) }
@@ -192,14 +193,17 @@ fun AdminServicesScreen(
         }
     }
 
-    val filteredActiveList = remember(activeList, searchQuery) {
+    val filteredActiveList = remember(activeList, searchQuery, activeStatusFilter) {
         val q = searchQuery.trim().lowercase()
-        if (q.isEmpty()) activeList
-        else activeList.filter { item ->
-            item.optString("fullname", "").lowercase().contains(q) ||
+        activeList.filter { item ->
+            val st = item.optString("status", "off").lowercase()
+            val matchStatus = activeStatusFilter == "All" || st == activeStatusFilter.lowercase()
+            val matchQuery = q.isEmpty() ||
+                item.optString("fullname", "").lowercase().contains(q) ||
                 item.optString("username", "").lowercase().contains(q) ||
                 item.optString("namebp", "").lowercase().contains(q) ||
                 item.optString("routers", "").lowercase().contains(q)
+            matchStatus && matchQuery
         }
     }
 
@@ -258,24 +262,57 @@ fun AdminServicesScreen(
 
         when (currentSubTab) {
             "active_users" -> {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = { Text("Ketik nama / username / paket...", fontSize = 13.sp) },
-                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = ArnetaGoldPrimary) },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { searchQuery = "" }) {
-                                Icon(Icons.Filled.Clear, contentDescription = "Hapus")
-                            }
-                        }
-                    },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.fillMaxWidth()
-                )
+                ) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Ketik nama / username / paket...", fontSize = 13.sp) },
+                        leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = ArnetaGoldPrimary) },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { searchQuery = "" }) {
+                                    Icon(Icons.Filled.Clear, contentDescription = "Hapus")
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                    IconButton(onClick = { loadCurrentTab() }) {
+                        Icon(Icons.Filled.Refresh, contentDescription = "Segarkan", tint = ArnetaGoldPrimary)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                ) {
+                    val onCnt = activeList.count { it.optString("status") == "on" }
+                    val offCnt = activeList.count { it.optString("status") != "on" }
+                    listOf(
+                        "All" to "Semua (${activeList.size})",
+                        "on" to "🟢 Aktif ($onCnt)",
+                        "off" to "🔴 Kedaluwarsa ($offCnt)"
+                    ).forEach { (stKey, stLbl) ->
+                        FilterChip(
+                            selected = activeStatusFilter == stKey,
+                            onClick = { activeStatusFilter = stKey },
+                            label = { Text(stLbl, fontSize = 11.5.sp) }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
 
                 if (isLoading) {
                     Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -762,12 +799,17 @@ fun AdminServicesScreen(
                         Text("Buat Voucher Massal", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
 
-                    OutlinedButton(
-                        onClick = { showCleanUsedVoucherDialog = true }
-                    ) {
-                        Icon(Icons.Filled.DeleteSweep, contentDescription = null, tint = ArnetaRedDanger, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Bersihkan Terpakai", fontSize = 11.5.sp, color = ArnetaRedDanger)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedButton(
+                            onClick = { showCleanUsedVoucherDialog = true }
+                        ) {
+                            Icon(Icons.Filled.DeleteSweep, contentDescription = null, tint = ArnetaRedDanger, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Bersihkan Terpakai", fontSize = 11.5.sp, color = ArnetaRedDanger)
+                        }
+                        IconButton(onClick = { loadCurrentTab() }) {
+                            Icon(Icons.Filled.Refresh, contentDescription = "Segarkan", tint = ArnetaGoldPrimary)
+                        }
                     }
                 }
 
@@ -965,7 +1007,7 @@ fun AdminServicesScreen(
                                 scope.launch {
                                     val res = ApiClient.request(
                                         "admin_voucher_refill",
-                                        mapOf("customer_id" to cust.optInt("id"), "code" to refillCode)
+                                        mapOf("customer_id" to cust.optInt("id"), "code" to refillCode.trim())
                                     )
                                     if (res.status) {
                                         ArnetaTransactionToastManager.showFromApiResponse(
@@ -1243,10 +1285,11 @@ fun AdminServicesScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
-                            horizontalArrangement = Arrangement.SpaceAround,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(14.dp)
+                                .padding(horizontal = 14.dp, vertical = 12.dp)
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text("Total Upload", fontSize = 11.sp, color = Color.White.copy(alpha = 0.75f))
@@ -1259,6 +1302,9 @@ fun AdminServicesScreen(
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text("Total Traffic", fontSize = 11.sp, color = Color.White.copy(alpha = 0.75f))
                                 Text(usageSummary!!.optString("total_traffic"), fontWeight = FontWeight.ExtraBold, color = ArnetaGreenSuccess)
+                            }
+                            IconButton(onClick = { loadCurrentTab() }) {
+                                Icon(Icons.Filled.Refresh, contentDescription = "Segarkan", tint = Color.White)
                             }
                         }
                     }
