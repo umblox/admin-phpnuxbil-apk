@@ -360,9 +360,13 @@ internal fun extractRouterOptions(plans: List<JSONObject>, routersArray: JSONArr
         }
     }
     plans.forEach { p ->
-        val rName = p.optString("routers", "").trim()
-        if (rName.isNotEmpty() && !rName.equals("balance", ignoreCase = true)) {
-            set.add(rName)
+        if (p.optInt("is_radius", 0) == 1) {
+            set.add("Radius")
+        } else {
+            val rName = p.optString("routers", "").trim()
+            if (rName.isNotEmpty() && !rName.equals("balance", ignoreCase = true)) {
+                set.add(rName)
+            }
         }
     }
     val result = mutableListOf("All" to "Semua Router (${set.size})")
