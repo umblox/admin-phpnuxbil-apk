@@ -3,9 +3,11 @@ package id.biz.arneta.admin.ui.screens
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -55,13 +57,13 @@ fun AdminCustomersScreen(
     var detailCustomerTarget by remember { mutableStateOf<JSONObject?>(null) }
     var deletingCustomerTarget by remember { mutableStateOf<JSONObject?>(null) }
 
-    fun loadCustomers(query: String = "") {
+    fun loadCustomers(query: String = searchQuery) {
         scope.launch {
             if (allCustomers.isEmpty()) isLoading = true
             val res = ApiClient.request(
                 "admin_customers",
                 mapOf(
-                    "search" to query,
+                    "search" to query.trim(),
                     "service_type" to if (selectedType == "All") "" else selectedType,
                     "limit" to 300
                 )
@@ -76,12 +78,10 @@ fun AdminCustomersScreen(
         }
     }
 
-    LaunchedEffect(selectedType) {
-        loadCustomers(searchQuery)
-    }
-
-    LaunchedEffect(searchQuery) {
-        delay(220)
+    LaunchedEffect(selectedType, searchQuery) {
+        if (searchQuery.isNotEmpty()) {
+            delay(220)
+        }
         loadCustomers(searchQuery)
     }
 
@@ -113,33 +113,39 @@ fun AdminCustomersScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "Pelanggan (${displayedCustomers.size})",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Ketik Nama Pelanggan",
+                    text = "Kelola akun Hotspot, PPPoE & lokasi pelanggan",
                     fontSize = 11.5.sp,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                 )
             }
 
-            Button(
-                onClick = {
-                    editingCustomer = null
-                    showFormDialog = true
-                },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = ArnetaGoldPrimary,
-                    contentColor = Color(0xFF0B0F19)
-                ),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Icon(Icons.Filled.PersonAdd, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Add Customer", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { loadCustomers(searchQuery) }) {
+                    Icon(Icons.Filled.Refresh, contentDescription = "Segarkan", tint = ArnetaGoldPrimary)
+                }
+
+                Button(
+                    onClick = {
+                        editingCustomer = null
+                        showFormDialog = true
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ArnetaGoldPrimary,
+                        contentColor = Color(0xFF0B0F19)
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Filled.PersonAdd, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Add Customer", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
             }
         }
 
@@ -199,9 +205,16 @@ fun AdminCustomersScreen(
 
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
         ) {
-            listOf("All" to "Semua", "Hotspot" to "Hotspot", "PPPoE" to "PPPoE").forEach { (key, label) ->
+            listOf(
+                "All" to "Semua",
+                "Hotspot" to "Hotspot",
+                "PPPoE" to "PPPoE",
+                "Others" to "Others"
+            ).forEach { (key, label) ->
                 FilterChip(
                     selected = selectedType == key,
                     onClick = { selectedType = key },
@@ -231,6 +244,7 @@ fun AdminCustomersScreen(
                     val pkgStatus = pkg?.optString("status", "off") ?: "none"
                     val isOnlineOrActive = pkgStatus == "on"
                     val cityStr = cust.optString("city", "")
+                    val accStatus = cust.optString("status", "Active")
 
                     Card(
                         shape = RoundedCornerShape(16.dp),
@@ -275,13 +289,32 @@ fun AdminCustomersScreen(
                                     }
                                     Spacer(modifier = Modifier.width(10.dp))
                                     Column {
-                                        Text(
-                                            text = cust.optString("fullname"),
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 15.sp,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                text = cust.optString("fullname"),
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 15.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            if (!accStatus.equals("Active", ignoreCase = true)) {
+                                                Surface(
+                                                    color = ArnetaRedDanger.copy(alpha = 0.18f),
+                                                    shape = RoundedCornerShape(4.dp)
+                                                ) {
+                                                    Text(
+                                                        text = accStatus.uppercase(),
+                                                        fontSize = 9.sp,
+                                                        fontWeight = FontWeight.ExtraBold,
+                                                        color = ArnetaRedDanger,
+                                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
                                         Text(
                                             text = "@${cust.optString("username")} • ${cust.optString("service_type")}" +
                                                 if (cityStr.isNotEmpty()) " • $cityStr" else "",
