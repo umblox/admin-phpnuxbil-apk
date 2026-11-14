@@ -75,6 +75,8 @@ fun AdminReportsAndPgScreen(
 
     val todayDate = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()) }
     val monthStartDate = remember { SimpleDateFormat("yyyy-MM-01", Locale.US).format(Date()) }
+    val yearStartDate = remember { SimpleDateFormat("yyyy-01-01", Locale.US).format(Date()) }
+
     var startDate by remember { mutableStateOf(monthStartDate) }
     var endDate by remember { mutableStateOf(todayDate) }
     var reportSearch by remember { mutableStateOf("") }
@@ -94,6 +96,9 @@ fun AdminReportsAndPgScreen(
     var pgByGatewayStats by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var pgTotalPaidAmount by remember { mutableDoubleStateOf(0.0) }
     var pgTotalUnpaidCount by remember { mutableIntStateOf(0) }
+
+    // Konfirmasi sebelum Approve Manual / Cancel tagihan Payment Gateway
+    var confirmPgActionTarget by remember { mutableStateOf<Pair<JSONObject, String>?>(null) }
 
     fun loadReports() {
         isLoadingReport = true
@@ -175,24 +180,16 @@ fun AdminReportsAndPgScreen(
         }
     }
 
-    LaunchedEffect(currentTab, selectedReportMethod) {
-        if (currentTab == 0) loadReports()
-    }
-
-    LaunchedEffect(reportSearch) {
+    LaunchedEffect(currentTab, selectedReportMethod, reportSearch) {
         if (currentTab == 0) {
-            delay(250)
+            if (reportSearch.isNotEmpty()) delay(250)
             loadReports()
         }
     }
 
-    LaunchedEffect(currentTab, pgStatusFilter, pgGatewayFilter) {
-        if (currentTab == 1) loadPaymentGateways()
-    }
-
-    LaunchedEffect(pgSearch) {
+    LaunchedEffect(currentTab, pgStatusFilter, pgGatewayFilter, pgSearch) {
         if (currentTab == 1) {
-            delay(250)
+            if (pgSearch.isNotEmpty()) delay(250)
             loadPaymentGateways()
         }
     }
@@ -227,6 +224,44 @@ fun AdminReportsAndPgScreen(
         Spacer(modifier = Modifier.height(8.dp))
 
         if (currentTab == 0) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+            ) {
+                FilterChip(
+                    selected = startDate == todayDate && endDate == todayDate,
+                    onClick = {
+                        startDate = todayDate
+                        endDate = todayDate
+                        loadReports()
+                    },
+                    label = { Text("Hari Ini", fontSize = 11.5.sp) }
+                )
+                FilterChip(
+                    selected = startDate == monthStartDate && endDate == todayDate,
+                    onClick = {
+                        startDate = monthStartDate
+                        endDate = todayDate
+                        loadReports()
+                    },
+                    label = { Text("Bulan Ini", fontSize = 11.5.sp) }
+                )
+                FilterChip(
+                    selected = startDate == yearStartDate && endDate == todayDate,
+                    onClick = {
+                        startDate = yearStartDate
+                        endDate = todayDate
+                        loadReports()
+                    },
+                    label = { Text("Tahun Ini", fontSize = 11.5.sp) }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -831,14 +866,7 @@ fun AdminReportsAndPgScreen(
 
                                         Button(
                                             onClick = {
-                                                scope.launch {
-                                                    val aRes = ApiClient.request(
-                                                        "admin_pg_action",
-                                                        mapOf("sub_action" to "approve_manual", "id" to trxId)
-                                                    )
-                                                    Toast.makeText(context, aRes.message, Toast.LENGTH_LONG).show()
-                                                    loadPaymentGateways()
-                                                }
+                                                confirmPgActionTarget = item to "approve_manual"
                                             },
                                             colors = ButtonDefaults.buttonColors(
                                                 containerColor = ArnetaGreenSuccess,
@@ -866,14 +894,7 @@ fun AdminReportsAndPgScreen(
 
                                         OutlinedButton(
                                             onClick = {
-                                                scope.launch {
-                                                    val xRes = ApiClient.request(
-                                                        "admin_pg_action",
-                                                        mapOf("sub_action" to "cancel", "id" to trxId)
-                                                    )
-                                                    Toast.makeText(context, xRes.message, Toast.LENGTH_SHORT).show()
-                                                    loadPaymentGateways()
-                                                }
+                                                confirmPgActionTarget = item to "cancel"
                                             },
                                             colors = ButtonDefaults.outlinedButtonColors(contentColor = ArnetaRedDanger)
                                         ) {
@@ -889,6 +910,72 @@ fun AdminReportsAndPgScreen(
                 }
             }
         }
+    }
+
+    if (confirmPgActionTarget != null) {
+        val (targetItem, subAction) = confirmPgActionTarget!!
+        val isApprove = subAction == "approve_manual"
+        val trxId = targetItem.optInt("id")
+        val uname = targetItem.optString("username")
+        val planName = targetItem.optString("plan_name")
+        val priceFmt = formatRupiah(targetItem.optDouble("price", 0.0), targetItem.optString("currency", ApiClient.currencyCode))
+
+        AlertDialog(
+            onDismissRequest = { confirmPgActionTarget = null },
+            containerColor = Color(0xFF141B2D),
+            titleContentColor = Color.White,
+            textContentColor = Color.White,
+            title = {
+                Text(
+                    text = if (isApprove) "Setujui Manual Tagihan #$trxId?" else "Batalkan Tagihan #$trxId?",
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 16.sp
+                )
+            },
+            text = {
+                Text(
+                    text = if (isApprove) {
+                        "Tagihan @$uname untuk paket $planName ($priceFmt) akan ditandai LUNAS dan paket/saldo akan langsung diaktifkan ke Router MikroTik."
+                    } else {
+                        "Tagihan @$uname untuk paket $planName ($priceFmt) akan dibatalkan."
+                    },
+                    fontSize = 12.5.sp,
+                    color = Color.White.copy(alpha = 0.85f)
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        confirmPgActionTarget = null
+                        scope.launch {
+                            val aRes = ApiClient.request(
+                                "admin_pg_action",
+                                mapOf("sub_action" to subAction, "id" to trxId)
+                            )
+                            Toast.makeText(context, aRes.message, Toast.LENGTH_LONG).show()
+                            loadPaymentGateways()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isApprove) ArnetaGreenSuccess else ArnetaRedDanger,
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text(
+                        text = if (isApprove) "Ya, Setujui & Aktifkan" else "Ya, Batalkan",
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { confirmPgActionTarget = null },
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                ) {
+                    Text("Batal")
+                }
+            }
+        )
     }
 
     ArnetaInteractiveTransactionToast()
