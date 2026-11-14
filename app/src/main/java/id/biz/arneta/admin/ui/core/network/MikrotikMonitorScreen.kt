@@ -99,7 +99,7 @@ fun AdminNetworkAndOnlineScreen(
             }
 
             val monitoredIf = activeRouter.optString("monitored_interface", "")
-            if (selectedInterface.isEmpty() && monitoredIf.isNotEmpty()) {
+            if (selectedInterface.isEmpty() && monitoredIf.isNotEmpty() && monitoredIf != "-") {
                 selectedInterface = monitoredIf
             }
 
@@ -347,7 +347,11 @@ fun AdminNetworkAndOnlineScreen(
                     }
 
                     item {
-                        val monitoredIf = activeRouterObj?.optString("monitored_interface", selectedInterface.ifEmpty { "ether1" }) ?: "ether1"
+                        val monitoredIf = activeRouterObj
+                            ?.optString("monitored_interface", selectedInterface.ifEmpty { "-" })
+                            ?.ifEmpty { "-" }
+                            ?: selectedInterface.ifEmpty { "-" }
+
                         Card(
                             shape = RoundedCornerShape(18.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
