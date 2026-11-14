@@ -168,7 +168,7 @@ fun AdminPlansScreen() {
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (currentTab == "Hotspot" || currentTab == "PPPOE") {
+                if (currentTab == "Hotspot" || currentTab == "PPPOE" || currentTab == "VPN") {
                     FilledTonalButton(
                         enabled = !isSyncing,
                         onClick = {
@@ -237,15 +237,13 @@ fun AdminPlansScreen() {
             val balCount = plansList.count { it.optString("type").equals("Balance", true) }
             val vpnCount = plansList.count { it.optString("type").equals("VPN", true) }
 
-            val tabItems = buildList {
-                add("Hotspot" to "Hotspot ($hsCount)")
-                add("PPPOE" to "PPPoE ($pppCount)")
-                add("Balance" to "Paket Saldo ($balCount)")
-                if (vpnCount > 0 || currentTab == "VPN") {
-                    add("VPN" to "VPN ($vpnCount)")
-                }
-                add("Bandwidth" to "Bandwidth (${bwList.size})")
-            }
+            val tabItems = listOf(
+                "Hotspot" to "Hotspot ($hsCount)",
+                "PPPOE" to "PPPoE ($pppCount)",
+                "Balance" to "Paket Saldo ($balCount)",
+                "VPN" to "VPN ($vpnCount)",
+                "Bandwidth" to "Bandwidth (${bwList.size})"
+            )
 
             tabItems.forEach { (tabKey, tabLabel) ->
                 FilterChip(
