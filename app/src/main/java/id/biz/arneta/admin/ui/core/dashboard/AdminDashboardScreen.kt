@@ -64,7 +64,7 @@ fun AdminDashboardScreen(
     var activeExpiredLabel by remember { mutableStateOf("0/0") }
     var totalCustomers by remember { mutableIntStateOf(0) }
     var totalCustomerBalance by remember { mutableDoubleStateOf(0.0) }
-    var datePeriod by remember { mutableStateOf("01 Nov 2026 / 10 Nov 2026") }
+    var datePeriod by remember { mutableStateOf("-") }
     var unpaidQrisCount by remember { mutableIntStateOf(0) }
 
     var regChartList by remember { mutableStateOf(emptyList<Pair<String, Float>>()) }
@@ -85,9 +85,15 @@ fun AdminDashboardScreen(
             if (res.status && res.data != null) {
                 val comp = res.data.optJSONObject("company")
                 if (comp != null) {
-                    ApiClient.companyName = comp.optString("name", "Arneta.ID")
-                    ApiClient.currencyCode = comp.optString("currency", "Rp.")
-                    datePeriod = comp.optString("date_Period", datePeriod)
+                    val dynName = comp.optString("name", "").trim()
+                    if (dynName.isNotEmpty()) {
+                        ApiClient.companyName = dynName
+                    }
+                    val dynCurr = comp.optString("currency", "").trim()
+                    if (dynCurr.isNotEmpty()) {
+                        ApiClient.currencyCode = dynCurr
+                    }
+                    datePeriod = comp.optString("date_Period", datePeriod).ifEmpty { "-" }
                 }
 
                 val cards = res.data.optJSONObject("cards")
@@ -133,10 +139,11 @@ fun AdminDashboardScreen(
             isLoading = false
 
             val rRes = ApiClient.request("admin_router_status")
-            if (rRes.status && rRes.dataArray != null) {
+            val rArr = rRes.dataArray ?: rRes.data?.optJSONArray("routers")
+            if (rRes.status && rArr != null) {
                 val rTemp = mutableListOf<JSONObject>()
-                for (i in 0 until rRes.dataArray.length()) {
-                    rTemp.add(rRes.dataArray.getJSONObject(i))
+                for (i in 0 until rArr.length()) {
+                    rTemp.add(rArr.getJSONObject(i))
                 }
                 routerStatusList = rTemp
             }
@@ -533,7 +540,7 @@ fun AdminDashboardScreen(
             }
         }
 
-        // WIDGET 5: Pelanggan Kedaluwarsa / Segera Habis Masa Aktif (Sesuai Widget User Expired di dashboard.tpl)
+        // WIDGET 5: Pelanggan Kedaluwarsa / Segera Habis Masa Aktif
         if (expiringList.isNotEmpty()) {
             item {
                 WebDashboardWidgetCard(
