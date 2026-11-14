@@ -167,7 +167,14 @@ fun AdminPlansScreen() {
                 )
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                IconButton(onClick = { loadPlansData() }) {
+                    Icon(Icons.Filled.Refresh, contentDescription = "Muat Ulang", tint = ArnetaGoldPrimary)
+                }
+
                 if (currentTab == "Hotspot" || currentTab == "PPPOE" || currentTab == "VPN") {
                     FilledTonalButton(
                         enabled = !isSyncing,
@@ -519,42 +526,17 @@ fun AdminPlansScreen() {
 
     if (deletingPlanTarget != null) {
         val target = deletingPlanTarget!!
-        AlertDialog(
-            onDismissRequest = { deletingPlanTarget = null },
-            containerColor = Color(0xFF141B2D),
-            titleContentColor = Color.White,
-            textContentColor = Color.White,
-            title = {
-                Text("Hapus Paket ${target.optString("name_plan")}?", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
-            },
-            text = {
-                Text(
-                    text = "Paket ini akan dihapus dari database dan profilnya akan dicabut dari Router MikroTik / Device terkait.",
-                    fontSize = 12.5.sp,
-                    color = Color.White.copy(alpha = 0.85f)
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        deletingPlanTarget = null
-                        scope.launch {
-                            val dRes = ApiClient.request("admin_plan_delete", mapOf("id" to target.optInt("id")))
-                            Toast.makeText(context, dRes.message, Toast.LENGTH_SHORT).show()
-                            if (dRes.status) loadPlansData()
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = ArnetaRedDanger, contentColor = Color.White)
-                ) {
-                    Text("Ya, Hapus", fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                OutlinedButton(
-                    onClick = { deletingPlanTarget = null },
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
-                ) {
-                    Text("Batal")
+        ConfirmDeleteArnetaDialog(
+            title = "Hapus Paket ${target.optString("name_plan")}?",
+            subtitle = "${target.optString("type")} • ${formatRupiah(target.optDouble("price", 0.0))}",
+            description = "Paket ini akan dihapus dari database dan profilnya akan dicabut dari Router MikroTik / Device terkait.",
+            onDismiss = { deletingPlanTarget = null },
+            onConfirm = {
+                deletingPlanTarget = null
+                scope.launch {
+                    val dRes = ApiClient.request("admin_plan_delete", mapOf("id" to target.optInt("id")))
+                    Toast.makeText(context, dRes.message, Toast.LENGTH_SHORT).show()
+                    if (dRes.status) loadPlansData()
                 }
             }
         )
@@ -562,42 +544,17 @@ fun AdminPlansScreen() {
 
     if (deletingBwTarget != null) {
         val target = deletingBwTarget!!
-        AlertDialog(
-            onDismissRequest = { deletingBwTarget = null },
-            containerColor = Color(0xFF141B2D),
-            titleContentColor = Color.White,
-            textContentColor = Color.White,
-            title = {
-                Text("Hapus Bandwidth ${target.optString("name_bw")}?", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
-            },
-            text = {
-                Text(
-                    text = "Apakah Anda yakin ingin menghapus profil kecepatan bandwidth ini?",
-                    fontSize = 12.5.sp,
-                    color = Color.White.copy(alpha = 0.85f)
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        deletingBwTarget = null
-                        scope.launch {
-                            val dRes = ApiClient.request("admin_bandwidth_delete", mapOf("id" to target.optInt("id")))
-                            Toast.makeText(context, dRes.message, Toast.LENGTH_SHORT).show()
-                            if (dRes.status) loadPlansData()
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = ArnetaRedDanger, contentColor = Color.White)
-                ) {
-                    Text("Ya, Hapus", fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                OutlinedButton(
-                    onClick = { deletingBwTarget = null },
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
-                ) {
-                    Text("Batal")
+        ConfirmDeleteArnetaDialog(
+            title = "Hapus Bandwidth ${target.optString("name_bw")}?",
+            subtitle = "↓ ${target.optInt("rate_down")} ${target.optString("rate_down_unit")} / ↑ ${target.optInt("rate_up")} ${target.optString("rate_up_unit")}",
+            description = "Profil kecepatan bandwidth ini akan dihapus permanen dari database.",
+            onDismiss = { deletingBwTarget = null },
+            onConfirm = {
+                deletingBwTarget = null
+                scope.launch {
+                    val dRes = ApiClient.request("admin_bandwidth_delete", mapOf("id" to target.optInt("id")))
+                    Toast.makeText(context, dRes.message, Toast.LENGTH_SHORT).show()
+                    if (dRes.status) loadPlansData()
                 }
             }
         )
