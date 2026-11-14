@@ -486,7 +486,7 @@ fun AdminServicesScreen(
                             OutlinedTextField(
                                 value = customDepositAmount,
                                 onValueChange = { customDepositAmount = it },
-                                label = { Text("Nominal Top-Up Manual (Rp)", fontSize = 11.5.sp) },
+                                label = { Text("Nominal Top-Up Manual (${ApiClient.currencyCode})", fontSize = 11.5.sp) },
                                 placeholder = { Text("Contoh: 50000") },
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 singleLine = true,
@@ -611,7 +611,7 @@ fun AdminServicesScreen(
                                         disabledOptions = if (isTargetBalanceInsufficient) setOf("Balance") else emptySet(),
                                         options = paymentUsings.map { u ->
                                             u to when {
-                                                u.equals("Recharge Zero", ignoreCase = true) -> "⚡ Recharge Zero (Rp 0)"
+                                                u.equals("Recharge Zero", ignoreCase = true) -> "⚡ Recharge Zero (${ApiClient.currencyCode} 0)"
                                                 u.equals("Balance", ignoreCase = true) -> {
                                                     if (isTargetBalanceInsufficient) "💰 Potong Saldo (Saldo tidak mencukupi)"
                                                     else "💰 Potong Saldo Pelanggan (${formatRupiah(targetCustBalance)})"
@@ -1138,7 +1138,7 @@ fun AdminServicesScreen(
                                                 shape = RoundedCornerShape(6.dp)
                                             ) {
                                                 Text(
-                                                    text = if (cType.equals("percent", true)) "Persen (%)" else "Nominal (Rp)",
+                                                    text = if (cType.equals("percent", true)) "Persen (%)" else "Nominal (${ApiClient.currencyCode})",
                                                     fontSize = 9.5.sp,
                                                     fontWeight = FontWeight.Bold,
                                                     color = ArnetaCyanIncome,
