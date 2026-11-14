@@ -59,6 +59,7 @@ object ArnetaTransactionToastManager {
             put("fullname", fallbackCustomer?.optString("fullname")?.ifEmpty { null } ?: invObj?.optString("username", "-"))
             put("phonenumber", fallbackCustomer?.optString("phonenumber", "") ?: "")
             put("plan_name", invObj?.optString("plan_name")?.ifEmpty { null } ?: fallbackPlanName)
+            put("type", invObj?.optString("type")?.ifEmpty { null } ?: if (fallbackMethod.equals("Deposit", true)) "Balance" else "Layanan")
             put("price", invObj?.optDouble("price") ?: fallbackPrice)
             put("method", invObj?.optString("method")?.ifEmpty { null } ?: fallbackMethod)
             put("routers", invObj?.optString("routers")?.ifEmpty { null } ?: fallbackRouter)
@@ -102,7 +103,9 @@ fun ArnetaInteractiveTransactionToast() {
     val routerStr = receipt.optString("routers", "-")
     val rechargedAt = receipt.optString("recharged_at", "-")
     val expiration = receipt.optString("expiration", "-")
-    val isBalanceTrx = typeStr.equals("Balance", ignoreCase = true) || routerStr.equals("balance", ignoreCase = true)
+    val isBalanceTrx = typeStr.equals("Balance", ignoreCase = true) ||
+        routerStr.equals("balance", ignoreCase = true) ||
+        methodStr.equals("Deposit", ignoreCase = true)
     val balanceAfter = receipt.optDouble("balance_after", 0.0)
 
     AlertDialog(
