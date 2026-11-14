@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.biz.arneta.admin.network.ApiClient
 import id.biz.arneta.admin.ui.theme.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
@@ -72,6 +73,7 @@ fun GenieAcsScreen() {
     var showHostDialog by remember { mutableStateOf(false) }
     var editingHost by remember { mutableStateOf<JSONObject?>(null) }
     var confirmRebootDeviceTarget by remember { mutableStateOf<JSONObject?>(null) }
+    var confirmDeleteDeviceTarget by remember { mutableStateOf<JSONObject?>(null) }
     var confirmDeleteHostTarget by remember { mutableStateOf<JSONObject?>(null) }
 
     fun loadDashboard() {
@@ -170,6 +172,9 @@ fun GenieAcsScreen() {
             )
             Toast.makeText(context, aRes.message, Toast.LENGTH_SHORT).show()
             if (aRes.status) {
+                if (subAction == "summon" || subAction == "refresh") {
+                    delay(1200L)
+                }
                 if (currentTab == "dashboard") loadDashboard() else loadDevices(currentPage)
             }
         }
@@ -461,7 +466,8 @@ fun GenieAcsScreen() {
                                     device = d,
                                     onClickDetail = { selectedDeviceIdForDetail = d.optString("id") },
                                     onSummon = { triggerDeviceAction(d.optString("id"), "summon") },
-                                    onReboot = { confirmRebootDeviceTarget = d }
+                                    onReboot = { confirmRebootDeviceTarget = d },
+                                    onDelete = { confirmDeleteDeviceTarget = d }
                                 )
                             }
                         }
@@ -481,7 +487,8 @@ fun GenieAcsScreen() {
                                     device = d,
                                     onClickDetail = { selectedDeviceIdForDetail = d.optString("id") },
                                     onSummon = { triggerDeviceAction(d.optString("id"), "summon") },
-                                    onReboot = { confirmRebootDeviceTarget = d }
+                                    onReboot = { confirmRebootDeviceTarget = d },
+                                    onDelete = { confirmDeleteDeviceTarget = d }
                                 )
                             }
                         }
@@ -588,7 +595,8 @@ fun GenieAcsScreen() {
                                 device = d,
                                 onClickDetail = { selectedDeviceIdForDetail = d.optString("id") },
                                 onSummon = { triggerDeviceAction(d.optString("id"), "summon") },
-                                onReboot = { confirmRebootDeviceTarget = d }
+                                onReboot = { confirmRebootDeviceTarget = d },
+                                onDelete = { confirmDeleteDeviceTarget = d }
                             )
                         }
 
@@ -843,6 +851,22 @@ fun GenieAcsScreen() {
         )
     }
 
+    if (confirmDeleteDeviceTarget != null) {
+        val target = confirmDeleteDeviceTarget!!
+        val devId = target.optString("id")
+        val sn = target.optString("serial_number").ifEmpty { devId }
+        ConfirmDeleteArnetaDialog(
+            title = "Hapus Perangkat dari GenieACS?",
+            subtitle = sn,
+            description = "Perangkat ini akan dihapus dari database server GenieACS. Jika perangkat masih aktif di jaringan, perangkat akan otomatis terdaftar kembali saat melakukan Inform berikutnya.",
+            onDismiss = { confirmDeleteDeviceTarget = null },
+            onConfirm = {
+                confirmDeleteDeviceTarget = null
+                triggerDeviceAction(devId, "delete_device")
+            }
+        )
+    }
+
     if (confirmDeleteHostTarget != null) {
         val h = confirmDeleteHostTarget!!
         ConfirmDeleteArnetaDialog(
@@ -910,14 +934,15 @@ private fun GenieAcsStatCard(
 }
 
 /**
- * KARTU PERANGKAT GENIEACS (Otomatis menyesuaikan tampilan untuk ONT Optik maupun Router HTB/Wireless)
+ * KARTU PERANGKAT GENIEACS (Mendukung ONT Optik & Router HTB/Wireless + Tombol Hapus Cepat)
  */
 @Composable
 internal fun GenieAcsDeviceCard(
     device: JSONObject,
     onClickDetail: () -> Unit,
     onSummon: () -> Unit,
-    onReboot: () -> Unit
+    onReboot: () -> Unit,
+    onDelete: () -> Unit = {}
 ) {
     val isOnline = device.optBoolean("online", false)
     val devId = device.optString("id")
@@ -996,7 +1021,6 @@ internal fun GenieAcsDeviceCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Baris Badge: Menyembunyikan RX: N/A & Temp: N/A pada router non-ONT (seperti TOTOLINK di jaringan HTB)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1093,17 +1117,21 @@ internal fun GenieAcsDeviceCard(
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
             Spacer(modifier = Modifier.height(8.dp))
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 FilledTonalButton(
                     onClick = onClickDetail,
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
                     modifier = Modifier
-                        .weight(1.3f)
+                        .weight(1.25f)
                         .height(32.dp)
                 ) {
                     Icon(Icons.Filled.SettingsRemote, contentDescription = null, modifier = Modifier.size(14.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Detail / WiFi & WAN", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    Text("Detail / WiFi", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                 }
 
                 OutlinedButton(
@@ -1114,20 +1142,33 @@ internal fun GenieAcsDeviceCard(
                         .height(32.dp)
                 ) {
                     Icon(Icons.Filled.Sync, contentDescription = null, tint = ArnetaGreenSuccess, modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Summon", fontSize = 11.sp, color = ArnetaGreenSuccess, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Text("Summon", fontSize = 10.5.sp, color = ArnetaGreenSuccess, fontWeight = FontWeight.Bold, maxLines = 1)
                 }
 
                 OutlinedButton(
                     onClick = onReboot,
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                     modifier = Modifier
-                        .weight(0.85f)
+                        .weight(0.8f)
                         .height(32.dp)
                 ) {
                     Icon(Icons.Filled.RestartAlt, contentDescription = null, tint = ArnetaOrangeActive, modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Reboot", fontSize = 11.sp, color = ArnetaOrangeActive, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.width(3.dp))
+                    Text("Reboot", fontSize = 10.5.sp, color = ArnetaOrangeActive, fontWeight = FontWeight.Bold, maxLines = 1)
+                }
+
+                OutlinedButton(
+                    onClick = onDelete,
+                    contentPadding = PaddingValues(0.dp),
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.DeleteOutline,
+                        contentDescription = "Hapus Perangkat",
+                        tint = ArnetaRedDanger,
+                        modifier = Modifier.size(16.dp)
+                    )
                 }
             }
         }
