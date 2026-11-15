@@ -27,48 +27,78 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.biz.arneta.admin.network.ApiClient
 import id.biz.arneta.admin.ui.theme.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.ceil
 
-/**
- * LAYAR UTAMA GENIEACS TR-069 PRO (Multi-Host HTTP/HTTPS, Dasbor Optik & Router HTB/Non-Optik)
- */
+private fun parseGenieJsonList(arr: JSONArray?): List<JSONObject> {
+    if (arr == null) return emptyList()
+    val list = ArrayList<JSONObject>(arr.length())
+    for (i in 0 until arr.length()) {
+        arr.optJSONObject(i)?.let { list.add(it) }
+    }
+    return list
+}
+
 @Composable
-fun GenieAcsScreen() {
+fun GenieAcsScreen(
+    initialTab: String = "dashboard"
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var currentTab by remember { mutableStateOf("dashboard") } // dashboard | devices | hosts
+    var currentTab by remember { mutableStateOf(initialTab) }
     var isLoading by remember { mutableStateOf(false) }
 
-    // State Host GenieACS
-    var hostsList by remember { mutableStateOf(emptyList<JSONObject>()) }
-    var selectedHostId by remember { mutableStateOf("") }
-    var activeHostObj by remember { mutableStateOf<JSONObject?>(null) }
-    var connectionError by remember { mutableStateOf("") }
+    LaunchedEffect(initialTab) {
+        currentTab = initialTab
+    }
 
-    // State Statistik Dasbor
-    var totalCount by remember { mutableIntStateOf(0) }
-    var onlineCount by remember { mutableIntStateOf(0) }
-    var offlineCount by remember { mutableIntStateOf(0) }
-    var badRxCount by remember { mutableIntStateOf(0) }
-    var recentDevices by remember { mutableStateOf(emptyList<JSONObject>()) }
-    var offlineDevices by remember { mutableStateOf(emptyList<JSONObject>()) }
+    val cachedDash = remember { ApiClient.getCached("admin_genieacs_dashboard") }
 
-    // State Daftar Perangkat, Filter, Sort & Paginasi
+    var hostsList by remember {
+        mutableStateOf(
+            if (cachedDash?.status == true) parseGenieJsonList(cachedDash.data?.optJSONArray("hosts"))
+            else emptyList()
+        )
+    }
+    var activeHostObj by remember { mutableStateOf(cachedDash?.data?.optJSONObject("active_host")) }
+    var selectedHostId by remember {
+        mutableStateOf(activeHostObj?.optString("id", "") ?: "")
+    }
+    var connectionError by remember { mutableStateOf(cachedDash?.data?.optString("connection_error", "") ?: "") }
+
+    val initStats = remember { cachedDash?.data?.optJSONObject("stats") }
+    var totalCount by remember { mutableIntStateOf(initStats?.optInt("total", 0) ?: 0) }
+    var onlineCount by remember { mutableIntStateOf(initStats?.optInt("online", 0) ?: 0) }
+    var offlineCount by remember { mutableIntStateOf(initStats?.optInt("offline", 0) ?: 0) }
+    var badRxCount by remember { mutableIntStateOf(initStats?.optInt("bad_rx_count", 0) ?: 0) }
+    var recentDevices by remember {
+        mutableStateOf(
+            if (cachedDash?.status == true) parseGenieJsonList(cachedDash.data?.optJSONArray("recent_devices"))
+            else emptyList()
+        )
+    }
+    var offlineDevices by remember {
+        mutableStateOf(
+            if (cachedDash?.status == true) parseGenieJsonList(cachedDash.data?.optJSONArray("offline_devices"))
+            else emptyList()
+        )
+    }
+
     var devicesList by remember { mutableStateOf(emptyList<JSONObject>()) }
     var searchQuery by remember { mutableStateOf("") }
-    var statusFilter by remember { mutableStateOf("all") } // all | online | offline | bad_rx
-    var sortBy by remember { mutableStateOf("last_inform") } // last_inform | rx_power | temp | connected | serial
-    var sortDir by remember { mutableStateOf("desc") } // asc | desc
+    var statusFilter by remember { mutableStateOf("all") }
+    var sortBy by remember { mutableStateOf("last_inform") }
+    var sortDir by remember { mutableStateOf("desc") }
     var currentPage by remember { mutableIntStateOf(1) }
     var totalFilteredDevices by remember { mutableIntStateOf(0) }
     val pageSize = 50
 
-    // State Dialog & Konfirmasi
     var selectedDeviceIdForDetail by remember { mutableStateOf<String?>(null) }
     var showHostDialog by remember { mutableStateOf(false) }
     var editingHost by remember { mutableStateOf<JSONObject?>(null) }
@@ -76,17 +106,13 @@ fun GenieAcsScreen() {
     var confirmDeleteDeviceTarget by remember { mutableStateOf<JSONObject?>(null) }
     var confirmDeleteHostTarget by remember { mutableStateOf<JSONObject?>(null) }
 
-    fun loadDashboard() {
-        isLoading = true
+    fun loadDashboard(forceRefresh: Boolean = false) {
+        if (recentDevices.isEmpty() && hostsList.isEmpty()) isLoading = true
         scope.launch {
             val params = if (selectedHostId.isNotEmpty()) mapOf("host_id" to selectedHostId) else emptyMap()
-            val res = ApiClient.request("admin_genieacs_dashboard", params)
+            val res = ApiClient.request("admin_genieacs_dashboard", params, forceRefresh = forceRefresh)
             if (res.status && res.data != null) {
-                val hArr = res.data.optJSONArray("hosts") ?: JSONArray()
-                val hTemp = mutableListOf<JSONObject>()
-                for (i in 0 until hArr.length()) hTemp.add(hArr.getJSONObject(i))
-                hostsList = hTemp
-
+                hostsList = withContext(Dispatchers.Default) { parseGenieJsonList(res.data.optJSONArray("hosts")) }
                 activeHostObj = res.data.optJSONObject("active_host")
                 if (selectedHostId.isEmpty() && activeHostObj != null) {
                     selectedHostId = activeHostObj!!.optString("id", "")
@@ -99,61 +125,54 @@ fun GenieAcsScreen() {
                 offlineCount = st?.optInt("offline", 0) ?: 0
                 badRxCount = st?.optInt("bad_rx_count", 0) ?: 0
 
-                val recArr = res.data.optJSONArray("recent_devices") ?: JSONArray()
-                val recTemp = mutableListOf<JSONObject>()
-                for (i in 0 until recArr.length()) recTemp.add(recArr.getJSONObject(i))
-                recentDevices = recTemp
-
-                val offArr = res.data.optJSONArray("offline_devices") ?: JSONArray()
-                val offTemp = mutableListOf<JSONObject>()
-                for (i in 0 until offArr.length()) offTemp.add(offArr.getJSONObject(i))
-                offlineDevices = offTemp
-            } else {
+                recentDevices = withContext(Dispatchers.Default) { parseGenieJsonList(res.data.optJSONArray("recent_devices")) }
+                offlineDevices = withContext(Dispatchers.Default) { parseGenieJsonList(res.data.optJSONArray("offline_devices")) }
+            } else if (!res.status) {
                 connectionError = res.message
             }
             isLoading = false
         }
     }
 
-    fun loadDevices(page: Int = currentPage) {
-        isLoading = true
+    fun loadDevices(page: Int = currentPage, forceRefresh: Boolean = false) {
         currentPage = page
+        val reqParams = mapOf(
+            "host_id" to selectedHostId,
+            "search" to searchQuery.trim(),
+            "status_filter" to statusFilter,
+            "sort_by" to sortBy,
+            "sort_dir" to sortDir,
+            "page" to page,
+            "limit" to pageSize
+        )
+        if (!forceRefresh && devicesList.isEmpty()) {
+            val cachedDev = ApiClient.getCached("admin_genieacs_devices", reqParams)
+            if (cachedDev?.status == true && cachedDev.data != null) {
+                totalFilteredDevices = cachedDev.data.optInt("total", 0)
+                devicesList = parseGenieJsonList(cachedDev.data.optJSONArray("devices"))
+            }
+        }
+        if (devicesList.isEmpty()) isLoading = true
+
         scope.launch {
-            val res = ApiClient.request(
-                "admin_genieacs_devices",
-                mapOf(
-                    "host_id" to selectedHostId,
-                    "search" to searchQuery.trim(),
-                    "status_filter" to statusFilter,
-                    "sort_by" to sortBy,
-                    "sort_dir" to sortDir,
-                    "page" to page,
-                    "limit" to pageSize
-                )
-            )
+            val res = ApiClient.request("admin_genieacs_devices", reqParams, forceRefresh = forceRefresh)
             if (res.status && res.data != null) {
                 connectionError = ""
                 totalFilteredDevices = res.data.optInt("total", 0)
-                val dArr = res.data.optJSONArray("devices") ?: JSONArray()
-                val dTemp = mutableListOf<JSONObject>()
-                for (i in 0 until dArr.length()) dTemp.add(dArr.getJSONObject(i))
-                devicesList = dTemp
-            } else {
+                devicesList = withContext(Dispatchers.Default) { parseGenieJsonList(res.data.optJSONArray("devices")) }
+            } else if (!res.status) {
                 connectionError = res.message
             }
             isLoading = false
         }
     }
 
-    fun loadHosts() {
-        isLoading = true
+    fun loadHosts(forceRefresh: Boolean = false) {
+        if (hostsList.isEmpty()) isLoading = true
         scope.launch {
-            val res = ApiClient.request("admin_genieacs_hosts")
+            val res = ApiClient.request("admin_genieacs_hosts", emptyMap(), forceRefresh = forceRefresh)
             if (res.status && res.data != null) {
-                val hArr = res.data.optJSONArray("hosts") ?: JSONArray()
-                val hTemp = mutableListOf<JSONObject>()
-                for (i in 0 until hArr.length()) hTemp.add(hArr.getJSONObject(i))
-                hostsList = hTemp
+                hostsList = withContext(Dispatchers.Default) { parseGenieJsonList(res.data.optJSONArray("hosts")) }
                 activeHostObj = res.data.optJSONObject("active_host")
             }
             isLoading = false
@@ -175,19 +194,20 @@ fun GenieAcsScreen() {
                 if (subAction == "summon" || subAction == "refresh") {
                     delay(1200L)
                 }
-                if (currentTab == "dashboard") loadDashboard() else loadDevices(currentPage)
+                if (currentTab == "dashboard") loadDashboard(forceRefresh = true)
+                else loadDevices(currentPage, forceRefresh = true)
             }
         }
     }
 
     LaunchedEffect(currentTab, selectedHostId, statusFilter, sortBy, sortDir, searchQuery) {
         when (currentTab) {
-            "dashboard" -> loadDashboard()
+            "dashboard" -> loadDashboard(forceRefresh = false)
             "devices" -> {
-                if (searchQuery.isNotEmpty()) delay(280)
-                loadDevices(1)
+                if (searchQuery.isNotEmpty()) delay(250)
+                loadDevices(1, forceRefresh = false)
             }
-            "hosts" -> loadHosts()
+            "hosts" -> loadHosts(forceRefresh = false)
         }
     }
 
@@ -198,7 +218,6 @@ fun GenieAcsScreen() {
     ) {
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Header Atas & Info Server Aktif
         Row(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
@@ -248,9 +267,9 @@ fun GenieAcsScreen() {
                 IconButton(
                     onClick = {
                         when (currentTab) {
-                            "dashboard" -> loadDashboard()
-                            "devices" -> loadDevices(currentPage)
-                            "hosts" -> loadHosts()
+                            "dashboard" -> loadDashboard(forceRefresh = true)
+                            "devices" -> loadDevices(currentPage, forceRefresh = true)
+                            "hosts" -> loadHosts(forceRefresh = true)
                         }
                     }
                 ) {
@@ -261,54 +280,27 @@ fun GenieAcsScreen() {
 
         Spacer(modifier = Modifier.height(6.dp))
 
-        // Pemilih Host jika terdapat lebih dari 1 Server GenieACS
         if (hostsList.size > 1 && currentTab != "hosts") {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(bottom = 6.dp)
-            ) {
-                Text("Host:", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = ArnetaGoldPrimary)
-                hostsList.forEach { h ->
-                    val hid = h.optString("id")
-                    FilterChip(
-                        selected = selectedHostId == hid,
-                        onClick = { selectedHostId = hid },
-                        label = { Text(h.optString("name"), fontSize = 11.5.sp) },
-                        leadingIcon = if (selectedHostId == hid) {
-                            { Icon(Icons.Filled.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
-                        } else null
-                    )
-                }
-            }
+            ArnetaSubTabBar(
+                tabs = hostsList.map { h -> h.optString("id") to h.optString("name") },
+                selectedKey = selectedHostId,
+                onSelect = { selectedHostId = it },
+                modifier = Modifier.padding(bottom = 6.dp)
+            )
         }
 
-        // Navigasi Tab Utama GenieACS
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-        ) {
-            listOf(
+        ArnetaSubTabBar(
+            tabs = listOf(
                 "dashboard" to "Dasbor TR-069",
                 "devices" to "Daftar Perangkat ($totalCount)",
                 "hosts" to "Server GenieACS (${hostsList.size})"
-            ).forEach { (key, label) ->
-                FilterChip(
-                    selected = currentTab == key,
-                    onClick = { currentTab = key },
-                    label = { Text(label, fontWeight = FontWeight.SemiBold, fontSize = 12.sp) }
-                )
-            }
-        }
+            ),
+            selectedKey = currentTab,
+            onSelect = { currentTab = it }
+        )
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Banner Peringatan jika Koneksi GenieACS Gagal
         if (connectionError.isNotEmpty() && hostsList.isNotEmpty() && currentTab != "hosts") {
             Surface(
                 color = ArnetaRedDanger.copy(alpha = 0.15f),
@@ -387,7 +379,8 @@ fun GenieAcsScreen() {
                 } else {
                     LazyColumn(
                         contentPadding = PaddingValues(bottom = 95.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxSize()
                     ) {
                         item {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -464,7 +457,10 @@ fun GenieAcsScreen() {
                                     }
                                 }
                             }
-                            items(recentDevices) { d ->
+                            items(
+                                items = recentDevices,
+                                key = { it.optString("id", it.hashCode().toString()) }
+                            ) { d ->
                                 GenieAcsDeviceCard(
                                     device = d,
                                     onClickDetail = { selectedDeviceIdForDetail = d.optString("id") },
@@ -498,7 +494,10 @@ fun GenieAcsScreen() {
                                     }
                                 }
                             }
-                            items(offlineDevices) { d ->
+                            items(
+                                items = offlineDevices,
+                                key = { "off_${it.optString("id", it.hashCode().toString())}" }
+                            ) { d ->
                                 GenieAcsDeviceCard(
                                     device = d,
                                     onClickDetail = { selectedDeviceIdForDetail = d.optString("id") },
@@ -523,12 +522,12 @@ fun GenieAcsScreen() {
                             if (searchQuery.isNotEmpty()) {
                                 IconButton(onClick = {
                                     searchQuery = ""
-                                    loadDevices(1)
+                                    loadDevices(1, forceRefresh = false)
                                 }) {
                                     Icon(Icons.Filled.Clear, contentDescription = "Bersihkan")
                                 }
                             }
-                            IconButton(onClick = { loadDevices(1) }) {
+                            IconButton(onClick = { loadDevices(1, forceRefresh = true) }) {
                                 Icon(Icons.Filled.ArrowForward, contentDescription = "Cari", tint = ArnetaCyanIncome)
                             }
                         }
@@ -540,6 +539,19 @@ fun GenieAcsScreen() {
 
                 Spacer(modifier = Modifier.height(6.dp))
 
+                ArnetaSubTabBar(
+                    tabs = listOf(
+                        "all" to "Semua",
+                        "online" to "🟢 Online",
+                        "offline" to "🔴 Offline",
+                        "bad_rx" to "⚠️ Redaman Buruk"
+                    ),
+                    selectedKey = statusFilter,
+                    onSelect = { statusFilter = it }
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -547,21 +559,6 @@ fun GenieAcsScreen() {
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState())
                 ) {
-                    listOf(
-                        "all" to "Semua",
-                        "online" to "🟢 Online",
-                        "offline" to "🔴 Offline",
-                        "bad_rx" to "⚠️ Redaman Buruk"
-                    ).forEach { (fKey, fLabel) ->
-                        FilterChip(
-                            selected = statusFilter == fKey,
-                            onClick = { statusFilter = fKey },
-                            label = { Text(fLabel, fontSize = 11.sp) }
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(4.dp))
-
                     listOf(
                         "last_inform" to "Urut: Inform",
                         "rx_power" to "Urut: RX Optik",
@@ -593,7 +590,7 @@ fun GenieAcsScreen() {
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                if (isLoading) {
+                if (isLoading && devicesList.isEmpty()) {
                     Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                         CircularProgressIndicator(color = ArnetaGoldPrimary)
                     }
@@ -604,9 +601,13 @@ fun GenieAcsScreen() {
                 } else {
                     LazyColumn(
                         contentPadding = PaddingValues(bottom = 95.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
                     ) {
-                        items(devicesList) { d ->
+                        items(
+                            items = devicesList,
+                            key = { it.optString("id", it.hashCode().toString()) }
+                        ) { d ->
                             GenieAcsDeviceCard(
                                 device = d,
                                 onClickDetail = { selectedDeviceIdForDetail = d.optString("id") },
@@ -628,7 +629,7 @@ fun GenieAcsScreen() {
                                 ) {
                                     OutlinedButton(
                                         enabled = currentPage > 1,
-                                        onClick = { loadDevices(currentPage - 1) }
+                                        onClick = { loadDevices(currentPage - 1, forceRefresh = false) }
                                     ) {
                                         Text("← Sebelumnya", fontSize = 12.sp)
                                     }
@@ -639,7 +640,7 @@ fun GenieAcsScreen() {
                                     )
                                     OutlinedButton(
                                         enabled = currentPage < totalPages,
-                                        onClick = { loadDevices(currentPage + 1) }
+                                        onClick = { loadDevices(currentPage + 1, forceRefresh = false) }
                                     ) {
                                         Text("Berikutnya →", fontSize = 12.sp)
                                     }
@@ -673,9 +674,13 @@ fun GenieAcsScreen() {
                 } else {
                     LazyColumn(
                         contentPadding = PaddingValues(bottom = 95.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
                     ) {
-                        items(hostsList) { h ->
+                        items(
+                            items = hostsList,
+                            key = { it.optString("id", it.hashCode().toString()) }
+                        ) { h ->
                             val hid = h.optString("id")
                             val isAct = h.optBoolean("active", false)
                             val proto = h.optString("protocol", "http").uppercase()
@@ -785,7 +790,7 @@ fun GenieAcsScreen() {
                                                         )
                                                         Toast.makeText(context, sRes.message, Toast.LENGTH_SHORT).show()
                                                         selectedHostId = hid
-                                                        loadHosts()
+                                                        loadHosts(forceRefresh = true)
                                                     }
                                                 },
                                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
@@ -810,8 +815,8 @@ fun GenieAcsScreen() {
             onDismiss = { showHostDialog = false },
             onSaved = {
                 showHostDialog = false
-                loadHosts()
-                loadDashboard()
+                loadHosts(forceRefresh = true)
+                loadDashboard(forceRefresh = true)
             }
         )
     }
@@ -823,7 +828,8 @@ fun GenieAcsScreen() {
             onDismiss = { selectedDeviceIdForDetail = null },
             onDeviceDeleted = {
                 selectedDeviceIdForDetail = null
-                if (currentTab == "dashboard") loadDashboard() else loadDevices(currentPage)
+                if (currentTab == "dashboard") loadDashboard(forceRefresh = true)
+                else loadDevices(currentPage, forceRefresh = true)
             }
         )
     }
@@ -899,7 +905,7 @@ fun GenieAcsScreen() {
                         mapOf("id" to hid, "sub_action" to "delete")
                     )
                     Toast.makeText(context, dRes.message, Toast.LENGTH_SHORT).show()
-                    loadHosts()
+                    loadHosts(forceRefresh = true)
                 }
             }
         )
@@ -949,9 +955,6 @@ private fun GenieAcsStatCard(
     }
 }
 
-/**
- * KARTU PERANGKAT GENIEACS (Mendukung ONT Optik & Router HTB/Wireless + Tombol Hapus Cepat)
- */
 @Composable
 internal fun GenieAcsDeviceCard(
     device: JSONObject,
