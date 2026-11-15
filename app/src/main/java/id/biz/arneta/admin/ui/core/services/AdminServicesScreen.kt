@@ -26,15 +26,24 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.biz.arneta.admin.network.ApiClient
 import id.biz.arneta.admin.network.formatRupiah
+import id.biz.arneta.admin.network.optSafeDouble
 import id.biz.arneta.admin.ui.theme.*
 import id.biz.arneta.admin.util.BluetoothPrinterHelper
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
-/**
- * LAYAR LAYANAN LENGKAP (PELANGGAN AKTIF, ISI ULANG PAKET/SALDO, VOUCHER, REFILL, KUPON & DATA USAGE)
- */
+private fun jsonArrayToList(arr: JSONArray?): List<JSONObject> {
+    if (arr == null) return emptyList()
+    val list = ArrayList<JSONObject>(arr.length())
+    for (i in 0 until arr.length()) {
+        arr.optJSONObject(i)?.let { list.add(it) }
+    }
+    return list
+}
+
 @Composable
 fun AdminServicesScreen(
     initialSubTab: String = "active_users"
@@ -43,33 +52,79 @@ fun AdminServicesScreen(
     val scope = rememberCoroutineScope()
     val isSuperAdmin = remember { ApiClient.adminRole.equals("SuperAdmin", ignoreCase = true) }
 
-    val subTabs = listOf(
-        "active_users" to "Pelanggan Aktif",
-        "recharge_plan" to "Isi Ulang Paket",
-        "deposit_balance" to "Isi Ulang Saldo",
-        "vouchers" to "Voucher & Cards",
-        "refill_voucher" to "Isi Ulang Voucher",
-        "coupons" to "Kupon",
-        "data_usage" to "User Data Usage"
-    )
+    val subTabs = remember {
+        listOf(
+            "active_users" to "Pelanggan Aktif",
+            "recharge_plan" to "Isi Ulang Paket",
+            "deposit_balance" to "Isi Ulang Saldo",
+            "vouchers" to "Voucher & Cards",
+            "refill_voucher" to "Isi Ulang Voucher",
+            "coupons" to "Kupon",
+            "data_usage" to "User Data Usage"
+        )
+    }
     var currentSubTab by remember { mutableStateOf(initialSubTab) }
 
+    LaunchedEffect(initialSubTab) {
+        currentSubTab = initialSubTab
+    }
+
+    val cachedPrepaid = remember { ApiClient.getCached("admin_prepaid_list", mapOf("limit" to 250)) }
+    val cachedPlans = remember { ApiClient.getCached("admin_plans") }
+    val cachedVouchers = remember { ApiClient.getCached("admin_vouchers", mapOf("limit" to 200)) }
+    val cachedCoupons = remember { ApiClient.getCached("admin_coupons") }
+    val cachedUsage = remember { ApiClient.getCached("admin_data_usage") }
+
+    var activeList by remember {
+        mutableStateOf(
+            if (cachedPrepaid?.status == true) jsonArrayToList(cachedPrepaid.data?.optJSONArray("items") ?: cachedPrepaid.dataArray)
+            else emptyList()
+        )
+    }
+    var allCatalogPlans by remember {
+        mutableStateOf(
+            if (cachedPlans?.status == true) jsonArrayToList(cachedPlans.data?.optJSONArray("plans"))
+            else emptyList()
+        )
+    }
+    var catalogRoutersJson by remember { mutableStateOf(cachedPlans?.data?.optJSONArray("routers")) }
+    var paymentUsings by remember {
+        val uArr = cachedPlans?.data?.optJSONArray("usings")
+        val initUsings = if (uArr != null && uArr.length() > 0) {
+            List(uArr.length()) { i -> uArr.optString(i) }
+        } else {
+            listOf("Cash", "Balance", "Recharge Zero")
+        }
+        mutableStateOf(initUsings)
+    }
+    var voucherList by remember {
+        mutableStateOf(
+            if (cachedVouchers?.status == true) jsonArrayToList(cachedVouchers.data?.optJSONArray("vouchers") ?: cachedVouchers.dataArray)
+            else emptyList()
+        )
+    }
+    var couponList by remember {
+        mutableStateOf(
+            if (cachedCoupons?.status == true) jsonArrayToList(cachedCoupons.dataArray ?: cachedCoupons.data?.optJSONArray("coupons"))
+            else emptyList()
+        )
+    }
+    var usageSummary by remember { mutableStateOf(cachedUsage?.data?.optJSONObject("summary")) }
+    var usageList by remember {
+        mutableStateOf(
+            if (cachedUsage?.status == true) jsonArrayToList(cachedUsage.data?.optJSONArray("items") ?: cachedUsage.data?.optJSONArray("users"))
+            else emptyList()
+        )
+    }
+
     var isLoading by remember { mutableStateOf(false) }
-    var activeList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
-    var activeStatusFilter by remember { mutableStateOf("All") } // All | on | off
-    var voucherList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
-    var usageList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
-    var usageSummary by remember { mutableStateOf<JSONObject?>(null) }
-    var couponList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var activeStatusFilter by remember { mutableStateOf("All") }
     var searchQuery by remember { mutableStateOf("") }
 
     var targetCustomer by remember { mutableStateOf<JSONObject?>(null) }
-    var allPlans by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
-    var routerOptions by remember { mutableStateOf(listOf("All" to "Semua Router")) }
     var selectedRouterFilter by remember { mutableStateOf("All") }
-    var paymentUsings by remember { mutableStateOf(listOf("Cash", "Balance", "Recharge Zero")) }
     var selectedUsing by remember { mutableStateOf("") }
-    var rechargePlanFilter by remember { mutableStateOf("All") } // All | Hotspot | PPPoE
+    var rechargePlanFilter by remember { mutableStateOf("All") }
     var selectedPlan by remember { mutableStateOf<JSONObject?>(null) }
     var customDepositAmount by remember { mutableStateOf("") }
     var depositNote by remember { mutableStateOf("") }
@@ -83,72 +138,76 @@ fun AdminServicesScreen(
     var editingActivePlanTarget by remember { mutableStateOf<JSONObject?>(null) }
     var extendingActivePlanTarget by remember { mutableStateOf<JSONObject?>(null) }
 
-    var voucherStatusFilter by remember { mutableStateOf("All") } // All | 0 | 1
+    var voucherStatusFilter by remember { mutableStateOf("All") }
     var showCleanUsedVoucherDialog by remember { mutableStateOf(false) }
     var deletingVoucherTarget by remember { mutableStateOf<JSONObject?>(null) }
 
     var editingCouponTarget by remember { mutableStateOf<JSONObject?>(null) }
     var deletingCouponTarget by remember { mutableStateOf<JSONObject?>(null) }
-    var couponStatusFilter by remember { mutableStateOf("All") } // All | active | inactive
+    var couponStatusFilter by remember { mutableStateOf("All") }
 
-    fun loadCurrentTab() {
-        isLoading = true
+    fun loadCurrentTab(forceRefresh: Boolean = false) {
+        val hasExistingData = when (currentSubTab) {
+            "active_users" -> activeList.isNotEmpty()
+            "recharge_plan", "deposit_balance" -> allCatalogPlans.isNotEmpty()
+            "vouchers" -> voucherList.isNotEmpty()
+            "coupons" -> couponList.isNotEmpty()
+            "data_usage" -> usageList.isNotEmpty()
+            else -> true
+        }
+        if (!hasExistingData) isLoading = true
+
         scope.launch {
             when (currentSubTab) {
                 "active_users" -> {
-                    val res = ApiClient.request("admin_prepaid_list", mapOf("limit" to 250))
-                    val arr = res.data?.optJSONArray("items") ?: res.dataArray ?: JSONArray()
-                    val list = mutableListOf<JSONObject>()
-                    for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
-                    activeList = list
-                }
-                "recharge_plan", "deposit_balance" -> {
-                    val res = ApiClient.request("admin_plans")
-                    val arr = res.data?.optJSONArray("plans") ?: JSONArray()
-                    val list = mutableListOf<JSONObject>()
-                    for (i in 0 until arr.length()) {
-                        val p = arr.getJSONObject(i)
-                        val pType = p.optString("type").uppercase()
-                        if (currentSubTab == "deposit_balance" && pType == "BALANCE") {
-                            list.add(p)
-                        } else if (currentSubTab == "recharge_plan" && pType != "BALANCE") {
-                            list.add(p)
+                    val res = ApiClient.request("admin_prepaid_list", mapOf("limit" to 250), forceRefresh = forceRefresh)
+                    if (res.status) {
+                        activeList = withContext(Dispatchers.Default) {
+                            jsonArrayToList(res.data?.optJSONArray("items") ?: res.dataArray)
                         }
                     }
-                    allPlans = list
-                    routerOptions = extractRouterOptions(list, res.data?.optJSONArray("routers"))
-                    selectedPlan = list.firstOrNull()
+                }
+                "recharge_plan", "deposit_balance" -> {
+                    val res = ApiClient.request("admin_plans", emptyMap(), forceRefresh = forceRefresh)
+                    if (res.status && res.data != null) {
+                        val parsedPlans = withContext(Dispatchers.Default) {
+                            jsonArrayToList(res.data.optJSONArray("plans"))
+                        }
+                        allCatalogPlans = parsedPlans
+                        catalogRoutersJson = res.data.optJSONArray("routers")
 
-                    val uArr = res.data?.optJSONArray("usings")
-                    if (uArr != null && uArr.length() > 0) {
-                        val uList = mutableListOf<String>()
-                        for (i in 0 until uArr.length()) uList.add(uArr.optString(i))
-                        paymentUsings = uList
+                        val uArr = res.data.optJSONArray("usings")
+                        if (uArr != null && uArr.length() > 0) {
+                            val uList = mutableListOf<String>()
+                            for (i in 0 until uArr.length()) uList.add(uArr.optString(i))
+                            paymentUsings = uList
+                        }
                     }
                 }
                 "vouchers" -> {
-                    val res = ApiClient.request("admin_vouchers", mapOf("limit" to 200))
-                    val arr = res.data?.optJSONArray("vouchers") ?: res.dataArray ?: JSONArray()
-                    val list = mutableListOf<JSONObject>()
-                    for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
-                    voucherList = list
+                    val res = ApiClient.request("admin_vouchers", mapOf("limit" to 200), forceRefresh = forceRefresh)
+                    if (res.status) {
+                        voucherList = withContext(Dispatchers.Default) {
+                            jsonArrayToList(res.data?.optJSONArray("vouchers") ?: res.dataArray)
+                        }
+                    }
                 }
                 "data_usage" -> {
-                    val res = ApiClient.request("admin_data_usage")
+                    val res = ApiClient.request("admin_data_usage", emptyMap(), forceRefresh = forceRefresh)
                     if (res.status && res.data != null) {
                         usageSummary = res.data.optJSONObject("summary")
-                        val arr = res.data.optJSONArray("items") ?: res.data.optJSONArray("users") ?: JSONArray()
-                        val list = mutableListOf<JSONObject>()
-                        for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
-                        usageList = list
+                        usageList = withContext(Dispatchers.Default) {
+                            jsonArrayToList(res.data.optJSONArray("items") ?: res.data.optJSONArray("users"))
+                        }
                     }
                 }
                 "coupons" -> {
-                    val res = ApiClient.request("admin_coupons")
-                    val arr = res.dataArray ?: res.data?.optJSONArray("coupons") ?: JSONArray()
-                    val list = mutableListOf<JSONObject>()
-                    for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
-                    couponList = list
+                    val res = ApiClient.request("admin_coupons", emptyMap(), forceRefresh = forceRefresh)
+                    if (res.status) {
+                        couponList = withContext(Dispatchers.Default) {
+                            jsonArrayToList(res.dataArray ?: res.data?.optJSONArray("coupons"))
+                        }
+                    }
                 }
             }
             isLoading = false
@@ -156,18 +215,26 @@ fun AdminServicesScreen(
     }
 
     LaunchedEffect(currentSubTab) {
-        targetCustomer = null
-        selectedUsing = ""
-        customDepositAmount = ""
-        depositNote = ""
-        loadCurrentTab()
+        loadCurrentTab(forceRefresh = false)
     }
 
-    val displayedRechargePlans = remember(allPlans, rechargePlanFilter, selectedRouterFilter, currentSubTab) {
-        allPlans.filter { p ->
-            if (currentSubTab == "deposit_balance") {
-                true
-            } else {
+    val modePlans = remember(allCatalogPlans, currentSubTab) {
+        val isDep = currentSubTab == "deposit_balance"
+        allCatalogPlans.filter { p ->
+            val isBal = p.optString("type").equals("Balance", ignoreCase = true)
+            if (isDep) isBal else !isBal
+        }
+    }
+
+    val routerOptions = remember(modePlans, catalogRoutersJson) {
+        extractRouterOptions(modePlans, catalogRoutersJson)
+    }
+
+    val displayedRechargePlans = remember(modePlans, rechargePlanFilter, selectedRouterFilter, currentSubTab) {
+        if (currentSubTab == "deposit_balance") {
+            modePlans
+        } else {
+            modePlans.filter { p ->
                 val matchType = rechargePlanFilter == "All" || p.optString("type").equals(rechargePlanFilter, ignoreCase = true)
                 val matchRouter = selectedRouterFilter == "All" ||
                     p.optString("routers", "").equals(selectedRouterFilter, ignoreCase = true) ||
@@ -183,8 +250,8 @@ fun AdminServicesScreen(
         }
     }
 
-    val targetCustBalance = targetCustomer?.optDouble("balance", 0.0) ?: 0.0
-    val selectedPlanPrice = selectedPlan?.optDouble("price", 0.0) ?: 0.0
+    val targetCustBalance = targetCustomer.optSafeDouble("balance", 0.0)
+    val selectedPlanPrice = selectedPlan.optSafeDouble("price", 0.0)
     val isTargetBalanceInsufficient = targetCustomer == null || (selectedPlanPrice > 0.0 && targetCustBalance < selectedPlanPrice)
 
     LaunchedEffect(isTargetBalanceInsufficient, selectedUsing) {
@@ -243,20 +310,11 @@ fun AdminServicesScreen(
     ) {
         Spacer(modifier = Modifier.height(10.dp))
 
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-        ) {
-            subTabs.forEach { (key, title) ->
-                FilterChip(
-                    selected = currentSubTab == key,
-                    onClick = { currentSubTab = key },
-                    label = { Text(title, fontWeight = FontWeight.SemiBold, fontSize = 12.sp) }
-                )
-            }
-        }
+        ArnetaSubTabBar(
+            tabs = subTabs,
+            selectedKey = currentSubTab,
+            onSelect = { currentSubTab = it }
+        )
 
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -284,37 +342,32 @@ fun AdminServicesScreen(
                         modifier = Modifier.weight(1f)
                     )
 
-                    IconButton(onClick = { loadCurrentTab() }) {
+                    IconButton(onClick = { loadCurrentTab(forceRefresh = true) }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Segarkan", tint = ArnetaGoldPrimary)
                     }
                 }
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                ) {
+                val statusTabs = remember(activeList) {
                     val onCnt = activeList.count { it.optString("status") == "on" }
-                    val offCnt = activeList.count { it.optString("status") != "on" }
+                    val offCnt = activeList.size - onCnt
                     listOf(
                         "All" to "Semua (${activeList.size})",
                         "on" to "🟢 Aktif ($onCnt)",
                         "off" to "🔴 Kedaluwarsa ($offCnt)"
-                    ).forEach { (stKey, stLbl) ->
-                        FilterChip(
-                            selected = activeStatusFilter == stKey,
-                            onClick = { activeStatusFilter = stKey },
-                            label = { Text(stLbl, fontSize = 11.5.sp) }
-                        )
-                    }
+                    )
                 }
+
+                ArnetaSubTabBar(
+                    tabs = statusTabs,
+                    selectedKey = activeStatusFilter,
+                    onSelect = { activeStatusFilter = it }
+                )
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                if (isLoading) {
+                if (isLoading && activeList.isEmpty()) {
                     Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                         CircularProgressIndicator(color = ArnetaGoldPrimary)
                     }
@@ -325,11 +378,15 @@ fun AdminServicesScreen(
                 } else {
                     LazyColumn(
                         contentPadding = PaddingValues(bottom = 95.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxSize()
                     ) {
-                        items(filteredActiveList) { item ->
+                        items(
+                            items = filteredActiveList,
+                            key = { it.optInt("id", it.optString("username").hashCode()) }
+                        ) { item ->
                             val isOn = item.optString("status") == "on"
-                            val itemPrice = item.optDouble("price", 0.0)
+                            val itemPrice = item.optSafeDouble("price", 0.0)
                             val invoiceNo = item.optString("invoice").ifEmpty { "INV-${item.optInt("id")}" }
                             val trxDateTime = "${item.optString("recharged_on")} ${item.optString("recharged_time")}".trim()
                             val expDateTime = "${item.optString("expiration")} ${item.optString("time")}".trim()
@@ -586,7 +643,7 @@ fun AdminServicesScreen(
                             .weight(1f)
                             .fillMaxWidth()
                     ) {
-                        if (isLoading) {
+                        if (isLoading && displayedRechargePlans.isEmpty()) {
                             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                                 CircularProgressIndicator(color = ArnetaGoldPrimary)
                             }
@@ -604,7 +661,10 @@ fun AdminServicesScreen(
                                 verticalArrangement = Arrangement.spacedBy(7.dp),
                                 modifier = Modifier.fillMaxSize()
                             ) {
-                                items(displayedRechargePlans) { p ->
+                                items(
+                                    items = displayedRechargePlans,
+                                    key = { it.optInt("id", it.optString("name_plan").hashCode()) }
+                                ) { p ->
                                     val pid = p.optInt("id")
                                     val isSel = selectedPlan?.optInt("id") == pid && customDepositAmount.isBlank()
                                     SelectablePlanCard(
@@ -673,7 +733,7 @@ fun AdminServicesScreen(
                                         val displayPrice = if (selectedUsing.equals("Recharge Zero", ignoreCase = true)) {
                                             0.0
                                         } else {
-                                            selectedPlan?.optDouble("price", 0.0) ?: 0.0
+                                            selectedPlan.optSafeDouble("price", 0.0)
                                         }
                                         Text(
                                             text = formatRupiah(displayPrice),
@@ -687,7 +747,7 @@ fun AdminServicesScreen(
                                 val depositNominal = if (customDepositAmount.isNotBlank()) {
                                     customDepositAmount.toDoubleOrNull() ?: 0.0
                                 } else {
-                                    selectedPlan?.optDouble("price", 0.0) ?: 0.0
+                                    selectedPlan.optSafeDouble("price", 0.0)
                                 }
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
@@ -742,7 +802,7 @@ fun AdminServicesScreen(
                                                 fallbackTitle = if (isDeposit) "Isi Ulang Saldo Berhasil!" else "Paket Berhasil Diaktifkan!",
                                                 fallbackCustomer = cust,
                                                 fallbackPlanName = if (isDeposit && customDepositAmount.isNotBlank()) "Top-Up Saldo Manual" else (selectedPlan?.optString("name_plan") ?: "-"),
-                                                fallbackPrice = if (isDeposit && customDepositAmount.isNotBlank()) (customDepositAmount.toDoubleOrNull() ?: 0.0) else (selectedPlan?.optDouble("price", 0.0) ?: 0.0),
+                                                fallbackPrice = if (isDeposit && customDepositAmount.isNotBlank()) (customDepositAmount.toDoubleOrNull() ?: 0.0) else selectedPlan.optSafeDouble("price", 0.0),
                                                 fallbackMethod = if (isDeposit) "Deposit" else selectedUsing,
                                                 fallbackRouter = selectedPlan?.optString("routers", "-") ?: "-"
                                             )
@@ -750,7 +810,10 @@ fun AdminServicesScreen(
                                             selectedUsing = ""
                                             customDepositAmount = ""
                                             depositNote = ""
-                                            if (!isDeposit) currentSubTab = "active_users"
+                                            if (!isDeposit) {
+                                                currentSubTab = "active_users"
+                                                loadCurrentTab(forceRefresh = true)
+                                            }
                                         } else {
                                             Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
                                         }
@@ -807,7 +870,7 @@ fun AdminServicesScreen(
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("Bersihkan Terpakai", fontSize = 11.5.sp, color = ArnetaRedDanger)
                         }
-                        IconButton(onClick = { loadCurrentTab() }) {
+                        IconButton(onClick = { loadCurrentTab(forceRefresh = true) }) {
                             Icon(Icons.Filled.Refresh, contentDescription = "Segarkan", tint = ArnetaGoldPrimary)
                         }
                     }
@@ -815,26 +878,21 @@ fun AdminServicesScreen(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                ) {
+                val voucherTabs = remember(voucherList) {
                     val unusedCnt = voucherList.count { it.optString("status", "0") == "0" }
-                    val usedCnt = voucherList.count { it.optString("status", "0") == "1" }
+                    val usedCnt = voucherList.size - unusedCnt
                     listOf(
                         "All" to "Semua (${voucherList.size})",
                         "0" to "Belum Dipakai ($unusedCnt)",
                         "1" to "Terpakai ($usedCnt)"
-                    ).forEach { (stKey, stLbl) ->
-                        FilterChip(
-                            selected = voucherStatusFilter == stKey,
-                            onClick = { voucherStatusFilter = stKey },
-                            label = { Text(stLbl, fontSize = 11.5.sp) }
-                        )
-                    }
+                    )
                 }
+
+                ArnetaSubTabBar(
+                    tabs = voucherTabs,
+                    selectedKey = voucherStatusFilter,
+                    onSelect = { voucherStatusFilter = it }
+                )
 
                 Spacer(modifier = Modifier.height(6.dp))
 
@@ -859,14 +917,18 @@ fun AdminServicesScreen(
 
                 LazyColumn(
                     contentPadding = PaddingValues(bottom = 95.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                    items(filteredVoucherList) { v ->
+                    items(
+                        items = filteredVoucherList,
+                        key = { it.optInt("id", it.optString("code").hashCode()) }
+                    ) { v ->
                         val used = v.optString("status") == "1"
                         val vCode = v.optString("code")
                         val vPlan = v.optString("name_plan")
                         val vType = v.optString("type", "Hotspot")
-                        val vPrice = v.optDouble("price", 0.0)
+                        val vPrice = v.optSafeDouble("price", 0.0)
                         val vRouter = v.optString("routers", "-")
                         val vUser = v.optString("user", "0")
                         val vCreator = v.optString("generated_by_name", "Admin")
@@ -1052,33 +1114,28 @@ fun AdminServicesScreen(
                         Text("Tambah Kupon Promo", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
 
-                    IconButton(onClick = { loadCurrentTab() }) {
+                    IconButton(onClick = { loadCurrentTab(forceRefresh = true) }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Segarkan", tint = ArnetaGoldPrimary)
                     }
                 }
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                ) {
+                val couponTabs = remember(couponList) {
                     val activeCnt = couponList.count { it.optString("status", "active").equals("active", true) }
-                    val inactiveCnt = couponList.count { !it.optString("status", "active").equals("active", true) }
+                    val inactiveCnt = couponList.size - activeCnt
                     listOf(
                         "All" to "Semua (${couponList.size})",
                         "active" to "Aktif ($activeCnt)",
                         "inactive" to "Nonaktif ($inactiveCnt)"
-                    ).forEach { (stKey, stLbl) ->
-                        FilterChip(
-                            selected = couponStatusFilter == stKey,
-                            onClick = { couponStatusFilter = stKey },
-                            label = { Text(stLbl, fontSize = 11.5.sp) }
-                        )
-                    }
+                    )
                 }
+
+                ArnetaSubTabBar(
+                    tabs = couponTabs,
+                    selectedKey = couponStatusFilter,
+                    onSelect = { couponStatusFilter = it }
+                )
 
                 Spacer(modifier = Modifier.height(6.dp))
 
@@ -1101,7 +1158,7 @@ fun AdminServicesScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                if (isLoading) {
+                if (isLoading && couponList.isEmpty()) {
                     Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                         CircularProgressIndicator(color = ArnetaGoldPrimary)
                     }
@@ -1112,18 +1169,22 @@ fun AdminServicesScreen(
                 } else {
                     LazyColumn(
                         contentPadding = PaddingValues(bottom = 95.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
                     ) {
-                        items(filteredCouponList) { c ->
+                        items(
+                            items = filteredCouponList,
+                            key = { it.optInt("id", it.optString("code").hashCode()) }
+                        ) { c ->
                             val cId = c.optInt("id")
                             val cCode = c.optString("code")
-                            val cType = c.optString("type", "fixed") // fixed | percent
-                            val cVal = c.optDouble("value", 0.0)
+                            val cType = c.optString("type", "fixed")
+                            val cVal = c.optSafeDouble("value", 0.0)
                             val cDesc = c.optString("description", "-")
                             val maxUsage = c.optInt("max_usage", 0)
                             val usageCount = c.optInt("usage_count", 0)
-                            val minOrder = c.optDouble("min_order_amount", 0.0)
-                            val maxDisc = c.optDouble("max_discount_amount", 0.0)
+                            val minOrder = c.optSafeDouble("min_order_amount", 0.0)
+                            val maxDisc = c.optSafeDouble("max_discount_amount", 0.0)
                             val isActive = c.optString("status", "active").equals("active", ignoreCase = true)
                             val startDate = c.optString("start_date", "-")
                             val endDate = c.optString("end_date", c.optString("expired_date", "-"))
@@ -1235,7 +1296,7 @@ fun AdminServicesScreen(
                                                         mapOf("id" to cId, "status" to nextStatus)
                                                     )
                                                     Toast.makeText(context, sRes.message, Toast.LENGTH_SHORT).show()
-                                                    if (sRes.status) loadCurrentTab()
+                                                    if (sRes.status) loadCurrentTab(forceRefresh = true)
                                                 }
                                             }
                                         ) {
@@ -1303,7 +1364,7 @@ fun AdminServicesScreen(
                                 Text("Total Traffic", fontSize = 11.sp, color = Color.White.copy(alpha = 0.75f))
                                 Text(usageSummary!!.optString("total_traffic"), fontWeight = FontWeight.ExtraBold, color = ArnetaGreenSuccess)
                             }
-                            IconButton(onClick = { loadCurrentTab() }) {
+                            IconButton(onClick = { loadCurrentTab(forceRefresh = true) }) {
                                 Icon(Icons.Filled.Refresh, contentDescription = "Segarkan", tint = Color.White)
                             }
                         }
@@ -1313,9 +1374,13 @@ fun AdminServicesScreen(
 
                 LazyColumn(
                     contentPadding = PaddingValues(bottom = 95.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                    items(usageList) { u ->
+                    items(
+                        items = usageList,
+                        key = { it.optString("username", it.hashCode().toString()) }
+                    ) { u ->
                         Card(
                             shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -1374,7 +1439,7 @@ fun AdminServicesScreen(
             onDismiss = { showGenVoucherDialog = false },
             onGenerated = {
                 showGenVoucherDialog = false
-                loadCurrentTab()
+                loadCurrentTab(forceRefresh = true)
             }
         )
     }
@@ -1389,7 +1454,7 @@ fun AdminServicesScreen(
             onSaved = {
                 showCouponDialog = false
                 editingCouponTarget = null
-                loadCurrentTab()
+                loadCurrentTab(forceRefresh = true)
             }
         )
     }
@@ -1406,7 +1471,7 @@ fun AdminServicesScreen(
                 scope.launch {
                     val dRes = ApiClient.request("admin_coupon_delete", mapOf("id" to targetC.optInt("id")))
                     Toast.makeText(context, dRes.message, Toast.LENGTH_SHORT).show()
-                    if (dRes.status) loadCurrentTab()
+                    if (dRes.status) loadCurrentTab(forceRefresh = true)
                 }
             }
         )
@@ -1416,7 +1481,7 @@ fun AdminServicesScreen(
         UserDetailAndLiveSpeedDialog(
             initialUserObj = detailActiveCustomerTarget!!,
             onDismiss = { detailActiveCustomerTarget = null },
-            onUserKicked = { loadCurrentTab() }
+            onUserKicked = { loadCurrentTab(forceRefresh = true) }
         )
     }
 
@@ -1432,7 +1497,7 @@ fun AdminServicesScreen(
                 scope.launch {
                     val dRes = ApiClient.request("admin_prepaid_delete", mapOf("id" to target.optInt("id")))
                     Toast.makeText(context, dRes.message, Toast.LENGTH_SHORT).show()
-                    if (dRes.status) loadCurrentTab()
+                    if (dRes.status) loadCurrentTab(forceRefresh = true)
                 }
             }
         )
@@ -1444,7 +1509,7 @@ fun AdminServicesScreen(
             onDismiss = { editingActivePlanTarget = null },
             onSaved = {
                 editingActivePlanTarget = null
-                loadCurrentTab()
+                loadCurrentTab(forceRefresh = true)
             }
         )
     }
@@ -1455,7 +1520,7 @@ fun AdminServicesScreen(
             onDismiss = { extendingActivePlanTarget = null },
             onExtended = {
                 extendingActivePlanTarget = null
-                loadCurrentTab()
+                loadCurrentTab(forceRefresh = true)
             }
         )
     }
@@ -1472,7 +1537,7 @@ fun AdminServicesScreen(
                 scope.launch {
                     val dRes = ApiClient.request("admin_voucher_delete", mapOf("id" to targetV.optInt("id")))
                     Toast.makeText(context, dRes.message, Toast.LENGTH_SHORT).show()
-                    if (dRes.status) loadCurrentTab()
+                    if (dRes.status) loadCurrentTab(forceRefresh = true)
                 }
             }
         )
@@ -1503,7 +1568,7 @@ fun AdminServicesScreen(
                                     mapOf("delete_used" to 1, "older_than_3months" to 1)
                                 )
                                 Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
-                                loadCurrentTab()
+                                loadCurrentTab(forceRefresh = true)
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black),
@@ -1518,7 +1583,7 @@ fun AdminServicesScreen(
                             scope.launch {
                                 val res = ApiClient.request("admin_voucher_delete", mapOf("delete_used" to 1))
                                 Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
-                                loadCurrentTab()
+                                loadCurrentTab(forceRefresh = true)
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = ArnetaRedDanger, contentColor = Color.White),
