@@ -85,9 +85,16 @@ fun ArnetaAdminMainShell(
 
     var currentBottomTab by remember { mutableStateOf(AdminNavTab.DASHBOARD) }
     var activeScreenKey by remember { mutableStateOf("dashboard") }
+
     var customerSearchParam by remember { mutableStateOf("") }
+    var customerTypeParam by remember { mutableStateOf("All") }
     var openAddCustomerDialog by remember { mutableStateOf(false) }
+
     var servicesSubTabParam by remember { mutableStateOf("active_users") }
+    var plansSubTabParam by remember { mutableStateOf("Hotspot") }
+    var networkSubTabParam by remember { mutableStateOf("live_monitor") }
+    var genieSubTabParam by remember { mutableStateOf("dashboard") }
+    var settingsSubTabParam by remember { mutableStateOf("general") }
     var webViewRouteParam by remember { mutableStateOf("dashboard") }
 
     var companyTitle by remember { mutableStateOf(ApiClient.companyName) }
@@ -95,7 +102,16 @@ fun ArnetaAdminMainShell(
     var showQuickActionSheet by remember { mutableStateOf(false) }
     var quickShortcuts by remember { mutableStateOf(ApiClient.customQuickShortcuts) }
 
-    var expandLayananMenu by remember { mutableStateOf(true) }
+    // Grup menu yang sedang diekspansi di Sidebar
+    var expandedSidebarGroup by remember { mutableStateOf("layanan") }
+
+    LaunchedEffect(Unit) {
+        ApiClient.warmupCacheInBackground()
+    }
+
+    fun toggleGroup(groupKey: String) {
+        expandedSidebarGroup = if (expandedSidebarGroup == groupKey) "" else groupKey
+    }
 
     fun navigateTo(screenKey: String) {
         if (!ApiClient.isLoggedIn()) {
@@ -103,41 +119,90 @@ fun ArnetaAdminMainShell(
             return
         }
         companyTitle = ApiClient.companyName
-        activeScreenKey = screenKey
-        when (screenKey) {
-            "dashboard" -> currentBottomTab = AdminNavTab.DASHBOARD
-            "customers", "add_customer" -> {
+
+        when {
+            screenKey == "dashboard" -> {
+                activeScreenKey = "dashboard"
+                currentBottomTab = AdminNavTab.DASHBOARD
+            }
+            screenKey == "customers" || screenKey == "add_customer" || screenKey.startsWith("customers_") -> {
+                activeScreenKey = if (screenKey == "add_customer") "add_customer" else "customers"
                 currentBottomTab = AdminNavTab.CUSTOMERS
                 openAddCustomerDialog = (screenKey == "add_customer")
+                customerTypeParam = when (screenKey) {
+                    "customers_hotspot" -> "Hotspot"
+                    "customers_pppoe" -> "PPPoE"
+                    else -> "All"
+                }
             }
-            "active_users", "recharge_plan", "deposit_balance", "vouchers", "data_usage", "coupons", "refill_voucher" -> {
+            screenKey in setOf("active_users", "recharge_plan", "deposit_balance", "vouchers", "data_usage", "coupons", "refill_voucher") -> {
+                activeScreenKey = screenKey
                 currentBottomTab = AdminNavTab.SERVICES
                 servicesSubTabParam = screenKey
             }
-            else -> currentBottomTab = AdminNavTab.MENU_HUB
+            screenKey == "plans" || screenKey.startsWith("plans_") -> {
+                activeScreenKey = "plans"
+                currentBottomTab = AdminNavTab.MENU_HUB
+                plansSubTabParam = when (screenKey) {
+                    "plans_pppoe" -> "PPPOE"
+                    "plans_balance" -> "Balance"
+                    "plans_vpn" -> "VPN"
+                    "plans_bandwidth" -> "Bandwidth"
+                    else -> "Hotspot"
+                }
+            }
+            screenKey in setOf("live_monitor", "online_users", "ros_logs", "routers", "pools") -> {
+                activeScreenKey = screenKey
+                currentBottomTab = AdminNavTab.MENU_HUB
+                networkSubTabParam = screenKey
+            }
+            screenKey == "genieacs" || screenKey.startsWith("genieacs_") -> {
+                activeScreenKey = "genieacs"
+                currentBottomTab = AdminNavTab.MENU_HUB
+                genieSubTabParam = when (screenKey) {
+                    "genieacs_devices" -> "devices"
+                    "genieacs_hosts" -> "hosts"
+                    else -> "dashboard"
+                }
+            }
+            screenKey == "settings" || screenKey.startsWith("settings_") -> {
+                activeScreenKey = "settings"
+                currentBottomTab = AdminNavTab.MENU_HUB
+                settingsSubTabParam = screenKey.removePrefix("settings_").takeIf { it != "settings" } ?: "general"
+            }
+            else -> {
+                activeScreenKey = screenKey
+                currentBottomTab = AdminNavTab.MENU_HUB
+            }
         }
         scope.launch { drawerState.close() }
     }
 
-    BackHandler(enabled = activeScreenKey != "dashboard") {
-        navigateTo("dashboard")
+    BackHandler(enabled = drawerState.isOpen || activeScreenKey != "dashboard") {
+        if (drawerState.isOpen) {
+            scope.launch { drawerState.close() }
+        } else {
+            navigateTo("dashboard")
+        }
     }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
+        gesturesEnabled = drawerState.isOpen,
         drawerContent = {
             ModalDrawerSheet(
                 drawerContainerColor = Color(0xFF141B2D),
                 drawerContentColor = Color.White,
-                modifier = Modifier.width(275.dp)
+                modifier = Modifier.width(280.dp)
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .windowInsetsPadding(WindowInsets.systemBars)
                         .verticalScroll(rememberScrollState())
-                        .padding(vertical = 12.dp)
+                        .padding(vertical = 10.dp)
                 ) {
+                    // 1. DASBOR
                     SidebarMainItem(
                         icon = Icons.Outlined.DesktopWindows,
                         label = "Dasbor",
@@ -145,151 +210,152 @@ fun ArnetaAdminMainShell(
                         onClick = { navigateTo("dashboard") }
                     )
 
-                    SidebarMainItem(
-                        icon = Icons.Filled.Person,
+                    // 2. PELANGGAN (EXPANDABLE)
+                    SidebarExpandableGroup(
+                        icon = Icons.Filled.People,
                         label = "Pelanggan",
-                        selected = activeScreenKey == "customers" && !openAddCustomerDialog,
-                        onClick = { navigateTo("customers") }
+                        isExpanded = expandedSidebarGroup == "pelanggan",
+                        isGroupActive = activeScreenKey == "customers" || activeScreenKey == "add_customer",
+                        onToggle = { toggleGroup("pelanggan") },
+                        subItems = listOf(
+                            Triple("customers", "Daftar Pelanggan", activeScreenKey == "customers" && customerTypeParam == "All" && !openAddCustomerDialog),
+                            Triple("add_customer", "Tambah Pelanggan Baru", openAddCustomerDialog),
+                            Triple("customers_hotspot", "Pelanggan Hotspot", activeScreenKey == "customers" && customerTypeParam == "Hotspot"),
+                            Triple("customers_pppoe", "Pelanggan PPPoE", activeScreenKey == "customers" && customerTypeParam == "PPPoE")
+                        ),
+                        onSubItemClick = { navigateTo(it) }
                     )
 
-                    SidebarMainItem(
-                        icon = Icons.Filled.PersonAdd,
-                        label = "Add Customer",
-                        selected = activeScreenKey == "add_customer",
-                        onClick = { navigateTo("add_customer") }
+                    // 3. LAYANAN & VOUCHER (EXPANDABLE)
+                    SidebarExpandableGroup(
+                        icon = Icons.Filled.ConfirmationNumber,
+                        label = "Layanan",
+                        isExpanded = expandedSidebarGroup == "layanan",
+                        isGroupActive = currentBottomTab == AdminNavTab.SERVICES,
+                        onToggle = { toggleGroup("layanan") },
+                        subItems = listOf(
+                            Triple("active_users", "Pelanggan Aktif", activeScreenKey == "active_users"),
+                            Triple("recharge_plan", "Isi Ulang Paket", activeScreenKey == "recharge_plan"),
+                            Triple("deposit_balance", "Isi Ulang Saldo", activeScreenKey == "deposit_balance"),
+                            Triple("vouchers", "Voucher & Cards", activeScreenKey == "vouchers"),
+                            Triple("refill_voucher", "Isi Ulang Voucher", activeScreenKey == "refill_voucher"),
+                            Triple("coupons", "Kupon Promo", activeScreenKey == "coupons"),
+                            Triple("data_usage", "User Data Usage", activeScreenKey == "data_usage")
+                        ),
+                        onSubItemClick = { navigateTo(it) }
                     )
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(if (expandLayananMenu) Color(0xFF283548) else Color.Transparent)
-                            .clickable { expandLayananMenu = !expandLayananMenu }
-                            .padding(horizontal = 16.dp, vertical = 13.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Filled.ConfirmationNumber,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(14.dp))
-                            Text("Layanan", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                        Icon(
-                            imageVector = if (expandLayananMenu) Icons.Filled.KeyboardArrowDown else Icons.Filled.ChevronLeft,
-                            contentDescription = null,
-                            tint = Color(0xFF10B981),
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-
-                    AnimatedVisibility(visible = expandLayananMenu) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Color(0xFF0F172A))
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .width(4.dp)
-                                    .height(320.dp)
-                                    .background(Color(0xFF10B981))
-                            )
-                            Column(modifier = Modifier.fillMaxWidth()) {
-                                SidebarSubItem("Pelanggan Aktif") { navigateTo("active_users") }
-                                SidebarSubItem("Isi Ulang Voucher") { navigateTo("refill_voucher") }
-                                SidebarSubItem("Voucher") { navigateTo("vouchers") }
-                                SidebarSubItem("Kupon") { navigateTo("coupons") }
-                                SidebarSubItem("Isi Ulang Paket") { navigateTo("recharge_plan") }
-                                SidebarSubItem("Isi Ulang Saldo") { navigateTo("deposit_balance") }
-                                SidebarSubItem("User Data Usage") { navigateTo("data_usage") }
-                                SidebarSubItem("Recharge Cards") { navigateTo("vouchers") }
-                            }
-                        }
-                    }
-
-                    SidebarMainItem(
+                    // 4. PAKET INTERNET & BANDWIDTH (EXPANDABLE)
+                    SidebarExpandableGroup(
                         icon = Icons.Filled.ViewInAr,
                         label = "Paket Internet",
-                        selected = activeScreenKey == "plans",
-                        hasArrow = true,
-                        onClick = { navigateTo("plans") }
+                        isExpanded = expandedSidebarGroup == "paket",
+                        isGroupActive = activeScreenKey == "plans",
+                        onToggle = { toggleGroup("paket") },
+                        subItems = listOf(
+                            Triple("plans_hotspot", "Paket Hotspot", activeScreenKey == "plans" && plansSubTabParam == "Hotspot"),
+                            Triple("plans_pppoe", "Paket PPPoE", activeScreenKey == "plans" && plansSubTabParam == "PPPOE"),
+                            Triple("plans_balance", "Paket Saldo", activeScreenKey == "plans" && plansSubTabParam == "Balance"),
+                            Triple("plans_vpn", "Paket VPN", activeScreenKey == "plans" && plansSubTabParam == "VPN"),
+                            Triple("plans_bandwidth", "Profil Bandwidth", activeScreenKey == "plans" && plansSubTabParam == "Bandwidth")
+                        ),
+                        onSubItemClick = { navigateTo(it) }
                     )
 
-                    SidebarMainItem(
-                        icon = Icons.Filled.LocationOn,
-                        label = "Peta",
-                        selected = activeScreenKey == "map",
-                        hasArrow = true,
-                        onClick = { navigateTo("map") }
+                    // 5. LAPORAN & AUDIT PAYMENT GATEWAY (DIGABUNG & EXPANDABLE)
+                    SidebarExpandableGroup(
+                        icon = Icons.Filled.Assessment,
+                        label = "Laporan & Payment Gateway",
+                        isExpanded = expandedSidebarGroup == "laporan",
+                        isGroupActive = activeScreenKey == "reports" || activeScreenKey == "payment_gateway",
+                        onToggle = { toggleGroup("laporan") },
+                        subItems = listOf(
+                            Triple("reports", "Laporan Keuangan", activeScreenKey == "reports"),
+                            Triple("payment_gateway", "Audit Payment Gateway", activeScreenKey == "payment_gateway")
+                        ),
+                        onSubItemClick = { navigateTo(it) }
                     )
 
-                    SidebarMainItem(
-                        icon = Icons.Filled.Assignment,
-                        label = "Laporan",
-                        selected = activeScreenKey == "reports",
-                        hasArrow = true,
-                        onClick = { navigateTo("reports") }
+                    // 6. JARINGAN & MIKROTIK (EXPANDABLE)
+                    SidebarExpandableGroup(
+                        icon = Icons.Filled.Hub,
+                        label = "Jaringan & MikroTik",
+                        isExpanded = expandedSidebarGroup == "jaringan",
+                        isGroupActive = activeScreenKey in setOf("live_monitor", "online_users", "ros_logs", "routers", "pools"),
+                        onToggle = { toggleGroup("jaringan") },
+                        subItems = listOf(
+                            Triple("live_monitor", "MikroTik Monitor", activeScreenKey == "live_monitor"),
+                            Triple("online_users", "User Online & Kick", activeScreenKey == "online_users"),
+                            Triple("ros_logs", "Log & Wireless", activeScreenKey == "ros_logs"),
+                            Triple("routers", "Daftar Router", activeScreenKey == "routers"),
+                            Triple("pools", "IP Pool", activeScreenKey == "pools")
+                        ),
+                        onSubItemClick = { navigateTo(it) }
                     )
 
-                    SidebarMainItem(
-                        icon = Icons.Filled.Payments,
-                        label = "Audit Payment Gateway",
-                        selected = activeScreenKey == "payment_gateway",
-                        hasArrow = true,
-                        onClick = { navigateTo("payment_gateway") }
-                    )
-
-                    SidebarMainItem(
-                        icon = Icons.Filled.ChatBubble,
-                        label = "Mengirim pesan",
-                        selected = activeScreenKey == "broadcast",
-                        hasArrow = true,
-                        onClick = { navigateTo("broadcast") }
-                    )
-
-                    SidebarMainItem(
-                        icon = Icons.Filled.AccountTree,
-                        label = "Asset Manager",
-                        selected = activeScreenKey == "assets",
-                        onClick = { navigateTo("assets") }
-                    )
-
-                    SidebarMainItem(
+                    // 7. GENIEACS TR-069 (EXPANDABLE)
+                    SidebarExpandableGroup(
                         icon = Icons.Filled.SettingsInputAntenna,
                         label = "GenieACS (TR-069)",
-                        selected = activeScreenKey == "genieacs",
-                        hasArrow = true,
-                        onClick = { navigateTo("genieacs") }
+                        isExpanded = expandedSidebarGroup == "genieacs",
+                        isGroupActive = activeScreenKey == "genieacs",
+                        onToggle = { toggleGroup("genieacs") },
+                        subItems = listOf(
+                            Triple("genieacs_dashboard", "Dasbor TR-069", activeScreenKey == "genieacs" && genieSubTabParam == "dashboard"),
+                            Triple("genieacs_devices", "Daftar Perangkat", activeScreenKey == "genieacs" && genieSubTabParam == "devices"),
+                            Triple("genieacs_hosts", "Server GenieACS", activeScreenKey == "genieacs" && genieSubTabParam == "hosts")
+                        ),
+                        onSubItemClick = { navigateTo(it) }
                     )
 
-                    SidebarMainItem(
-                        icon = Icons.Filled.Hub,
-                        label = "Jaringan",
-                        selected = activeScreenKey == "live_monitor" || activeScreenKey == "online_users" || activeScreenKey == "routers",
-                        hasArrow = true,
-                        onClick = { navigateTo("live_monitor") }
+                    // 8. PETA & INVENTARIS ASET (DIGABUNG & EXPANDABLE)
+                    SidebarExpandableGroup(
+                        icon = Icons.Filled.LocationOn,
+                        label = "Peta & Aset Jaringan",
+                        isExpanded = expandedSidebarGroup == "peta_aset",
+                        isGroupActive = activeScreenKey == "map" || activeScreenKey == "assets",
+                        onToggle = { toggleGroup("peta_aset") },
+                        subItems = listOf(
+                            Triple("map", "Peta Jaringan & Radius", activeScreenKey == "map"),
+                            Triple("assets", "Asset Manager (ODP/ONT)", activeScreenKey == "assets")
+                        ),
+                        onSubItemClick = { navigateTo(it) }
                     )
 
-                    SidebarMainItem(
-                        icon = Icons.Filled.Description,
-                        label = "Halaman Statis",
-                        selected = activeScreenKey == "pages",
-                        hasArrow = true,
-                        onClick = { navigateTo("pages") }
+                    // 9. PESAN & HALAMAN STATIS (DIGABUNG & EXPANDABLE)
+                    SidebarExpandableGroup(
+                        icon = Icons.Filled.ChatBubble,
+                        label = "Pesan & Halaman",
+                        isExpanded = expandedSidebarGroup == "pesan_halaman",
+                        isGroupActive = activeScreenKey == "broadcast" || activeScreenKey == "pages",
+                        onToggle = { toggleGroup("pesan_halaman") },
+                        subItems = listOf(
+                            Triple("broadcast", "Mengirim Pesan (WA/SMS)", activeScreenKey == "broadcast"),
+                            Triple("pages", "Halaman Statis", activeScreenKey == "pages")
+                        ),
+                        onSubItemClick = { navigateTo(it) }
                     )
 
-                    SidebarMainItem(
+                    // 10. PENGATURAN SISTEM (EXPANDABLE)
+                    SidebarExpandableGroup(
                         icon = Icons.Filled.Settings,
                         label = "Pengaturan",
-                        selected = activeScreenKey == "settings",
-                        hasArrow = true,
-                        onClick = { navigateTo("settings") }
+                        isExpanded = expandedSidebarGroup == "pengaturan",
+                        isGroupActive = activeScreenKey == "settings",
+                        onToggle = { toggleGroup("pengaturan") },
+                        subItems = listOf(
+                            Triple("settings_general", "Umum & Gateway", activeScreenKey == "settings" && settingsSubTabParam == "general"),
+                            Triple("settings_localisation", "Lokalisasi & Label", activeScreenKey == "settings" && settingsSubTabParam == "localisation"),
+                            Triple("settings_notifications", "Template Notifikasi", activeScreenKey == "settings" && settingsSubTabParam == "notifications"),
+                            Triple("settings_maintenance", "Mode Maintenance", activeScreenKey == "settings" && settingsSubTabParam == "maintenance"),
+                            Triple("settings_staff", "Staf & Password", activeScreenKey == "settings" && settingsSubTabParam == "staff"),
+                            Triple("settings_db_logs", "Database & Log", activeScreenKey == "settings" && settingsSubTabParam == "db_logs"),
+                            Triple("settings_shortcuts", "Shortcut Cepat", activeScreenKey == "settings" && settingsSubTabParam == "shortcuts")
+                        ),
+                        onSubItemClick = { navigateTo(it) }
                     )
 
+                    // 11. WEB ADMIN PANEL
                     SidebarMainItem(
                         icon = Icons.Filled.Language,
                         label = "Web Admin Panel",
@@ -315,9 +381,13 @@ fun ArnetaAdminMainShell(
                                 if (drawerState.isClosed) drawerState.open() else drawerState.close()
                             }
                         },
-                        onSearchClick = { navigateTo("customers") },
+                        onSearchClick = {
+                            customerTypeParam = "All"
+                            openAddCustomerDialog = false
+                            navigateTo("customers")
+                        },
                         onToggleTheme = onToggleTheme,
-                        onProfileClick = { navigateTo("settings") }
+                        onProfileClick = { navigateTo("settings_general") }
                     )
                 }
             },
@@ -336,6 +406,7 @@ fun ArnetaAdminMainShell(
                             AdminNavTab.DASHBOARD -> "dashboard"
                             AdminNavTab.CUSTOMERS -> {
                                 openAddCustomerDialog = false
+                                customerTypeParam = "All"
                                 "customers"
                             }
                             AdminNavTab.SERVICES -> {
@@ -363,6 +434,7 @@ fun ArnetaAdminMainShell(
                     "dashboard" -> AdminDashboardScreen(
                         onNavigateToCustomers = { q ->
                             customerSearchParam = q
+                            customerTypeParam = "All"
                             openAddCustomerDialog = false
                             navigateTo("customers")
                         },
@@ -373,38 +445,36 @@ fun ArnetaAdminMainShell(
                             companyTitle = ApiClient.companyName
                         }
                     )
-                    "customers", "add_customer" -> key(openAddCustomerDialog) {
-                        AdminCustomersScreen(
-                            initialSearch = customerSearchParam,
-                            openAddDialogInitially = openAddCustomerDialog
-                        )
-                    }
-                    "active_users", "recharge_plan", "deposit_balance", "vouchers", "data_usage", "coupons", "refill_voucher" -> key(servicesSubTabParam) {
-                        AdminServicesScreen(
-                            initialSubTab = servicesSubTabParam
-                        )
-                    }
+                    "customers", "add_customer" -> AdminCustomersScreen(
+                        initialSearch = customerSearchParam,
+                        initialType = customerTypeParam,
+                        openAddDialogInitially = openAddCustomerDialog
+                    )
+                    "active_users", "recharge_plan", "deposit_balance", "vouchers", "data_usage", "coupons", "refill_voucher" -> AdminServicesScreen(
+                        initialSubTab = servicesSubTabParam
+                    )
                     "menu_hub" -> AdminMenuHubScreen(
                         unpaidQrisCount = unpaidBadgeCount,
                         onOpenScreen = { key -> navigateTo(key) }
                     )
-                    "live_monitor", "online_users", "routers", "pools" -> key(activeScreenKey) {
-                        AdminNetworkAndOnlineScreen(
-                            initialTab = activeScreenKey
-                        )
-                    }
-                    "genieacs" -> GenieAcsScreen()
-                    "plans" -> AdminPlansScreen()
+                    "live_monitor", "online_users", "ros_logs", "routers", "pools" -> AdminNetworkAndOnlineScreen(
+                        initialTab = networkSubTabParam
+                    )
+                    "genieacs" -> GenieAcsScreen(
+                        initialTab = genieSubTabParam
+                    )
+                    "plans" -> AdminPlansScreen(
+                        initialTab = plansSubTabParam
+                    )
                     "map" -> AdminMapScreen()
                     "assets" -> AdminAssetsScreen()
-                    "reports", "payment_gateway" -> key(activeScreenKey) {
-                        AdminReportsAndPgScreen(
-                            initialTab = activeScreenKey
-                        )
-                    }
+                    "reports", "payment_gateway" -> AdminReportsAndPgScreen(
+                        initialTab = activeScreenKey
+                    )
                     "broadcast" -> AdminBroadcastMessageScreen()
                     "pages" -> AdminStaticPagesScreen()
                     "settings" -> AdminSettingsAndToolsScreen(
+                        initialTab = settingsSubTabParam,
                         onCustomShortcutsChanged = {
                             quickShortcuts = ApiClient.customQuickShortcuts
                             companyTitle = ApiClient.companyName
@@ -441,7 +511,7 @@ fun ArnetaAdminMainShell(
                     Text("⚡ Shortcut Aksi Cepat Admin", fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
                     TextButton(onClick = {
                         showQuickActionSheet = false
-                        navigateTo("settings")
+                        navigateTo("settings_shortcuts")
                     }) {
                         Text("Atur Shortcut", fontSize = 12.sp, color = ArnetaGoldPrimary)
                     }
@@ -500,11 +570,87 @@ fun ArnetaAdminMainShell(
 }
 
 @Composable
+private fun SidebarExpandableGroup(
+    icon: ImageVector,
+    label: String,
+    isExpanded: Boolean,
+    isGroupActive: Boolean,
+    onToggle: () -> Unit,
+    subItems: List<Triple<String, String, Boolean>>,
+    onSubItemClick: (String) -> Unit
+) {
+    val headerBg = when {
+        isExpanded -> Color(0xFF283548)
+        isGroupActive -> Color(0xFF312E81)
+        else -> Color.Transparent
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 10.dp, vertical = 2.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(headerBg)
+            .clickable { onToggle() }
+            .padding(horizontal = 12.dp, vertical = 12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = if (isGroupActive || isExpanded) ArnetaGoldPrimary else Color.White,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(14.dp))
+            Text(
+                text = label,
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = if (isGroupActive || isExpanded) FontWeight.Bold else FontWeight.SemiBold
+            )
+        }
+        Icon(
+            imageVector = if (isExpanded) Icons.Filled.KeyboardArrowDown else Icons.Filled.ChevronLeft,
+            contentDescription = null,
+            tint = if (isExpanded) Color(0xFF10B981) else Color.White.copy(alpha = 0.55f),
+            modifier = Modifier.size(18.dp)
+        )
+    }
+
+    AnimatedVisibility(visible = isExpanded) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp)
+                .background(Color(0xFF0F172A))
+                .height(IntrinsicSize.Min)
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .fillMaxHeight()
+                    .background(Color(0xFF10B981))
+            )
+            Column(modifier = Modifier.fillMaxWidth()) {
+                subItems.forEach { (key, subLabel, isSelected) ->
+                    SidebarSubItem(
+                        label = subLabel,
+                        selected = isSelected,
+                        onClick = { onSubItemClick(key) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun SidebarMainItem(
     icon: ImageVector,
     label: String,
     selected: Boolean,
-    hasArrow: Boolean = false,
     onClick: () -> Unit
 ) {
     val bg = if (selected) Color(0xFF312E81) else Color.Transparent
@@ -513,19 +659,16 @@ private fun SidebarMainItem(
         horizontalArrangement = Arrangement.SpaceBetween,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 10.dp, vertical = 3.dp)
+            .padding(horizontal = 10.dp, vertical = 2.dp)
             .clip(RoundedCornerShape(8.dp))
             .background(bg)
             .clickable { onClick() }
             .padding(horizontal = 12.dp, vertical = 12.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(20.dp))
+            Icon(icon, contentDescription = label, tint = if (selected) ArnetaGoldPrimary else Color.White, modifier = Modifier.size(20.dp))
             Spacer(modifier = Modifier.width(14.dp))
             Text(label, color = Color.White, fontSize = 14.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
-        }
-        if (hasArrow) {
-            Icon(Icons.Filled.ChevronLeft, contentDescription = null, tint = Color.White.copy(alpha = 0.5f), modifier = Modifier.size(16.dp))
         }
     }
 }
@@ -533,19 +676,21 @@ private fun SidebarMainItem(
 @Composable
 private fun SidebarSubItem(
     label: String,
+    selected: Boolean = false,
     onClick: () -> Unit
 ) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .background(if (selected) Color(0xFF1E293B) else Color.Transparent)
             .clickable { onClick() }
-            .padding(horizontal = 20.dp, vertical = 11.dp)
+            .padding(horizontal = 18.dp, vertical = 11.dp)
     ) {
         Text(
             text = label,
-            color = Color.White.copy(alpha = 0.9f),
+            color = if (selected) ArnetaGoldPrimary else Color.White.copy(alpha = 0.9f),
             fontSize = 13.5.sp,
-            fontWeight = FontWeight.Medium
+            fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.Medium
         )
     }
 }
