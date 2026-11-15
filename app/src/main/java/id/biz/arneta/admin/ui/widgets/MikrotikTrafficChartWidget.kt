@@ -547,11 +547,14 @@ fun UserDetailAndLiveSpeedDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false
+            decorFitsSystemWindows = true
         )
     ) {
         Scaffold(
-            modifier = Modifier.fillMaxSize(),
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            modifier = Modifier
+                .fillMaxSize()
+                .systemBarsPadding(),
             containerColor = Color(0xFF0B1120),
             topBar = {
                 Surface(
@@ -564,7 +567,6 @@ fun UserDetailAndLiveSpeedDialog(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .windowInsetsPadding(WindowInsets.statusBars)
                             .padding(horizontal = 8.dp, vertical = 10.dp)
                     ) {
                         Row(
@@ -662,7 +664,7 @@ fun UserDetailAndLiveSpeedDialog(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .windowInsetsPadding(WindowInsets.navigationBars)
+                            .navigationBarsPadding()
                             .padding(horizontal = 16.dp, vertical = 12.dp)
                     ) {
                         if (phoneStr.isNotEmpty() && phoneStr != "-") {
