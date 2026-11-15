@@ -436,9 +436,9 @@ fun AdminCustomersScreen(
                                         TextButton(
                                             onClick = {
                                                 BluetoothPrinterHelper.shareToWhatsApp(
-                                                    context = context,
-                                                    message = "Halo *$fname* (@$uname), informasi layanan ${ApiClient.companyName}:",
-                                                    phone = phone
+                                                    context,
+                                                    "Halo *$fname* (@$uname), informasi layanan ${ApiClient.companyName}:",
+                                                    phone
                                                 )
                                             },
                                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
