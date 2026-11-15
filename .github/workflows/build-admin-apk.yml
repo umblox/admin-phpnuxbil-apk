@@ -39,7 +39,7 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Auto-Generate App Icons from logo.png (Full Adaptive Icon Tanpa Background Putih)
+      - name: Auto-Generate Full Blue App Icons (Hapus Border Putih Otomatis)
         run: |
           mkdir -p app/src/main/res/mipmap-mdpi
           mkdir -p app/src/main/res/mipmap-hdpi
@@ -51,7 +51,7 @@ jobs:
           mkdir -p app/src/main/res/values
 
           LOGO_FILE=""
-          for candidate in "logo.png" "1000060058.png" "play_store_512.png" "app/src/main/res/drawable-nodpi/arneta_logo_full.png"; do
+          for candidate in "logo.png" "1000347237.png" "1000060058.png" "play_store_512.png" "app/src/main/res/drawable-nodpi/arneta_logo_full.png"; do
             if [ -f "$candidate" ]; then
               LOGO_FILE="$candidate"
               break
@@ -63,30 +63,39 @@ jobs:
               sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick
             fi
 
-            cp "$LOGO_FILE" /tmp/source_logo.png
+            # 1. Standarisasi ukuran gambar sumber ke 512x512 terlebih dahulu
+            convert "$LOGO_FILE" -resize 512x512\! PNG32:/tmp/source_512.png
 
-            RAW_HEX=$(convert /tmp/source_logo.png -depth 8 -crop 1x1+4+4 txt:- | grep -oE '#[0-9A-Fa-f]{6}' | head -n 1)
+            # 2. Ambil sampel warna biru dari area dalam (+80+80) agar tidak mengenai border putih luar
+            RAW_HEX=$(convert /tmp/source_512.png -depth 8 -crop 1x1+80+80 txt:- | grep -oE '#[0-9A-Fa-f]{6}' | head -n 1)
             if [ -z "$RAW_HEX" ] || [ "$RAW_HEX" = "#FFFFFF" ] || [ "$RAW_HEX" = "#ffffff" ]; then
-              BG_HEX="#070B14"
+              BG_HEX="#0568FD"
             else
               BG_HEX="$RAW_HEX"
             fi
-            echo "Menggunakan warna background Adaptive Icon: $BG_HEX"
+            echo "Menggunakan warna biru utama ikon: $BG_HEX"
 
-            convert /tmp/source_logo.png -resize 512x512 -background "$BG_HEX" -gravity center -extent 512x512 PNG32:app/src/main/res/drawable-nodpi/arneta_logo_full.png
+            # 3. Potong bersih seluruh border putih & sudut lengkung luar (-shave 58x58) lalu jadikan Full-Bleed 512x512
+            convert /tmp/source_512.png -shave 58x58 -resize 512x512\! PNG32:/tmp/clean_full_blue.png
 
-            convert /tmp/source_logo.png -shave 2x2 -resize 68x68 -background "$BG_HEX" -gravity center -extent 108x108 PNG32:app/src/main/res/mipmap-mdpi/ic_launcher_foreground.png
-            convert /tmp/source_logo.png -shave 2x2 -resize 102x102 -background "$BG_HEX" -gravity center -extent 162x162 PNG32:app/src/main/res/mipmap-hdpi/ic_launcher_foreground.png
-            convert /tmp/source_logo.png -shave 2x2 -resize 136x136 -background "$BG_HEX" -gravity center -extent 216x216 PNG32:app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.png
-            convert /tmp/source_logo.png -shave 2x2 -resize 204x204 -background "$BG_HEX" -gravity center -extent 324x324 PNG32:app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png
-            convert /tmp/source_logo.png -shave 2x2 -resize 272x272 -background "$BG_HEX" -gravity center -extent 432x432 PNG32:app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png
+            # Simpan untuk logo di dalam aplikasi (Login & Top Header)
+            cp /tmp/clean_full_blue.png app/src/main/res/drawable-nodpi/arneta_logo_full.png
 
-            for pair in "mdpi:48:42" "hdpi:72:64" "xhdpi:96:84" "xxhdpi:144:126" "xxxhdpi:192:168"; do
-              IFS=":" read -r dpi full inner <<< "$pair"
-              convert /tmp/source_logo.png -shave 2x2 -resize ${inner}x${inner} -background "$BG_HEX" -gravity center -extent ${full}x${full} PNG32:app/src/main/res/mipmap-${dpi}/ic_launcher.png
+            # 4. Generate Layer Foreground Adaptive Icon (Full biru menyatu dengan background tanpa garis tepi)
+            convert /tmp/clean_full_blue.png -resize 72x72 -background "$BG_HEX" -gravity center -extent 108x108 PNG32:app/src/main/res/mipmap-mdpi/ic_launcher_foreground.png
+            convert /tmp/clean_full_blue.png -resize 108x108 -background "$BG_HEX" -gravity center -extent 162x162 PNG32:app/src/main/res/mipmap-hdpi/ic_launcher_foreground.png
+            convert /tmp/clean_full_blue.png -resize 144x144 -background "$BG_HEX" -gravity center -extent 216x216 PNG32:app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.png
+            convert /tmp/clean_full_blue.png -resize 216x216 -background "$BG_HEX" -gravity center -extent 324x324 PNG32:app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png
+            convert /tmp/clean_full_blue.png -resize 288x288 -background "$BG_HEX" -gravity center -extent 432x432 PNG32:app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png
+
+            # 5. Generate Legacy Icon & Round Icon (Full biru dari ujung ke ujung)
+            for pair in "mdpi:48" "hdpi:72" "xhdpi:96" "xxhdpi:144" "xxxhdpi:192"; do
+              IFS=":" read -r dpi full <<< "$pair"
+              convert /tmp/clean_full_blue.png -resize ${full}x${full}\! PNG32:app/src/main/res/mipmap-${dpi}/ic_launcher.png
               cp app/src/main/res/mipmap-${dpi}/ic_launcher.png app/src/main/res/mipmap-${dpi}/ic_launcher_round.png
             done
 
+            # 6. Buat file warna background biru & XML Adaptive Icon
             cat << EOF > app/src/main/res/values/ic_launcher_background.xml
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
