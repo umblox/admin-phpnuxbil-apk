@@ -32,19 +32,26 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import id.biz.arneta.admin.network.ApiClient
+import id.biz.arneta.admin.network.optSafeDouble
 import id.biz.arneta.admin.ui.theme.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
-/**
- * LAYAR JARINGAN, ROUTER, IP POOL & MIKROTIK MONITOR
- */
+private fun parseNetJsonList(arr: JSONArray?): List<JSONObject> {
+    if (arr == null) return emptyList()
+    val list = ArrayList<JSONObject>(arr.length())
+    for (i in 0 until arr.length()) {
+        arr.optJSONObject(i)?.let { list.add(it) }
+    }
+    return list
+}
+
 @Composable
 fun AdminNetworkAndOnlineScreen(
     initialTab: String = "live_monitor"
@@ -54,11 +61,30 @@ fun AdminNetworkAndOnlineScreen(
 
     var currentTab by remember { mutableStateOf(initialTab) }
     var isLivePolling by remember { mutableStateOf(true) }
-    var isLoading by remember { mutableStateOf(false) }
 
-    var routerStatusList by remember { mutableStateOf(emptyList<JSONObject>()) }
-    var selectedRouterId by remember { mutableIntStateOf(0) }
-    var selectedInterface by remember { mutableStateOf("") }
+    LaunchedEffect(initialTab) {
+        currentTab = initialTab
+    }
+
+    val cachedStatus = remember { ApiClient.getCached("admin_router_status") }
+    val cachedOnline = remember { ApiClient.getCached("admin_online_users") }
+    val cachedRouters = remember { ApiClient.getCached("admin_routers") }
+    val cachedPools = remember { ApiClient.getCached("admin_pools") }
+
+    var routerStatusList by remember {
+        mutableStateOf(
+            if (cachedStatus?.status == true) parseNetJsonList(cachedStatus.dataArray ?: cachedStatus.data?.optJSONArray("routers"))
+            else emptyList()
+        )
+    }
+    var selectedRouterId by remember {
+        mutableIntStateOf(routerStatusList.firstOrNull()?.optInt("id", 0) ?: 0)
+    }
+    var selectedInterface by remember {
+        mutableStateOf(
+            routerStatusList.firstOrNull()?.optString("monitored_interface", "")?.takeIf { it != "-" } ?: ""
+        )
+    }
 
     var rxHistoryKbps by remember { mutableStateOf(List(24) { 0f }) }
     var txHistoryKbps by remember { mutableStateOf(List(24) { 0f }) }
@@ -68,7 +94,13 @@ fun AdminNetworkAndOnlineScreen(
     var currentTxLabel by remember { mutableStateOf("0 bps") }
     var lastUpdatedTime by remember { mutableStateOf("-") }
 
-    var onlineUsersList by remember { mutableStateOf(emptyList<JSONObject>()) }
+    var onlineUsersList by remember {
+        mutableStateOf(
+            if (cachedOnline?.status == true) {
+                parseNetJsonList(cachedOnline.data?.optJSONArray("users") ?: cachedOnline.data?.optJSONArray("items") ?: cachedOnline.dataArray)
+            } else emptyList()
+        )
+    }
     var onlineSearchQuery by remember { mutableStateOf("") }
     var onlineServiceFilter by remember { mutableStateOf("All") }
     var kickingUserTarget by remember { mutableStateOf<JSONObject?>(null) }
@@ -79,8 +111,20 @@ fun AdminNetworkAndOnlineScreen(
     var wlanSignalList by remember { mutableStateOf(emptyList<JSONObject>()) }
     var logFilterText by remember { mutableStateOf("") }
 
-    var routerList by remember { mutableStateOf(emptyList<JSONObject>()) }
-    var poolList by remember { mutableStateOf(emptyList<JSONObject>()) }
+    var routerList by remember {
+        mutableStateOf(
+            if (cachedRouters?.status == true) parseNetJsonList(cachedRouters.dataArray ?: cachedRouters.data?.optJSONArray("routers"))
+            else emptyList()
+        )
+    }
+    var poolList by remember {
+        mutableStateOf(
+            if (cachedPools?.status == true) parseNetJsonList(cachedPools.dataArray ?: cachedPools.data?.optJSONArray("pools"))
+            else emptyList()
+        )
+    }
+
+    var isLoading by remember { mutableStateOf(false) }
     var showRouterDialog by remember { mutableStateOf(false) }
     var editingRouter by remember { mutableStateOf<JSONObject?>(null) }
     var showPoolDialog by remember { mutableStateOf(false) }
@@ -90,26 +134,24 @@ fun AdminNetworkAndOnlineScreen(
     var confirmDeleteRouterTarget by remember { mutableStateOf<JSONObject?>(null) }
     var confirmDeletePoolTarget by remember { mutableStateOf<JSONObject?>(null) }
 
-    suspend fun fetchRoutersCatalog() {
-        val res = ApiClient.request("admin_routers")
-        val arr = res.dataArray ?: res.data?.optJSONArray("routers") ?: JSONArray()
-        val list = mutableListOf<JSONObject>()
-        for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
-        routerList = list
+    suspend fun fetchRoutersCatalog(forceRefresh: Boolean = false) {
+        val res = ApiClient.request("admin_routers", emptyMap(), forceRefresh = forceRefresh)
+        if (res.status) {
+            routerList = withContext(Dispatchers.Default) {
+                parseNetJsonList(res.dataArray ?: res.data?.optJSONArray("routers"))
+            }
+        }
     }
 
-    suspend fun fetchLiveRouterStatus() {
+    suspend fun fetchLiveRouterStatus(forceRefresh: Boolean = true) {
         val params = mutableMapOf<String, Any?>()
         if (selectedRouterId > 0) params["router_id"] = selectedRouterId
         if (selectedInterface.isNotEmpty()) params["interface"] = selectedInterface
 
-        val res = ApiClient.request("admin_router_status", params)
+        val res = ApiClient.request("admin_router_status", params, forceRefresh = forceRefresh)
         val arr = res.dataArray ?: res.data?.optJSONArray("routers") ?: JSONArray()
         if (res.status && arr.length() > 0) {
-            val list = mutableListOf<JSONObject>()
-            for (i in 0 until arr.length()) {
-                list.add(arr.getJSONObject(i))
-            }
+            val list = withContext(Dispatchers.Default) { parseNetJsonList(arr) }
             routerStatusList = list
 
             val activeRouter = list.firstOrNull { it.optInt("id") == selectedRouterId } ?: list.first()
@@ -147,53 +189,61 @@ fun AdminNetworkAndOnlineScreen(
         }
     }
 
-    suspend fun fetchOnlineUsers() {
+    suspend fun fetchOnlineUsers(forceRefresh: Boolean = true) {
         val params = if (selectedRouterId > 0) mapOf("router_id" to selectedRouterId) else emptyMap()
-        val res = ApiClient.request("admin_online_users", params)
-        val arr = res.data?.optJSONArray("users")
-            ?: res.data?.optJSONArray("items")
-            ?: res.dataArray
-            ?: JSONArray()
-        val list = mutableListOf<JSONObject>()
-        for (i in 0 until arr.length()) {
-            list.add(arr.getJSONObject(i))
+        val res = ApiClient.request("admin_online_users", params, forceRefresh = forceRefresh)
+        if (res.status) {
+            val arr = res.data?.optJSONArray("users")
+                ?: res.data?.optJSONArray("items")
+                ?: res.dataArray
+            onlineUsersList = withContext(Dispatchers.Default) { parseNetJsonList(arr) }
         }
-        onlineUsersList = list
     }
 
-    suspend fun fetchMikrotikExtra() {
+    suspend fun fetchMikrotikExtra(forceRefresh: Boolean = false) {
         val res = ApiClient.request(
             "mikrotik_extra",
-            mapOf("router_id" to selectedRouterId, "sub_type" to extraSubType)
+            mapOf("router_id" to selectedRouterId, "sub_type" to extraSubType),
+            forceRefresh = forceRefresh
         )
-        val arr = res.dataArray ?: JSONArray()
-        val list = mutableListOf<JSONObject>()
-        for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
-        if (extraSubType == "wlan") {
-            wlanSignalList = list
-        } else {
-            rosLogsList = list
+        if (res.status) {
+            val list = withContext(Dispatchers.Default) { parseNetJsonList(res.dataArray) }
+            if (extraSubType == "wlan") {
+                wlanSignalList = list
+            } else {
+                rosLogsList = list
+            }
         }
     }
 
-    fun loadTabContent() {
+    fun loadTabContent(forceRefresh: Boolean = false) {
+        val hasData = when (currentTab) {
+            "live_monitor" -> routerStatusList.isNotEmpty()
+            "online_users" -> onlineUsersList.isNotEmpty()
+            "ros_logs" -> if (extraSubType == "wlan") wlanSignalList.isNotEmpty() else rosLogsList.isNotEmpty()
+            "routers" -> routerList.isNotEmpty()
+            "pools" -> poolList.isNotEmpty()
+            else -> true
+        }
+        if (!hasData) isLoading = true
+
         scope.launch {
-            isLoading = true
             when (currentTab) {
                 "live_monitor" -> {
-                    fetchLiveRouterStatus()
-                    if (onlineUsersList.isEmpty()) fetchOnlineUsers()
+                    fetchLiveRouterStatus(forceRefresh = forceRefresh)
+                    if (onlineUsersList.isEmpty()) fetchOnlineUsers(forceRefresh = false)
                 }
-                "online_users" -> fetchOnlineUsers()
-                "ros_logs" -> fetchMikrotikExtra()
-                "routers" -> fetchRoutersCatalog()
+                "online_users" -> fetchOnlineUsers(forceRefresh = forceRefresh)
+                "ros_logs" -> fetchMikrotikExtra(forceRefresh = forceRefresh)
+                "routers" -> fetchRoutersCatalog(forceRefresh = forceRefresh)
                 "pools" -> {
-                    if (routerList.isEmpty()) fetchRoutersCatalog()
-                    val res = ApiClient.request("admin_pools")
-                    val arr = res.dataArray ?: res.data?.optJSONArray("pools") ?: JSONArray()
-                    val list = mutableListOf<JSONObject>()
-                    for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
-                    poolList = list
+                    if (routerList.isEmpty()) fetchRoutersCatalog(forceRefresh = false)
+                    val res = ApiClient.request("admin_pools", emptyMap(), forceRefresh = forceRefresh)
+                    if (res.status) {
+                        poolList = withContext(Dispatchers.Default) {
+                            parseNetJsonList(res.dataArray ?: res.data?.optJSONArray("pools"))
+                        }
+                    }
                 }
             }
             isLoading = false
@@ -201,14 +251,14 @@ fun AdminNetworkAndOnlineScreen(
     }
 
     LaunchedEffect(currentTab, isLivePolling, selectedRouterId, selectedInterface, extraSubType) {
-        loadTabContent()
+        loadTabContent(forceRefresh = false)
         if (isLivePolling && (currentTab == "live_monitor" || currentTab == "online_users")) {
             while (isActive && isLivePolling) {
                 delay(2000L)
                 if (currentTab == "live_monitor") {
-                    fetchLiveRouterStatus()
+                    fetchLiveRouterStatus(forceRefresh = true)
                 } else if (currentTab == "online_users") {
-                    fetchOnlineUsers()
+                    fetchOnlineUsers(forceRefresh = true)
                 }
             }
         }
@@ -257,26 +307,17 @@ fun AdminNetworkAndOnlineScreen(
     ) {
         Spacer(modifier = Modifier.height(10.dp))
 
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-        ) {
-            listOf(
+        ArnetaSubTabBar(
+            tabs = listOf(
                 "live_monitor" to "MikroTik Monitor",
                 "online_users" to "User Online (${onlineUsersList.size})",
                 "ros_logs" to "Log & Wireless",
                 "routers" to "Daftar Router",
                 "pools" to "IP Pool"
-            ).forEach { (key, label) ->
-                FilterChip(
-                    selected = currentTab == key,
-                    onClick = { currentTab = key },
-                    label = { Text(label, fontWeight = FontWeight.SemiBold, fontSize = 12.sp) }
-                )
-            }
-        }
+            ),
+            selectedKey = currentTab,
+            onSelect = { currentTab = it }
+        )
 
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -301,7 +342,8 @@ fun AdminNetworkAndOnlineScreen(
 
                 LazyColumn(
                     contentPadding = PaddingValues(bottom = 95.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxSize()
                 ) {
                     item {
                         Card(
@@ -313,24 +355,16 @@ fun AdminNetworkAndOnlineScreen(
                                 if (routerStatusList.size > 1) {
                                     Text("Pilih Router MikroTik:", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                                     Spacer(modifier = Modifier.height(4.dp))
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        modifier = Modifier.horizontalScroll(rememberScrollState())
-                                    ) {
-                                        routerStatusList.forEach { r ->
-                                            val rid = r.optInt("id")
-                                            FilterChip(
-                                                selected = selectedRouterId == rid,
-                                                onClick = {
-                                                    selectedRouterId = rid
-                                                    selectedInterface = ""
-                                                    rxHistoryKbps = List(24) { 0f }
-                                                    txHistoryKbps = List(24) { 0f }
-                                                },
-                                                label = { Text(r.optString("name"), fontSize = 11.5.sp) }
-                                            )
+                                    ArnetaSubTabBar(
+                                        tabs = routerStatusList.map { r -> r.optInt("id").toString() to r.optString("name") },
+                                        selectedKey = selectedRouterId.toString(),
+                                        onSelect = { ridStr ->
+                                            selectedRouterId = ridStr.toIntOrNull() ?: selectedRouterId
+                                            selectedInterface = ""
+                                            rxHistoryKbps = List(24) { 0f }
+                                            txHistoryKbps = List(24) { 0f }
                                         }
-                                    }
+                                    )
                                     Spacer(modifier = Modifier.height(8.dp))
                                 }
 
@@ -345,29 +379,18 @@ fun AdminNetworkAndOnlineScreen(
                                 if (interfacesList.isEmpty()) {
                                     Text("Memuat daftar interface dari MikroTik...", fontSize = 11.sp)
                                 } else {
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .horizontalScroll(rememberScrollState())
-                                    ) {
-                                        interfacesList.forEach { ifName ->
-                                            val isSel = selectedInterface == ifName ||
-                                                (selectedInterface.isEmpty() && activeRouterObj?.optString("monitored_interface") == ifName)
-                                            FilterChip(
-                                                selected = isSel,
-                                                onClick = {
-                                                    selectedInterface = ifName
-                                                    rxHistoryKbps = List(24) { 0f }
-                                                    txHistoryKbps = List(24) { 0f }
-                                                },
-                                                label = { Text(ifName, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold) },
-                                                leadingIcon = if (isSel) {
-                                                    { Icon(Icons.Filled.Speed, contentDescription = null, modifier = Modifier.size(14.dp)) }
-                                                } else null
-                                            )
-                                        }
+                                    val activeIfKey = selectedInterface.ifEmpty {
+                                        activeRouterObj?.optString("monitored_interface", interfacesList.first()) ?: interfacesList.first()
                                     }
+                                    ArnetaSubTabBar(
+                                        tabs = interfacesList.map { it to it },
+                                        selectedKey = activeIfKey,
+                                        onSelect = { ifName ->
+                                            selectedInterface = ifName
+                                            rxHistoryKbps = List(24) { 0f }
+                                            txHistoryKbps = List(24) { 0f }
+                                        }
+                                    )
                                 }
                             }
                         }
@@ -439,7 +462,7 @@ fun AdminNetworkAndOnlineScreen(
                             val r = activeRouterObj
                             val online = r.optBoolean("online", false)
                             val cpu = r.optInt("cpu_load", 0)
-                            val ramPct = r.optDouble("ram_percent", 0.0).toFloat()
+                            val ramPct = r.optSafeDouble("ram_percent", 0.0).toFloat()
 
                             val animCpu by animateFloatAsState(
                                 targetValue = (cpu / 100f).coerceIn(0f, 1f),
@@ -567,7 +590,10 @@ fun AdminNetworkAndOnlineScreen(
                             )
                         }
 
-                        items(interfacesTrafficList) { iface ->
+                        items(
+                            items = interfacesTrafficList,
+                            key = { it.optString("name", it.hashCode().toString()) }
+                        ) { iface ->
                             val ifName = iface.optString("name")
                             val isUp = iface.optBoolean("running", false)
                             val isMonitored = (selectedInterface == ifName)
@@ -641,7 +667,7 @@ fun AdminNetworkAndOnlineScreen(
                 OutlinedTextField(
                     value = onlineSearchQuery,
                     onValueChange = { onlineSearchQuery = it },
-                    placeholder = { Text("Ketik 1 huruf username / IP / MAC...", fontSize = 13.sp) },
+                    placeholder = { Text("Ketik username / IP / MAC...", fontSize = 13.sp) },
                     leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = ArnetaGoldPrimary) },
                     trailingIcon = {
                         if (onlineSearchQuery.isNotEmpty()) {
@@ -662,17 +688,18 @@ fun AdminNetworkAndOnlineScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        listOf("All" to "Semua (${onlineUsersList.size})", "Hotspot" to "Hotspot", "PPPoE" to "PPPoE").forEach { (k, lbl) ->
-                            FilterChip(
-                                selected = onlineServiceFilter == k,
-                                onClick = { onlineServiceFilter = k },
-                                label = { Text(lbl, fontSize = 11.5.sp) }
-                            )
-                        }
-                    }
+                    ArnetaSubTabBar(
+                        tabs = listOf(
+                            "All" to "Semua (${onlineUsersList.size})",
+                            "Hotspot" to "Hotspot",
+                            "PPPoE" to "PPPoE"
+                        ),
+                        selectedKey = onlineServiceFilter,
+                        onSelect = { onlineServiceFilter = it },
+                        modifier = Modifier.weight(1f)
+                    )
 
-                    IconButton(onClick = { loadTabContent() }) {
+                    IconButton(onClick = { loadTabContent(forceRefresh = true) }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Segarkan", tint = ArnetaGoldPrimary)
                     }
                 }
@@ -694,9 +721,13 @@ fun AdminNetworkAndOnlineScreen(
                 } else {
                     LazyColumn(
                         contentPadding = PaddingValues(bottom = 95.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
                     ) {
-                        items(filteredOnlineUsers) { u ->
+                        items(
+                            items = filteredOnlineUsers,
+                            key = { "${it.optString("service")}_${it.optString("username")}_${it.optString("ros_id")}" }
+                        ) { u ->
                             Card(
                                 shape = RoundedCornerShape(14.dp),
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -787,19 +818,16 @@ fun AdminNetworkAndOnlineScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(
-                            selected = extraSubType == "logs",
-                            onClick = { extraSubType = "logs" },
-                            label = { Text("Log MikroTik (/log/print)", fontSize = 12.sp) }
-                        )
-                        FilterChip(
-                            selected = extraSubType == "wlan",
-                            onClick = { extraSubType = "wlan" },
-                            label = { Text("Sinyal Wireless (WLAN)", fontSize = 12.sp) }
-                        )
-                    }
-                    IconButton(onClick = { loadTabContent() }) {
+                    ArnetaSubTabBar(
+                        tabs = listOf(
+                            "logs" to "Log MikroTik (/log/print)",
+                            "wlan" to "Sinyal Wireless (WLAN)"
+                        ),
+                        selectedKey = extraSubType,
+                        onSelect = { extraSubType = it },
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = { loadTabContent(forceRefresh = true) }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Muat Ulang", tint = ArnetaGoldPrimary)
                     }
                 }
@@ -820,7 +848,8 @@ fun AdminNetworkAndOnlineScreen(
 
                     LazyColumn(
                         contentPadding = PaddingValues(bottom = 95.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxSize()
                     ) {
                         items(filteredRosLogs) { l ->
                             Card(modifier = Modifier.fillMaxWidth()) {
@@ -859,7 +888,8 @@ fun AdminNetworkAndOnlineScreen(
                     } else {
                         LazyColumn(
                             contentPadding = PaddingValues(bottom = 95.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxSize()
                         ) {
                             items(wlanSignalList) { w ->
                                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -893,7 +923,7 @@ fun AdminNetworkAndOnlineScreen(
                         Text("Tambah Router MikroTik", fontWeight = FontWeight.Bold)
                     }
 
-                    IconButton(onClick = { loadTabContent() }) {
+                    IconButton(onClick = { loadTabContent(forceRefresh = true) }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Segarkan", tint = ArnetaGoldPrimary)
                     }
                 }
@@ -902,9 +932,13 @@ fun AdminNetworkAndOnlineScreen(
 
                 LazyColumn(
                     contentPadding = PaddingValues(bottom = 95.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                    items(routerList) { r ->
+                    items(
+                        items = routerList,
+                        key = { it.optInt("id", it.optString("name").hashCode()) }
+                    ) { r ->
                         val isEnabled = r.optInt("enabled", 1) == 1
                         val descStr = r.optString("description", "").trim()
                         Card(
@@ -999,7 +1033,7 @@ fun AdminNetworkAndOnlineScreen(
                         Text("Tambah IP Pool", fontWeight = FontWeight.Bold)
                     }
 
-                    IconButton(onClick = { loadTabContent() }) {
+                    IconButton(onClick = { loadTabContent(forceRefresh = true) }) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Segarkan", tint = ArnetaGoldPrimary)
                     }
                 }
@@ -1008,9 +1042,13 @@ fun AdminNetworkAndOnlineScreen(
 
                 LazyColumn(
                     contentPadding = PaddingValues(bottom = 95.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                    items(poolList) { p ->
+                    items(
+                        items = poolList,
+                        key = { it.optInt("id", it.optString("pool_name").hashCode()) }
+                    ) { p ->
                         val localIpStr = p.optString("local_ip", "").trim()
                         Card(
                             shape = RoundedCornerShape(14.dp),
@@ -1069,7 +1107,7 @@ fun AdminNetworkAndOnlineScreen(
             onDismiss = { showRouterDialog = false },
             onSaved = {
                 showRouterDialog = false
-                loadTabContent()
+                loadTabContent(forceRefresh = true)
             }
         )
     }
@@ -1081,7 +1119,7 @@ fun AdminNetworkAndOnlineScreen(
             onDismiss = { showPoolDialog = false },
             onSaved = {
                 showPoolDialog = false
-                loadTabContent()
+                loadTabContent(forceRefresh = true)
             }
         )
     }
@@ -1140,7 +1178,7 @@ fun AdminNetworkAndOnlineScreen(
                 scope.launch {
                     val dRes = ApiClient.request("admin_router_delete", mapOf("id" to targetR.optInt("id")))
                     Toast.makeText(context, dRes.message, Toast.LENGTH_SHORT).show()
-                    if (dRes.status) loadTabContent()
+                    if (dRes.status) loadTabContent(forceRefresh = true)
                 }
             }
         )
@@ -1158,7 +1196,7 @@ fun AdminNetworkAndOnlineScreen(
                 scope.launch {
                     val dRes = ApiClient.request("admin_pool_delete", mapOf("id" to targetP.optInt("id")))
                     Toast.makeText(context, dRes.message, Toast.LENGTH_SHORT).show()
-                    if (dRes.status) loadTabContent()
+                    if (dRes.status) loadTabContent(forceRefresh = true)
                 }
             }
         )
@@ -1186,7 +1224,7 @@ fun AdminNetworkAndOnlineScreen(
                     if (detailUserTarget?.optString("username") == u.optString("username")) {
                         detailUserTarget = null
                     }
-                    fetchOnlineUsers()
+                    fetchOnlineUsers(forceRefresh = true)
                 }
             }
         )
@@ -1198,15 +1236,12 @@ fun AdminNetworkAndOnlineScreen(
             onDismiss = { detailUserTarget = null },
             onUserKicked = {
                 detailUserTarget = null
-                scope.launch { fetchOnlineUsers() }
+                scope.launch { fetchOnlineUsers(forceRefresh = true) }
             }
         )
     }
 }
 
-/**
- * LAYAR PENUH NATIVE: FORM TAMBAH / EDIT ROUTER MIKROTIK
- */
 @Composable
 internal fun RouterFormDialog(
     initial: JSONObject?,
@@ -1230,269 +1265,253 @@ internal fun RouterFormDialog(
 
     val canSave = !isSaving && name.isNotBlank() && ip.isNotBlank() && user.isNotBlank()
 
-    Dialog(
+    ArnetaFullScreenDialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = true
-        )
-    ) {
-        Scaffold(
-            contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            modifier = Modifier
-                .fillMaxSize()
-                .systemBarsPadding()
-                .imePadding(),
-            containerColor = MaterialTheme.colorScheme.background,
-            topBar = {
-                Surface(
-                    color = Color(0xFF141B2D),
-                    shadowElevation = 6.dp,
-                    modifier = Modifier.fillMaxWidth()
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            Surface(
+                color = Color(0xFF141B2D),
+                shadowElevation = 6.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 10.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 10.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = onDismiss) {
-                                Icon(Icons.Filled.ArrowBack, contentDescription = "Kembali", tint = Color.White)
-                            }
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Column {
-                                Text(
-                                    text = if (isEdit) "Edit Router MikroTik" else "Tambah Router MikroTik",
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 17.sp,
-                                    color = Color.White
-                                )
-                                Text(
-                                    text = "Konfigurasi koneksi RouterOS API & cakupan peta",
-                                    fontSize = 11.5.sp,
-                                    color = ArnetaGoldLight
-                                )
-                            }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Filled.ArrowBack, contentDescription = "Kembali", tint = Color.White)
                         }
-                    }
-                }
-            },
-            bottomBar = {
-                Surface(
-                    color = Color(0xFF141B2D),
-                    shadowElevation = 12.dp,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .navigationBarsPadding()
-                            .padding(horizontal = 16.dp, vertical = 12.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = onDismiss,
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .weight(0.38f)
-                                .height(48.dp)
-                        ) {
-                            Text("Batal", fontWeight = FontWeight.Bold)
-                        }
-
-                        Button(
-                            enabled = canSave,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = ArnetaGoldPrimary,
-                                contentColor = Color(0xFF0B0F19)
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                            onClick = {
-                                isSaving = true
-                                scope.launch {
-                                    val res = ApiClient.request(
-                                        "admin_router_save",
-                                        mapOf(
-                                            "id" to (initial?.optInt("id") ?: 0),
-                                            "name" to name.trim(),
-                                            "ip_address" to ip.trim(),
-                                            "username" to user.trim(),
-                                            "password" to pass,
-                                            "description" to description.trim(),
-                                            "coordinates" to coords.trim(),
-                                            "coverage" to coverage.trim().ifEmpty { "350" },
-                                            "enabled" to enabledStatus
-                                        )
-                                    )
-                                    isSaving = false
-                                    Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
-                                    if (res.status) onSaved()
-                                }
-                            },
-                            modifier = Modifier
-                                .weight(0.62f)
-                                .height(48.dp)
-                        ) {
-                            Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Column {
                             Text(
-                                text = if (isSaving) "Menyimpan..." else "Simpan Router",
+                                text = if (isEdit) "Edit Router MikroTik" else "Tambah Router MikroTik",
                                 fontWeight = FontWeight.ExtraBold,
-                                fontSize = 13.5.sp
+                                fontSize = 17.sp,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "Konfigurasi koneksi RouterOS API & cakupan peta",
+                                fontSize = 11.5.sp,
+                                color = ArnetaGoldLight
                             )
                         }
                     }
                 }
             }
-        ) { innerPadding ->
-            Column(
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 14.dp, vertical = 12.dp)
+        },
+        bottomBar = {
+            Surface(
+                color = Color(0xFF141B2D),
+                shadowElevation = 12.dp,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Card(
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    modifier = Modifier.fillMaxWidth()
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
                 ) {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.padding(14.dp)
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .weight(0.38f)
+                            .height(46.dp)
                     ) {
+                        Text("Batal", fontWeight = FontWeight.Bold)
+                    }
+
+                    Button(
+                        enabled = canSave,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ArnetaGoldPrimary,
+                            contentColor = Color(0xFF0B0F19)
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        onClick = {
+                            isSaving = true
+                            scope.launch {
+                                val res = ApiClient.request(
+                                    "admin_router_save",
+                                    mapOf(
+                                        "id" to (initial?.optInt("id") ?: 0),
+                                        "name" to name.trim(),
+                                        "ip_address" to ip.trim(),
+                                        "username" to user.trim(),
+                                        "password" to pass,
+                                        "description" to description.trim(),
+                                        "coordinates" to coords.trim(),
+                                        "coverage" to coverage.trim().ifEmpty { "350" },
+                                        "enabled" to enabledStatus
+                                    )
+                                )
+                                isSaving = false
+                                Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
+                                if (res.status) onSaved()
+                            }
+                        },
+                        modifier = Modifier
+                            .weight(0.62f)
+                            .height(46.dp)
+                    ) {
+                        Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "Status & Koneksi API RouterOS",
-                            fontSize = 13.sp,
+                            text = if (isSaving) "Menyimpan..." else "Simpan Router",
                             fontWeight = FontWeight.ExtraBold,
-                            color = ArnetaGoldPrimary
-                        )
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(
-                                selected = enabledStatus == 1,
-                                onClick = { enabledStatus = 1 },
-                                label = { Text("Enabled (Aktif)", fontSize = 12.sp) }
-                            )
-                            FilterChip(
-                                selected = enabledStatus == 0,
-                                onClick = { enabledStatus = 0 },
-                                label = { Text("Disabled (Nonaktif)", fontSize = 12.sp) }
-                            )
-                        }
-
-                        OutlinedTextField(
-                            value = name,
-                            onValueChange = { name = it },
-                            label = { Text("Nama Router *") },
-                            placeholder = { Text("Contoh: Router-Utama") },
-                            leadingIcon = { Icon(Icons.Filled.Router, contentDescription = null, tint = ArnetaGoldPrimary) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        OutlinedTextField(
-                            value = ip,
-                            onValueChange = { ip = it },
-                            label = { Text("IP Address : Port API *") },
-                            placeholder = { Text("Misal: 10.8.0.1:8728 atau 192.168.88.1") },
-                            leadingIcon = { Icon(Icons.Filled.Dns, contentDescription = null, tint = ArnetaCyanIncome) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
-                                value = user,
-                                onValueChange = { user = it },
-                                label = { Text("Username API *") },
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(1f)
-                            )
-
-                            OutlinedTextField(
-                                value = pass,
-                                onValueChange = { pass = it },
-                                label = { Text(if (isEdit) "Password (Opsional)" else "Password API") },
-                                visualTransformation = if (showPass) VisualTransformation.None else PasswordVisualTransformation(),
-                                trailingIcon = {
-                                    IconButton(onClick = { showPass = !showPass }) {
-                                        Icon(
-                                            imageVector = if (showPass) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                                            contentDescription = null
-                                        )
-                                    }
-                                },
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-
-                        OutlinedTextField(
-                            value = description,
-                            onValueChange = { description = it },
-                            label = { Text("Deskripsi / Lokasi Server (Opsional)") },
-                            placeholder = { Text("Contoh: POP Pusat / MikroTik RB450Gx4") },
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
+                            fontSize = 13.5.sp
                         )
                     }
                 }
-
-                Card(
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    modifier = Modifier.fillMaxWidth()
+            }
+        }
+    ) { innerPadding ->
+        Column(
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 14.dp, vertical = 12.dp)
+        ) {
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(14.dp)
                 ) {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.padding(14.dp)
-                    ) {
-                        Text(
-                            text = "Titik Koordinat & Radius Peta",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = ArnetaCyanIncome
-                        )
+                    Text(
+                        text = "Status & Koneksi API RouterOS",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = ArnetaGoldPrimary
+                    )
 
-                        OutlinedTextField(
-                            value = coords,
-                            onValueChange = { coords = it },
-                            label = { Text("Koordinat Peta (Lat, Lng)") },
-                            placeholder = { Text("-6.200000, 106.816666") },
-                            leadingIcon = { Icon(Icons.Filled.LocationOn, contentDescription = null, tint = ArnetaCyanIncome) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = enabledStatus == 1,
+                            onClick = { enabledStatus = 1 },
+                            label = { Text("Enabled (Aktif)", fontSize = 12.sp) }
                         )
-
-                        OutlinedTextField(
-                            value = coverage,
-                            onValueChange = { coverage = it },
-                            label = { Text("Radius Coverage Area (Meter)") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
+                        FilterChip(
+                            selected = enabledStatus == 0,
+                            onClick = { enabledStatus = 0 },
+                            label = { Text("Disabled (Nonaktif)", fontSize = 12.sp) }
                         )
                     }
+
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("Nama Router *") },
+                        placeholder = { Text("Contoh: Router-Utama") },
+                        leadingIcon = { Icon(Icons.Filled.Router, contentDescription = null, tint = ArnetaGoldPrimary) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = ip,
+                        onValueChange = { ip = it },
+                        label = { Text("IP Address : Port API *") },
+                        placeholder = { Text("Misal: 10.8.0.1:8728 atau 192.168.88.1") },
+                        leadingIcon = { Icon(Icons.Filled.Dns, contentDescription = null, tint = ArnetaCyanIncome) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = user,
+                            onValueChange = { user = it },
+                            label = { Text("Username API *") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        OutlinedTextField(
+                            value = pass,
+                            onValueChange = { pass = it },
+                            label = { Text(if (isEdit) "Password (Opsional)" else "Password API") },
+                            visualTransformation = if (showPass) VisualTransformation.None else PasswordVisualTransformation(),
+                            trailingIcon = {
+                                IconButton(onClick = { showPass = !showPass }) {
+                                    Icon(
+                                        imageVector = if (showPass) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                        contentDescription = null
+                                    )
+                                }
+                            },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    OutlinedTextField(
+                        value = description,
+                        onValueChange = { description = it },
+                        label = { Text("Deskripsi / Lokasi Server (Opsional)") },
+                        placeholder = { Text("Contoh: POP Pusat / MikroTik RB450Gx4") },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(14.dp)
+                ) {
+                    Text(
+                        text = "Titik Koordinat & Radius Peta",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = ArnetaCyanIncome
+                    )
+
+                    OutlinedTextField(
+                        value = coords,
+                        onValueChange = { coords = it },
+                        label = { Text("Koordinat Peta (Lat, Lng)") },
+                        placeholder = { Text("-6.200000, 106.816666") },
+                        leadingIcon = { Icon(Icons.Filled.LocationOn, contentDescription = null, tint = ArnetaCyanIncome) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = coverage,
+                        onValueChange = { coverage = it },
+                        label = { Text("Radius Coverage Area (Meter)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
         }
     }
 }
 
-/**
- * LAYAR PENUH NATIVE: FORM TAMBAH / EDIT IP POOL
- */
 @Composable
 internal fun PoolFormDialog(
     initial: JSONObject?,
@@ -1517,203 +1536,190 @@ internal fun PoolFormDialog(
 
     val canSave = !isSaving && poolName.isNotBlank() && rangeIp.isNotBlank()
 
-    Dialog(
+    ArnetaFullScreenDialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = true
-        )
-    ) {
-        Scaffold(
-            contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            modifier = Modifier
-                .fillMaxSize()
-                .systemBarsPadding()
-                .imePadding(),
-            containerColor = MaterialTheme.colorScheme.background,
-            topBar = {
-                Surface(
-                    color = Color(0xFF141B2D),
-                    shadowElevation = 6.dp,
-                    modifier = Modifier.fillMaxWidth()
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            Surface(
+                color = Color(0xFF141B2D),
+                shadowElevation = 6.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 10.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 10.dp)
-                    ) {
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.Filled.ArrowBack, contentDescription = "Kembali", tint = Color.White)
-                        }
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Column {
-                            Text(
-                                text = if (isEdit) "Edit IP Pool" else "Tambah IP Pool Baru",
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 17.sp,
-                                color = Color.White
-                            )
-                            Text(
-                                text = "Rentang alokasi IP untuk layanan PPPoE / VPN",
-                                fontSize = 11.5.sp,
-                                color = ArnetaGoldLight
-                            )
-                        }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "Kembali", tint = Color.White)
                     }
-                }
-            },
-            bottomBar = {
-                Surface(
-                    color = Color(0xFF141B2D),
-                    shadowElevation = 12.dp,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .navigationBarsPadding()
-                            .padding(horizontal = 16.dp, vertical = 12.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = onDismiss,
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .weight(0.38f)
-                                .height(48.dp)
-                        ) {
-                            Text("Batal", fontWeight = FontWeight.Bold)
-                        }
-
-                        Button(
-                            enabled = canSave,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = ArnetaGoldPrimary,
-                                contentColor = Color(0xFF0B0F19)
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                            onClick = {
-                                isSaving = true
-                                scope.launch {
-                                    val res = ApiClient.request(
-                                        "admin_pool_save",
-                                        mapOf(
-                                            "id" to (initial?.optInt("id") ?: 0),
-                                            "pool_name" to poolName.trim(),
-                                            "local_ip" to localIp.trim(),
-                                            "range_ip" to rangeIp.trim(),
-                                            "routers" to routers.trim()
-                                        )
-                                    )
-                                    isSaving = false
-                                    Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
-                                    if (res.status) onSaved()
-                                }
-                            },
-                            modifier = Modifier
-                                .weight(0.62f)
-                                .height(48.dp)
-                        ) {
-                            Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (isSaving) "Menyimpan..." else "Simpan IP Pool",
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 13.5.sp
-                            )
-                        }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Column {
+                        Text(
+                            text = if (isEdit) "Edit IP Pool" else "Tambah IP Pool Baru",
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 17.sp,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "Rentang alokasi IP untuk layanan PPPoE / VPN",
+                            fontSize = 11.5.sp,
+                            color = ArnetaGoldLight
+                        )
                     }
                 }
             }
-        ) { innerPadding ->
-            Column(
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 14.dp, vertical = 12.dp)
+        },
+        bottomBar = {
+            Surface(
+                color = Color(0xFF141B2D),
+                shadowElevation = 12.dp,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Card(
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    modifier = Modifier.fillMaxWidth()
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
                 ) {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.padding(14.dp)
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .weight(0.38f)
+                            .height(46.dp)
                     ) {
-                        Text(
-                            text = "Detail Konfigurasi IP Pool",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = ArnetaGoldPrimary
-                        )
+                        Text("Batal", fontWeight = FontWeight.Bold)
+                    }
 
-                        OutlinedTextField(
-                            value = poolName,
-                            onValueChange = { poolName = it },
-                            label = { Text("Nama Pool *") },
-                            placeholder = { Text("Contoh: pool-pppoe-1") },
-                            leadingIcon = { Icon(Icons.Filled.Lan, contentDescription = null, tint = ArnetaGoldPrimary) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        OutlinedTextField(
-                            value = localIp,
-                            onValueChange = { localIp = it },
-                            label = { Text("Local IP Address / Gateway PPPoE (Opsional)") },
-                            placeholder = { Text("Contoh: 192.168.10.1") },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        OutlinedTextField(
-                            value = rangeIp,
-                            onValueChange = { rangeIp = it },
-                            label = { Text("Rentang IP (Range IP) *") },
-                            placeholder = { Text("192.168.10.2-192.168.10.254") },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        if (availableRouters.isNotEmpty()) {
-                            Text(
-                                text = "Pilih Router MikroTik / Radius:",
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = ArnetaCyanIncome
-                            )
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                modifier = Modifier.horizontalScroll(rememberScrollState())
-                            ) {
-                                (availableRouters + "Radius").distinct().forEach { rName ->
-                                    FilterChip(
-                                        selected = routers.equals(rName, ignoreCase = true),
-                                        onClick = { routers = rName },
-                                        label = { Text(rName, fontSize = 11.5.sp) }
+                    Button(
+                        enabled = canSave,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ArnetaGoldPrimary,
+                            contentColor = Color(0xFF0B0F19)
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        onClick = {
+                            isSaving = true
+                            scope.launch {
+                                val res = ApiClient.request(
+                                    "admin_pool_save",
+                                    mapOf(
+                                        "id" to (initial?.optInt("id") ?: 0),
+                                        "pool_name" to poolName.trim(),
+                                        "local_ip" to localIp.trim(),
+                                        "range_ip" to rangeIp.trim(),
+                                        "routers" to routers.trim()
                                     )
-                                }
+                                )
+                                isSaving = false
+                                Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
+                                if (res.status) onSaved()
                             }
-                        }
-
-                        OutlinedTextField(
-                            value = routers,
-                            onValueChange = { routers = it },
-                            label = { Text("Nama Router") },
-                            leadingIcon = { Icon(Icons.Filled.Router, contentDescription = null, tint = ArnetaCyanIncome) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
+                        },
+                        modifier = Modifier
+                            .weight(0.62f)
+                            .height(46.dp)
+                    ) {
+                        Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isSaving) "Menyimpan..." else "Simpan IP Pool",
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 13.5.sp
                         )
                     }
+                }
+            }
+        }
+    ) { innerPadding ->
+        Column(
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 14.dp, vertical = 12.dp)
+        ) {
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(14.dp)
+                ) {
+                    Text(
+                        text = "Detail Konfigurasi IP Pool",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = ArnetaGoldPrimary
+                    )
+
+                    OutlinedTextField(
+                        value = poolName,
+                        onValueChange = { poolName = it },
+                        label = { Text("Nama Pool *") },
+                        placeholder = { Text("Contoh: pool-pppoe-1") },
+                        leadingIcon = { Icon(Icons.Filled.Lan, contentDescription = null, tint = ArnetaGoldPrimary) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = localIp,
+                        onValueChange = { localIp = it },
+                        label = { Text("Local IP Address / Gateway PPPoE (Opsional)") },
+                        placeholder = { Text("Contoh: 192.168.10.1") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = rangeIp,
+                        onValueChange = { rangeIp = it },
+                        label = { Text("Rentang IP (Range IP) *") },
+                        placeholder = { Text("192.168.10.2-192.168.10.254") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    if (availableRouters.isNotEmpty()) {
+                        Text(
+                            text = "Pilih Router MikroTik / Radius:",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = ArnetaCyanIncome
+                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.horizontalScroll(rememberScrollState())
+                        ) {
+                            (availableRouters + "Radius").distinct().forEach { rName ->
+                                FilterChip(
+                                    selected = routers.equals(rName, ignoreCase = true),
+                                    onClick = { routers = rName },
+                                    label = { Text(rName, fontSize = 11.5.sp) }
+                                )
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = routers,
+                        onValueChange = { routers = it },
+                        label = { Text("Nama Router") },
+                        leadingIcon = { Icon(Icons.Filled.Router, contentDescription = null, tint = ArnetaCyanIncome) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
         }
