@@ -31,8 +31,6 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import id.biz.arneta.admin.network.ApiClient
 import id.biz.arneta.admin.ui.theme.*
 import kotlinx.coroutines.launch
@@ -89,283 +87,270 @@ internal fun GenieAcsHostFormDialog(
 
     val canSave = !isSaving && name.isNotBlank() && host.isNotBlank()
 
-    Dialog(
+    ArnetaFullScreenDialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = true
-        )
-    ) {
-        Scaffold(
-            contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            modifier = Modifier
-                .fillMaxSize()
-                .systemBarsPadding()
-                .imePadding(),
-            containerColor = MaterialTheme.colorScheme.background,
-            topBar = {
-                Surface(
-                    color = Color(0xFF141B2D),
-                    shadowElevation = 6.dp,
-                    modifier = Modifier.fillMaxWidth()
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            Surface(
+                color = Color(0xFF141B2D),
+                shadowElevation = 6.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 10.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 10.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                            IconButton(onClick = onDismiss) {
-                                Icon(Icons.Filled.ArrowBack, contentDescription = "Kembali", tint = Color.White)
-                            }
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Column {
-                                Text(
-                                    text = if (isEdit) "Edit Server GenieACS" else "Tambah Server GenieACS",
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 17.sp,
-                                    color = Color.White
-                                )
-                                Text(
-                                    text = "Koneksi NBI REST API (HTTP Lokal / HTTPS Tunnel)",
-                                    fontSize = 11.5.sp,
-                                    color = ArnetaGoldLight
-                                )
-                            }
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Filled.ArrowBack, contentDescription = "Kembali", tint = Color.White)
                         }
-
-                        Surface(
-                            color = if (protocol == "https") ArnetaGreenSuccess.copy(alpha = 0.2f) else ArnetaCyanIncome.copy(alpha = 0.2f),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.padding(end = 8.dp)
-                        ) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Column {
                             Text(
-                                text = protocol.uppercase(),
-                                color = if (protocol == "https") ArnetaGreenSuccess else ArnetaCyanIncome,
+                                text = if (isEdit) "Edit Server GenieACS" else "Tambah Server GenieACS",
                                 fontWeight = FontWeight.ExtraBold,
-                                fontSize = 11.sp,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                fontSize = 17.sp,
+                                color = Color.White
+                            )
+                            Text(
+                                text = "Koneksi NBI REST API (HTTP Lokal / HTTPS Tunnel)",
+                                fontSize = 11.5.sp,
+                                color = ArnetaGoldLight
                             )
                         }
                     }
-                }
-            },
-            bottomBar = {
-                Surface(
-                    color = Color(0xFF141B2D),
-                    shadowElevation = 12.dp,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .navigationBarsPadding()
-                            .padding(horizontal = 16.dp, vertical = 12.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = onDismiss,
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .weight(0.36f)
-                                .height(48.dp)
-                        ) {
-                            Text("Batal", fontWeight = FontWeight.Bold)
-                        }
 
-                        Button(
-                            enabled = canSave,
-                            onClick = {
-                                isSaving = true
-                                scope.launch {
-                                    val res = ApiClient.request(
-                                        "admin_genieacs_host_save",
-                                        mapOf(
-                                            "id" to (initial?.optString("id") ?: ""),
-                                            "name" to name.trim(),
-                                            "protocol" to protocol,
-                                            "host" to host.trim(),
-                                            "port" to (port.toIntOrNull() ?: if (protocol == "https") 443 else 7557),
-                                            "username" to username.trim(),
-                                            "password" to password
-                                        )
+                    Surface(
+                        color = if (protocol == "https") ArnetaGreenSuccess.copy(alpha = 0.2f) else ArnetaCyanIncome.copy(alpha = 0.2f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.padding(end = 8.dp)
+                    ) {
+                        Text(
+                            text = protocol.uppercase(),
+                            color = if (protocol == "https") ArnetaGreenSuccess else ArnetaCyanIncome,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
+        },
+        bottomBar = {
+            Surface(
+                color = Color(0xFF141B2D),
+                shadowElevation = 12.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .weight(0.36f)
+                            .height(46.dp)
+                    ) {
+                        Text("Batal", fontWeight = FontWeight.Bold)
+                    }
+
+                    Button(
+                        enabled = canSave,
+                        onClick = {
+                            isSaving = true
+                            scope.launch {
+                                val res = ApiClient.request(
+                                    "admin_genieacs_host_save",
+                                    mapOf(
+                                        "id" to (initial?.optString("id") ?: ""),
+                                        "name" to name.trim(),
+                                        "protocol" to protocol,
+                                        "host" to host.trim(),
+                                        "port" to (port.toIntOrNull() ?: if (protocol == "https") 443 else 7557),
+                                        "username" to username.trim(),
+                                        "password" to password
                                     )
-                                    isSaving = false
-                                    Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
-                                    if (res.status) onSaved()
-                                }
+                                )
+                                isSaving = false
+                                Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
+                                if (res.status) onSaved()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .weight(0.64f)
+                            .height(46.dp)
+                    ) {
+                        Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isSaving) "Menyimpan..." else "Simpan Host",
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 13.5.sp
+                        )
+                    }
+                }
+            }
+        }
+    ) { innerPadding ->
+        Column(
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 14.dp, vertical = 12.dp)
+        ) {
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(14.dp)
+                ) {
+                    Text(
+                        text = "1. Protokol & Alamat Server NBI",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = ArnetaGoldPrimary
+                    )
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        FilterChip(
+                            selected = protocol == "http",
+                            onClick = {
+                                protocol = "http"
+                                if (port == "443" || port.isBlank()) port = "7557"
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black),
+                            label = { Text("🏠 HTTP (IP Lokal / 7557)", fontSize = 11.5.sp) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = protocol == "https",
+                            onClick = {
+                                protocol = "https"
+                                if (port == "7557" || port.isBlank()) port = "443"
+                            },
+                            label = { Text("🔒 HTTPS (Domain / Tunnel)", fontSize = 11.5.sp) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("Nama Server *") },
+                        placeholder = { Text("Misal: GenieACS Utama") },
+                        leadingIcon = { Icon(Icons.Filled.Dns, contentDescription = null, tint = ArnetaGoldPrimary) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = host,
+                            onValueChange = { host = it },
+                            label = { Text(if (protocol == "https") "Domain / Host HTTPS *" else "IP / Host GenieACS *") },
+                            placeholder = { Text(if (protocol == "https") "nbi.domainanda.com" else "192.168.1.200") },
+                            singleLine = true,
                             shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .weight(0.64f)
-                                .height(48.dp)
-                        ) {
-                            Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
+                            modifier = Modifier.weight(1.4f)
+                        )
+                        OutlinedTextField(
+                            value = port,
+                            onValueChange = { port = it.replace("[^0-9]".toRegex(), "") },
+                            label = { Text("Port") },
+                            placeholder = { Text(if (protocol == "https") "443" else "7557") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(0.6f)
+                        )
+                    }
+
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
                             Text(
-                                text = if (isSaving) "Menyimpan..." else "Simpan Host",
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 13.5.sp
+                                text = "Endpoint NBI: $previewEndpoint",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                color = ArnetaCyanIncome
+                            )
+                            Text(
+                                text = if (protocol == "https") {
+                                    "Mendukung Cloudflare Tunnel / Reverse Proxy Nginx tanpa port :7557."
+                                } else {
+                                    "Port default NBI REST API GenieACS adalah 7557."
+                                },
+                                fontSize = 10.5.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                             )
                         }
                     }
                 }
             }
-        ) { innerPadding ->
-            Column(
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 14.dp, vertical = 12.dp)
+
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Card(
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    modifier = Modifier.fillMaxWidth()
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(14.dp)
                 ) {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.padding(14.dp)
-                    ) {
-                        Text(
-                            text = "1. Protokol & Alamat Server NBI",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = ArnetaGoldPrimary
-                        )
+                    Text(
+                        text = "2. Autentikasi HTTP Basic / Digest (Opsional)",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = ArnetaCyanIncome
+                    )
 
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            FilterChip(
-                                selected = protocol == "http",
-                                onClick = {
-                                    protocol = "http"
-                                    if (port == "443" || port.isBlank()) port = "7557"
-                                },
-                                label = { Text("🏠 HTTP (IP Lokal / 7557)", fontSize = 11.5.sp) },
-                                modifier = Modifier.weight(1f)
-                            )
-                            FilterChip(
-                                selected = protocol == "https",
-                                onClick = {
-                                    protocol = "https"
-                                    if (port == "7557" || port.isBlank()) port = "443"
-                                },
-                                label = { Text("🔒 HTTPS (Domain / Tunnel)", fontSize = 11.5.sp) },
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-
-                        OutlinedTextField(
-                            value = name,
-                            onValueChange = { name = it },
-                            label = { Text("Nama Server *") },
-                            placeholder = { Text("Misal: GenieACS Utama") },
-                            leadingIcon = { Icon(Icons.Filled.Dns, contentDescription = null, tint = ArnetaGoldPrimary) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
-                                value = host,
-                                onValueChange = { host = it },
-                                label = { Text(if (protocol == "https") "Domain / Host HTTPS *" else "IP / Host GenieACS *") },
-                                placeholder = { Text(if (protocol == "https") "nbi.domainanda.com" else "192.168.1.200") },
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(1.4f)
-                            )
-                            OutlinedTextField(
-                                value = port,
-                                onValueChange = { port = it.replace("[^0-9]".toRegex(), "") },
-                                label = { Text("Port") },
-                                placeholder = { Text(if (protocol == "https") "443" else "7557") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(0.6f)
-                            )
-                        }
-
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Text(
-                                    text = "Endpoint NBI: $previewEndpoint",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = ArnetaCyanIncome
-                                )
-                                Text(
-                                    text = if (protocol == "https") {
-                                        "Mendukung Cloudflare Tunnel / Reverse Proxy Nginx tanpa port :7557."
-                                    } else {
-                                        "Port default NBI REST API GenieACS adalah 7557."
-                                    },
-                                    fontSize = 10.5.sp,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                    OutlinedTextField(
+                        value = username,
+                        onValueChange = { username = it },
+                        label = { Text("Username Auth NBI (Opsional)") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = { Text("Password Auth NBI (Opsional)") },
+                        visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { showPassword = !showPassword }) {
+                                Icon(
+                                    imageVector = if (showPassword) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                    contentDescription = null
                                 )
                             }
-                        }
-                    }
-                }
-
-                Card(
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.padding(14.dp)
-                    ) {
-                        Text(
-                            text = "2. Autentikasi HTTP Basic / Digest (Opsional)",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = ArnetaCyanIncome
-                        )
-
-                        OutlinedTextField(
-                            value = username,
-                            onValueChange = { username = it },
-                            label = { Text("Username Auth NBI (Opsional)") },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        OutlinedTextField(
-                            value = password,
-                            onValueChange = { password = it },
-                            label = { Text("Password Auth NBI (Opsional)") },
-                            visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                            trailingIcon = {
-                                IconButton(onClick = { showPassword = !showPassword }) {
-                                    Icon(
-                                        imageVector = if (showPassword) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                                        contentDescription = null
-                                    )
-                                }
-                            },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
         }
@@ -396,7 +381,6 @@ internal fun GenieAcsDeviceDetailDialog(
     var rawJsonText by remember { mutableStateOf("") }
     var isFullRawLoaded by remember { mutableStateOf(false) }
 
-    // State Sub-Dialog Edit WLAN, Edit/Add WAN, Tambah Tag & Konfirmasi Berbahaya
     var editingWlan by remember { mutableStateOf<JSONObject?>(null) }
     var editingWan by remember { mutableStateOf<JSONObject?>(null) }
     var isAddWanMode by remember { mutableStateOf(false) }
@@ -478,780 +462,762 @@ internal fun GenieAcsDeviceDetailDialog(
     val sn = deviceInfo?.optString("serial_number")?.ifEmpty { deviceId } ?: deviceId
     val fullname = deviceInfo?.optString("fullname", "") ?: ""
 
-    Dialog(
+    ArnetaFullScreenDialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = true
-        )
-    ) {
-        Scaffold(
-            contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            modifier = Modifier
-                .fillMaxSize()
-                .systemBarsPadding(),
-            containerColor = Color(0xFF0B1120),
-            topBar = {
-                Surface(
-                    color = Color(0xFF141B2D),
-                    shadowElevation = 6.dp,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 8.dp)
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                IconButton(onClick = onDismiss) {
-                                    Icon(Icons.Filled.ArrowBack, contentDescription = "Kembali", tint = Color.White)
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .size(10.dp)
-                                        .clip(CircleShape)
-                                        .background(if (isOnline) ArnetaGreenSuccess else ArnetaRedDanger)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = if (fullname.isNotEmpty()) "$fullname ($sn)" else sn,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 15.5.sp,
-                                        color = ArnetaGoldPrimary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = "${deviceInfo?.optString("manufacturer", "-")} ${deviceInfo?.optString("product_class", "-")} • Uptime: ${deviceInfo?.optString("uptime", "-")}",
-                                        fontSize = 11.sp,
-                                        color = Color.White.copy(alpha = 0.72f),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-                            IconButton(onClick = { loadDetail() }) {
-                                Icon(Icons.Filled.Refresh, contentDescription = "Muat Ulang", tint = ArnetaCyanIncome)
-                            }
-                        }
-
-                        // Sub-Tab Navigasi di dalam Detail Perangkat
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState())
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            listOf(
-                                "overview" to "Info & Optik",
-                                "wlan" to "WiFi (${wlanList.size})",
-                                "wan" to "WAN (${wanList.size})",
-                                "hosts" to "HP Aktif (${connectedHostsList.size})",
-                                "json" to "Raw JSON"
-                            ).forEach { (k, lbl) ->
-                                FilterChip(
-                                    selected = detailTab == k,
-                                    onClick = { detailTab = k },
-                                    label = { Text(lbl, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold) }
-                                )
-                            }
-                        }
-                    }
-                }
-            },
-            bottomBar = {
-                Surface(
-                    color = Color(0xFF141B2D),
-                    shadowElevation = 12.dp,
-                    modifier = Modifier.fillMaxWidth()
+        containerColor = Color(0xFF0B1120),
+        topBar = {
+            Surface(
+                color = Color(0xFF141B2D),
+                shadowElevation = 6.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 8.dp)
                 ) {
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            IconButton(onClick = onDismiss) {
+                                Icon(Icons.Filled.ArrowBack, contentDescription = "Kembali", tint = Color.White)
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isOnline) ArnetaGreenSuccess else ArnetaRedDanger)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (fullname.isNotEmpty()) "$fullname ($sn)" else sn,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 15.5.sp,
+                                    color = ArnetaGoldPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "${deviceInfo?.optString("manufacturer", "-")} ${deviceInfo?.optString("product_class", "-")} • Uptime: ${deviceInfo?.optString("uptime", "-")}",
+                                    fontSize = 11.sp,
+                                    color = Color.White.copy(alpha = 0.72f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                        IconButton(onClick = { loadDetail() }) {
+                            Icon(Icons.Filled.Refresh, contentDescription = "Muat Ulang", tint = ArnetaCyanIncome)
+                        }
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .navigationBarsPadding()
-                            .padding(horizontal = 14.dp, vertical = 10.dp)
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
-                        FilledTonalButton(
-                            onClick = { executeAction("summon") },
-                            colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = ArnetaGreenSuccess.copy(alpha = 0.18f),
-                                contentColor = ArnetaGreenSuccess
-                            ),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(42.dp)
-                        ) {
-                            Icon(Icons.Filled.Bolt, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Summon", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
-                        }
-
-                        FilledTonalButton(
-                            onClick = { dangerousActionConfirm = "reboot" },
-                            colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = ArnetaOrangeActive.copy(alpha = 0.18f),
-                                contentColor = ArnetaOrangeActive
-                            ),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(42.dp)
-                        ) {
-                            Icon(Icons.Filled.RestartAlt, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Reboot", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
-                        }
-
-                        OutlinedButton(
-                            onClick = onDismiss,
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = ArnetaGoldPrimary),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier
-                                .weight(0.85f)
-                                .height(42.dp)
-                        ) {
-                            Text("Tutup", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        listOf(
+                            "overview" to "Info & Optik",
+                            "wlan" to "WiFi (${wlanList.size})",
+                            "wan" to "WAN (${wanList.size})",
+                            "hosts" to "HP Aktif (${connectedHostsList.size})",
+                            "json" to "Raw JSON"
+                        ).forEach { (k, lbl) ->
+                            FilterChip(
+                                selected = detailTab == k,
+                                onClick = { detailTab = k },
+                                label = { Text(lbl, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold) }
+                            )
                         }
                     }
                 }
             }
-        ) { innerPadding ->
-            if (isLoading && deviceInfo == null) {
-                Box(
-                    contentAlignment = Alignment.Center,
+        },
+        bottomBar = {
+            Surface(
+                color = Color(0xFF141B2D),
+                shadowElevation = 12.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
                 ) {
-                    CircularProgressIndicator(color = ArnetaGoldPrimary)
+                    FilledTonalButton(
+                        onClick = { executeAction("summon") },
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = ArnetaGreenSuccess.copy(alpha = 0.18f),
+                            contentColor = ArnetaGreenSuccess
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
+                    ) {
+                        Icon(Icons.Filled.Bolt, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Summon", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
+                    }
+
+                    FilledTonalButton(
+                        onClick = { dangerousActionConfirm = "reboot" },
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = ArnetaOrangeActive.copy(alpha = 0.18f),
+                            contentColor = ArnetaOrangeActive
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
+                    ) {
+                        Icon(Icons.Filled.RestartAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Reboot", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
+                    }
+
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ArnetaGoldPrimary),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .weight(0.85f)
+                            .height(42.dp)
+                    ) {
+                        Text("Tutup", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
                 }
-            } else {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 14.dp, vertical = 12.dp)
-                ) {
-                    when (detailTab) {
-                        "overview" -> {
-                            val d = deviceInfo ?: JSONObject()
-                            val rxPower = d.optString("rx_power", "N/A")
-                            val temp = d.optString("temperature", "N/A")
-                            val hasOptical = rxPower != "N/A" && rxPower.isNotBlank()
-                            val hasTemp = temp != "N/A" && temp.isNotBlank()
+            }
+        }
+    ) { innerPadding ->
+        if (isLoading && deviceInfo == null) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            ) {
+                CircularProgressIndicator(color = ArnetaGoldPrimary)
+            }
+        } else {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 14.dp, vertical = 12.dp)
+            ) {
+                when (detailTab) {
+                    "overview" -> {
+                        val d = deviceInfo ?: JSONObject()
+                        val rxPower = d.optString("rx_power", "N/A")
+                        val temp = d.optString("temperature", "N/A")
+                        val hasOptical = rxPower != "N/A" && rxPower.isNotBlank()
+                        val hasTemp = temp != "N/A" && temp.isNotBlank()
 
-                            // Baris Tombol Perintah Lanjutan TR-069
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState())
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                        ) {
+                            FilledTonalButton(
+                                onClick = { executeAction("refresh") },
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                modifier = Modifier.height(34.dp)
                             ) {
-                                FilledTonalButton(
-                                    onClick = { executeAction("refresh") },
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                                    modifier = Modifier.height(34.dp)
-                                ) {
-                                    Icon(Icons.Filled.Sync, contentDescription = null, tint = ArnetaCyanIncome, modifier = Modifier.size(15.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Refresh Full Tree", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                                }
-                                OutlinedButton(
-                                    onClick = { dangerousActionConfirm = "factory_reset" },
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                                    modifier = Modifier.height(34.dp)
-                                ) {
-                                    Text("Factory Reset", fontSize = 11.5.sp, color = ArnetaRedDanger, fontWeight = FontWeight.Bold)
-                                }
-                                OutlinedButton(
-                                    onClick = { showDeleteDeviceConfirm = true },
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                                    modifier = Modifier.height(34.dp)
-                                ) {
-                                    Icon(Icons.Filled.DeleteOutline, contentDescription = null, tint = ArnetaRedDanger, modifier = Modifier.size(15.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Hapus dari ACS", fontSize = 11.5.sp, color = ArnetaRedDanger, fontWeight = FontWeight.Bold)
-                                }
+                                Icon(Icons.Filled.Sync, contentDescription = null, tint = ArnetaCyanIncome, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Refresh Full Tree", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                             }
-
-                            // 1. Kartu Status & Indikator Optik / Router HTB
-                            Surface(
-                                color = Color(0xFF141B2D),
-                                shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .border(1.dp, ArnetaCyanIncome.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
+                            OutlinedButton(
+                                onClick = { dangerousActionConfirm = "factory_reset" },
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                modifier = Modifier.height(34.dp)
                             ) {
-                                Column(
-                                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                                    modifier = Modifier.padding(14.dp)
-                                ) {
-                                    Text(
-                                        text = if (hasOptical) "Status & Diagnostik Optik PON" else "Status Koneksi Router / HTB",
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 13.sp,
-                                        color = ArnetaCyanIncome
-                                    )
-                                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                                Text("Factory Reset", fontSize = 11.5.sp, color = ArnetaRedDanger, fontWeight = FontWeight.Bold)
+                            }
+                            OutlinedButton(
+                                onClick = { showDeleteDeviceConfirm = true },
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Icon(Icons.Filled.DeleteOutline, contentDescription = null, tint = ArnetaRedDanger, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Hapus dari ACS", fontSize = 11.5.sp, color = ArnetaRedDanger, fontWeight = FontWeight.Bold)
+                            }
+                        }
 
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.horizontalScroll(rememberScrollState())
-                                    ) {
-                                        if (hasOptical) {
-                                            GenieAcsRxPowerBadge(
-                                                rxPower = rxPower,
-                                                rxStatus = d.optString("rx_power_status", "unknown")
-                                            )
-                                        }
-                                        if (hasTemp) {
-                                            GenieAcsTemperatureBadge(
-                                                temperature = temp,
-                                                tempStatus = d.optString("temperature_status", "unknown")
-                                            )
-                                        }
-                                        if (!hasOptical && !hasTemp) {
-                                            Surface(
-                                                color = ArnetaIndigoAccent.copy(alpha = 0.25f),
-                                                shape = RoundedCornerShape(6.dp)
-                                            ) {
-                                                Text(
-                                                    text = "🔌 Router / HTB (Non-Optik)",
-                                                    fontSize = 10.5.sp,
-                                                    color = ArnetaGoldLight,
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                                                )
-                                            }
-                                        }
-                                        if (d.optString("tx_power", "N/A") != "N/A") {
-                                            Surface(
-                                                color = ArnetaIndigoAccent.copy(alpha = 0.25f),
-                                                shape = RoundedCornerShape(6.dp)
-                                            ) {
-                                                Text(
-                                                    text = "TX: ${d.optString("tx_power")}",
-                                                    fontSize = 10.5.sp,
-                                                    color = ArnetaGoldLight,
-                                                    fontWeight = FontWeight.Bold,
-                                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
-                                                )
-                                            }
-                                        }
+                        Surface(
+                            color = Color(0xFF141B2D),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(1.dp, ArnetaCyanIncome.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
+                        ) {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.padding(14.dp)
+                            ) {
+                                Text(
+                                    text = if (hasOptical) "Status & Diagnostik Optik PON" else "Status Koneksi Router / HTB",
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 13.sp,
+                                    color = ArnetaCyanIncome
+                                )
+                                HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.horizontalScroll(rememberScrollState())
+                                ) {
+                                    if (hasOptical) {
+                                        GenieAcsRxPowerBadge(
+                                            rxPower = rxPower,
+                                            rxStatus = d.optString("rx_power_status", "unknown")
+                                        )
+                                    }
+                                    if (hasTemp) {
+                                        GenieAcsTemperatureBadge(
+                                            temperature = temp,
+                                            tempStatus = d.optString("temperature_status", "unknown")
+                                        )
+                                    }
+                                    if (!hasOptical && !hasTemp) {
                                         Surface(
-                                            color = ArnetaCyanIncome.copy(alpha = 0.16f),
+                                            color = ArnetaIndigoAccent.copy(alpha = 0.25f),
                                             shape = RoundedCornerShape(6.dp)
                                         ) {
                                             Text(
-                                                text = "📱 ${d.optInt("connected_devices", connectedHostsList.size)} Perangkat",
+                                                text = "🔌 Router / HTB (Non-Optik)",
                                                 fontSize = 10.5.sp,
-                                                color = ArnetaCyanIncome,
+                                                color = ArnetaGoldLight,
                                                 fontWeight = FontWeight.Bold,
                                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                             )
                                         }
                                     }
-
-                                    GenieInfoRow("Pelanggan", "${d.optString("fullname").ifEmpty { "-" }} (PPPoE: ${d.optString("pppoe_username", "N/A")})")
-                                    GenieInfoRow("WAN IP", d.optString("wan_ip", "-"))
-                                    GenieInfoRow("TR-069 IP", d.optString("tr069_ip", "-"))
-                                    GenieInfoRow("Last Inform", d.optString("last_inform", "-"))
-                                    GenieInfoRow("Uptime", d.optString("uptime", "-"))
+                                    if (d.optString("tx_power", "N/A") != "N/A") {
+                                        Surface(
+                                            color = ArnetaIndigoAccent.copy(alpha = 0.25f),
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text(
+                                                text = "TX: ${d.optString("tx_power")}",
+                                                fontSize = 10.5.sp,
+                                                color = ArnetaGoldLight,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                            )
+                                        }
+                                    }
+                                    Surface(
+                                        color = ArnetaCyanIncome.copy(alpha = 0.16f),
+                                        shape = RoundedCornerShape(6.dp)
+                                    ) {
+                                        Text(
+                                            text = "📱 ${d.optInt("connected_devices", connectedHostsList.size)} Perangkat",
+                                            fontSize = 10.5.sp,
+                                            color = ArnetaCyanIncome,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                        )
+                                    }
                                 }
-                            }
 
-                            // 2. Kartu Basic Information
-                            Surface(
-                                color = Color(0xFF141B2D),
-                                shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier.fillMaxWidth()
+                                GenieInfoRow("Pelanggan", "${d.optString("fullname").ifEmpty { "-" }} (PPPoE: ${d.optString("pppoe_username", "N/A")})")
+                                GenieInfoRow("WAN IP", d.optString("wan_ip", "-"))
+                                GenieInfoRow("TR-069 IP", d.optString("tr069_ip", "-"))
+                                GenieInfoRow("Last Inform", d.optString("last_inform", "-"))
+                                GenieInfoRow("Uptime", d.optString("uptime", "-"))
+                            }
+                        }
+
+                        Surface(
+                            color = Color(0xFF141B2D),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.padding(14.dp)
                             ) {
-                                Column(
-                                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                                    modifier = Modifier.padding(14.dp)
+                                Text(
+                                    text = "Informasi Dasar Perangkat (Basic Info)",
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 13.sp,
+                                    color = ArnetaGoldPrimary
+                                )
+                                HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                                GenieInfoRow("Device ID", d.optString("id", "-"))
+                                GenieInfoRow("Serial Number", d.optString("serial_number", "-"))
+                                GenieInfoRow("Manufacturer", d.optString("manufacturer", "-"))
+                                GenieInfoRow("OUI", d.optString("oui", "-"))
+                                GenieInfoRow("Product Class", d.optString("product_class", "-"))
+                                GenieInfoRow("Software Version", d.optString("software_version", "-"))
+                                GenieInfoRow("Hardware Version", d.optString("hardware_version", "-"))
+                            }
+                        }
+
+                        Surface(
+                            color = Color(0xFF141B2D),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.padding(14.dp)
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Text(
-                                        text = "Informasi Dasar Perangkat (Basic Info)",
+                                        text = "Label Tag Perangkat (_tags)",
                                         fontWeight = FontWeight.ExtraBold,
                                         fontSize = 13.sp,
-                                        color = ArnetaGoldPrimary
+                                        color = ArnetaGreenSuccess
                                     )
-                                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
-                                    GenieInfoRow("Device ID", d.optString("id", "-"))
-                                    GenieInfoRow("Serial Number", d.optString("serial_number", "-"))
-                                    GenieInfoRow("Manufacturer", d.optString("manufacturer", "-"))
-                                    GenieInfoRow("OUI", d.optString("oui", "-"))
-                                    GenieInfoRow("Product Class", d.optString("product_class", "-"))
-                                    GenieInfoRow("Software Version", d.optString("software_version", "-"))
-                                    GenieInfoRow("Hardware Version", d.optString("hardware_version", "-"))
+                                    TextButton(
+                                        onClick = {
+                                            newTagInput = ""
+                                            showAddTagDialog = true
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                                    ) {
+                                        Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(2.dp))
+                                        Text("Tambah Tag", fontSize = 11.5.sp, color = ArnetaGoldPrimary, fontWeight = FontWeight.Bold)
+                                    }
                                 }
-                            }
 
-                            // 3. Kartu Tags & Antrean Task
-                            Surface(
-                                color = Color(0xFF141B2D),
-                                shape = RoundedCornerShape(14.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(
-                                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                                    modifier = Modifier.padding(14.dp)
-                                ) {
+                                val tagsArr = d.optJSONArray("tags") ?: JSONArray()
+                                if (tagsArr.length() == 0) {
+                                    Text("Belum ada tag pada perangkat ini.", fontSize = 11.5.sp, color = Color.White.copy(alpha = 0.6f))
+                                } else {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState())
+                                    ) {
+                                        for (i in 0 until tagsArr.length()) {
+                                            val tg = tagsArr.optString(i)
+                                            InputChip(
+                                                selected = true,
+                                                onClick = { executeAction("remove_tag", mapOf("tag" to tg)) },
+                                                label = { Text(tg, fontSize = 11.sp) },
+                                                trailingIcon = {
+                                                    Icon(Icons.Filled.Close, contentDescription = "Hapus Tag", modifier = Modifier.size(13.dp))
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (pendingTasksList.isNotEmpty()) {
+                                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
                                     Row(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically,
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Text(
-                                            text = "Label Tag Perangkat (_tags)",
-                                            fontWeight = FontWeight.ExtraBold,
-                                            fontSize = 13.sp,
-                                            color = ArnetaGreenSuccess
+                                            text = "⚠️ ${pendingTasksList.size} Task Mengantre di ACS",
+                                            fontSize = 11.5.sp,
+                                            color = ArnetaOrangeActive,
+                                            fontWeight = FontWeight.Bold
                                         )
-                                        TextButton(
-                                            onClick = {
-                                                newTagInput = ""
-                                                showAddTagDialog = true
-                                            },
-                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                                        ) {
-                                            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(14.dp))
-                                            Spacer(modifier = Modifier.width(2.dp))
-                                            Text("Tambah Tag", fontSize = 11.5.sp, color = ArnetaGoldPrimary, fontWeight = FontWeight.Bold)
+                                        TextButton(onClick = { executeAction("clear_tasks") }) {
+                                            Text("Bersihkan Task", fontSize = 11.5.sp, color = ArnetaRedDanger, fontWeight = FontWeight.Bold)
                                         }
                                     }
+                                }
+                            }
+                        }
+                    }
 
-                                    val tagsArr = d.optJSONArray("tags") ?: JSONArray()
-                                    if (tagsArr.length() == 0) {
-                                        Text("Belum ada tag pada perangkat ini.", fontSize = 11.5.sp, color = Color.White.copy(alpha = 0.6f))
-                                    } else {
+                    "wlan" -> {
+                        if (wlanList.isEmpty()) {
+                            Surface(
+                                color = Color(0xFF141B2D),
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "Data WLAN belum tersedia pada perangkat ini. Tekan tombol Summon di bawah atau Refresh Full Tree di tab Info.",
+                                    fontSize = 12.5.sp,
+                                    color = Color.White.copy(alpha = 0.8f),
+                                    modifier = Modifier.padding(16.dp)
+                                )
+                            }
+                        } else {
+                            wlanList.forEach { wl ->
+                                val idx = wl.optInt("index", 1)
+                                val ssid = wl.optString("ssid", "-")
+                                val pass = wl.optString("password", "")
+                                val enabled = wl.optBoolean("enable", true)
+                                val band = wl.optString("band", "2.4GHz")
+
+                                Surface(
+                                    color = Color(0xFF141B2D),
+                                    shape = RoundedCornerShape(14.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .border(1.dp, ArnetaGreenSuccess.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
+                                ) {
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.padding(14.dp)
+                                    ) {
                                         Row(
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .horizontalScroll(rememberScrollState())
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.fillMaxWidth()
                                         ) {
-                                            for (i in 0 until tagsArr.length()) {
-                                                val tg = tagsArr.optString(i)
-                                                InputChip(
-                                                    selected = true,
-                                                    onClick = { executeAction("remove_tag", mapOf("tag" to tg)) },
-                                                    label = { Text(tg, fontSize = 11.sp) },
-                                                    trailingIcon = {
-                                                        Icon(Icons.Filled.Close, contentDescription = "Hapus Tag", modifier = Modifier.size(13.dp))
-                                                    }
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(Icons.Filled.Wifi, contentDescription = null, tint = ArnetaGreenSuccess, modifier = Modifier.size(18.dp))
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = "WLAN #$idx ($band): $ssid",
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    fontSize = 14.sp,
+                                                    color = Color.White
+                                                )
+                                            }
+                                            Surface(
+                                                color = if (enabled) ArnetaGreenSuccess.copy(alpha = 0.2f) else ArnetaRedDanger.copy(alpha = 0.2f),
+                                                shape = RoundedCornerShape(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = if (enabled) "ENABLED" else "DISABLED",
+                                                    color = if (enabled) ArnetaGreenSuccess else ArnetaRedDanger,
+                                                    fontSize = 9.5.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                                 )
                                             }
                                         }
-                                    }
 
-                                    if (pendingTasksList.isNotEmpty()) {
                                         HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                                        GenieInfoRow("Password Saat Ini", pass.ifEmpty { "(Tersembunyi / Kosong)" })
+                                        GenieInfoRow("Security / Beacon", "${wl.optString("security", "-")} (${wl.optString("beacon_type", "-")})")
+                                        GenieInfoRow("Channel & Standard", "Ch ${wl.optString("channel", "-")} • ${wl.optString("standard", "-")}")
+                                        GenieInfoRow("BSSID & Max Rate", "${wl.optString("mac", "-")} • ${wl.optString("max_bitrate", "-")}")
+                                        GenieInfoRow("Perangkat Terhubung", "${wl.optInt("connected_devices", 0)} Perangkat")
+
+                                        Row(
+                                            horizontalArrangement = Arrangement.End,
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            if (pass.isNotEmpty()) {
+                                                TextButton(
+                                                    onClick = {
+                                                        val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                        cb.setPrimaryClip(ClipData.newPlainText("Password WiFi", pass))
+                                                        Toast.makeText(context, "Password WiFi disalin", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                ) {
+                                                    Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text("Salin Pass", fontSize = 11.5.sp, color = ArnetaCyanIncome, fontWeight = FontWeight.Bold)
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Button(
+                                                onClick = { editingWlan = wl },
+                                                colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black),
+                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
+                                                modifier = Modifier.height(34.dp)
+                                            ) {
+                                                Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Edit WiFi #$idx", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    "wan" -> {
+                        Row(
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Daftar Koneksi WAN (Index 1-8)",
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 13.5.sp,
+                                color = ArnetaGoldPrimary
+                            )
+                            Button(
+                                onClick = {
+                                    val nextIdx = availWanIndex ?: ((wanList.size + 1).coerceAtMost(8))
+                                    isAddWanMode = true
+                                    editingWan = JSONObject().apply {
+                                        put("index", nextIdx)
+                                        put("type", "ppp")
+                                        put("enable", true)
+                                        put("username", deviceInfo?.optString("pppoe_username")?.takeIf { it != "N/A" } ?: "")
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = ArnetaGreenSuccess, contentColor = Color.White),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (availWanIndex != null) "+Add WAN (#$availWanIndex)" else "+Add WAN",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        if (wanList.isEmpty()) {
+                            Surface(
+                                color = Color(0xFF141B2D),
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "Data koneksi WAN belum tersedia. Gunakan tombol +Add WAN untuk menambahkan profil WAN baru.",
+                                    fontSize = 12.5.sp,
+                                    color = Color.White.copy(alpha = 0.8f),
+                                    modifier = Modifier.padding(16.dp)
+                                )
+                            }
+                        } else {
+                            wanList.forEach { w ->
+                                val idx = w.optInt("index", 1)
+                                val wType = w.optString("type", "ppp").uppercase()
+                                val enabled = w.optBoolean("enable", true)
+
+                                Surface(
+                                    color = Color(0xFF141B2D),
+                                    shape = RoundedCornerShape(14.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .border(1.dp, ArnetaGoldPrimary.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
+                                ) {
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.padding(14.dp)
+                                    ) {
                                         Row(
                                             horizontalArrangement = Arrangement.SpaceBetween,
                                             verticalAlignment = Alignment.CenterVertically,
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
                                             Text(
-                                                text = "⚠️ ${pendingTasksList.size} Task Mengantre di ACS",
-                                                fontSize = 11.5.sp,
-                                                color = ArnetaOrangeActive,
-                                                fontWeight = FontWeight.Bold
+                                                text = "WAN Connection #$idx ($wType)",
+                                                fontWeight = FontWeight.ExtraBold,
+                                                fontSize = 14.sp,
+                                                color = ArnetaGoldPrimary
                                             )
-                                            TextButton(onClick = { executeAction("clear_tasks") }) {
-                                                Text("Bersihkan Task", fontSize = 11.5.sp, color = ArnetaRedDanger, fontWeight = FontWeight.Bold)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        "wlan" -> {
-                            if (wlanList.isEmpty()) {
-                                Surface(
-                                    color = Color(0xFF141B2D),
-                                    shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(
-                                        text = "Data WLAN belum tersedia pada perangkat ini. Tekan tombol Summon di bawah atau Refresh Full Tree di tab Info.",
-                                        fontSize = 12.5.sp,
-                                        color = Color.White.copy(alpha = 0.8f),
-                                        modifier = Modifier.padding(16.dp)
-                                    )
-                                }
-                            } else {
-                                wlanList.forEach { wl ->
-                                    val idx = wl.optInt("index", 1)
-                                    val ssid = wl.optString("ssid", "-")
-                                    val pass = wl.optString("password", "")
-                                    val enabled = wl.optBoolean("enable", true)
-                                    val band = wl.optString("band", "2.4GHz")
-
-                                    Surface(
-                                        color = Color(0xFF141B2D),
-                                        shape = RoundedCornerShape(14.dp),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .border(1.dp, ArnetaGreenSuccess.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
-                                    ) {
-                                        Column(
-                                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                                            modifier = Modifier.padding(14.dp)
-                                        ) {
-                                            Row(
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Icon(Icons.Filled.Wifi, contentDescription = null, tint = ArnetaGreenSuccess, modifier = Modifier.size(18.dp))
-                                                    Spacer(modifier = Modifier.width(6.dp))
-                                                    Text(
-                                                        text = "WLAN #$idx ($band): $ssid",
-                                                        fontWeight = FontWeight.ExtraBold,
-                                                        fontSize = 14.sp,
-                                                        color = Color.White
-                                                    )
-                                                }
-                                                Surface(
-                                                    color = if (enabled) ArnetaGreenSuccess.copy(alpha = 0.2f) else ArnetaRedDanger.copy(alpha = 0.2f),
-                                                    shape = RoundedCornerShape(6.dp)
-                                                ) {
-                                                    Text(
-                                                        text = if (enabled) "ENABLED" else "DISABLED",
-                                                        color = if (enabled) ArnetaGreenSuccess else ArnetaRedDanger,
-                                                        fontSize = 9.5.sp,
-                                                        fontWeight = FontWeight.ExtraBold,
-                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                    )
-                                                }
-                                            }
-
-                                            HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
-                                            GenieInfoRow("Password Saat Ini", pass.ifEmpty { "(Tersembunyi / Kosong)" })
-                                            GenieInfoRow("Security / Beacon", "${wl.optString("security", "-")} (${wl.optString("beacon_type", "-")})")
-                                            GenieInfoRow("Channel & Standard", "Ch ${wl.optString("channel", "-")} • ${wl.optString("standard", "-")}")
-                                            GenieInfoRow("BSSID & Max Rate", "${wl.optString("mac", "-")} • ${wl.optString("max_bitrate", "-")}")
-                                            GenieInfoRow("Perangkat Terhubung", "${wl.optInt("connected_devices", 0)} Perangkat")
-
-                                            Row(
-                                                horizontalArrangement = Arrangement.End,
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                if (pass.isNotEmpty()) {
-                                                    TextButton(
-                                                        onClick = {
-                                                            val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                                            cb.setPrimaryClip(ClipData.newPlainText("Password WiFi", pass))
-                                                            Toast.makeText(context, "Password WiFi disalin", Toast.LENGTH_SHORT).show()
-                                                        }
-                                                    ) {
-                                                        Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
-                                                        Spacer(modifier = Modifier.width(4.dp))
-                                                        Text("Salin Pass", fontSize = 11.5.sp, color = ArnetaCyanIncome, fontWeight = FontWeight.Bold)
-                                                    }
-                                                }
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Button(
-                                                    onClick = { editingWlan = wl },
-                                                    colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black),
-                                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
-                                                    modifier = Modifier.height(34.dp)
-                                                ) {
-                                                    Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
-                                                    Spacer(modifier = Modifier.width(4.dp))
-                                                    Text("Edit WiFi #$idx", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        "wan" -> {
-                            Row(
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(
-                                    text = "Daftar Koneksi WAN (Index 1-8)",
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 13.5.sp,
-                                    color = ArnetaGoldPrimary
-                                )
-                                Button(
-                                    onClick = {
-                                        val nextIdx = availWanIndex ?: ((wanList.size + 1).coerceAtMost(8))
-                                        isAddWanMode = true
-                                        editingWan = JSONObject().apply {
-                                            put("index", nextIdx)
-                                            put("type", "ppp")
-                                            put("enable", true)
-                                            put("username", deviceInfo?.optString("pppoe_username")?.takeIf { it != "N/A" } ?: "")
-                                        }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = ArnetaGreenSuccess, contentColor = Color.White),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
-                                    modifier = Modifier.height(32.dp)
-                                ) {
-                                    Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(14.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = if (availWanIndex != null) "+Add WAN (#$availWanIndex)" else "+Add WAN",
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-
-                            if (wanList.isEmpty()) {
-                                Surface(
-                                    color = Color(0xFF141B2D),
-                                    shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(
-                                        text = "Data koneksi WAN belum tersedia. Gunakan tombol +Add WAN untuk menambahkan profil WAN baru.",
-                                        fontSize = 12.5.sp,
-                                        color = Color.White.copy(alpha = 0.8f),
-                                        modifier = Modifier.padding(16.dp)
-                                    )
-                                }
-                            } else {
-                                wanList.forEach { w ->
-                                    val idx = w.optInt("index", 1)
-                                    val wType = w.optString("type", "ppp").uppercase()
-                                    val enabled = w.optBoolean("enable", true)
-
-                                    Surface(
-                                        color = Color(0xFF141B2D),
-                                        shape = RoundedCornerShape(14.dp),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .border(1.dp, ArnetaGoldPrimary.copy(alpha = 0.35f), RoundedCornerShape(14.dp))
-                                    ) {
-                                        Column(
-                                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                                            modifier = Modifier.padding(14.dp)
-                                        ) {
-                                            Row(
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier.fillMaxWidth()
+                                            Surface(
+                                                color = if (enabled) ArnetaGreenSuccess.copy(alpha = 0.2f) else ArnetaRedDanger.copy(alpha = 0.2f),
+                                                shape = RoundedCornerShape(6.dp)
                                             ) {
                                                 Text(
-                                                    text = "WAN Connection #$idx ($wType)",
-                                                    fontWeight = FontWeight.ExtraBold,
-                                                    fontSize = 14.sp,
-                                                    color = ArnetaGoldPrimary
+                                                    text = if (enabled) "ENABLED" else "DISABLED",
+                                                    color = if (enabled) ArnetaGreenSuccess else ArnetaRedDanger,
+                                                    fontSize = 9.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                                 )
-                                                Surface(
-                                                    color = if (enabled) ArnetaGreenSuccess.copy(alpha = 0.2f) else ArnetaRedDanger.copy(alpha = 0.2f),
-                                                    shape = RoundedCornerShape(6.dp)
-                                                ) {
-                                                    Text(
-                                                        text = if (enabled) "ENABLED" else "DISABLED",
-                                                        color = if (enabled) ArnetaGreenSuccess else ArnetaRedDanger,
-                                                        fontSize = 9.5.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                    )
-                                                }
-                                            }
-                                            HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
-                                            GenieInfoRow("Connection Type", w.optString("connection_type", "-"))
-                                            if (wType == "PPP") {
-                                                GenieInfoRow("PPPoE Username", w.optString("username", "-"))
-                                                if (w.optString("password").isNotEmpty()) {
-                                                    GenieInfoRow("PPPoE Password", w.optString("password"))
-                                                }
-                                            }
-                                            GenieInfoRow("External IP", w.optString("external_ip", "-"))
-                                            GenieInfoRow("Gateway & Subnet", "${w.optString("gateway", "-")} / ${w.optString("subnet", "-")}")
-                                            GenieInfoRow("DNS Servers", w.optString("dns", "-"))
-                                            GenieInfoRow("VLAN ID & NAT", "VLAN: ${w.optString("vlan").ifEmpty { "-" }} • NAT: ${if (w.optBoolean("nat")) "Yes" else "No"}")
-
-                                            Row(
-                                                horizontalArrangement = Arrangement.End,
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                Button(
-                                                    onClick = {
-                                                        isAddWanMode = false
-                                                        editingWan = w
-                                                    },
-                                                    colors = ButtonDefaults.buttonColors(containerColor = ArnetaCyanIncome, contentColor = Color.Black),
-                                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
-                                                    modifier = Modifier.height(32.dp)
-                                                ) {
-                                                    Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
-                                                    Spacer(modifier = Modifier.width(4.dp))
-                                                    Text("Edit WAN #$idx", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                                                }
                                             }
                                         }
-                                    }
-                                }
-                            }
-                        }
+                                        HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                                        GenieInfoRow("Connection Type", w.optString("connection_type", "-"))
+                                        if (wType == "PPP") {
+                                            GenieInfoRow("PPPoE Username", w.optString("username", "-"))
+                                            if (w.optString("password").isNotEmpty()) {
+                                                GenieInfoRow("PPPoE Password", w.optString("password"))
+                                            }
+                                        }
+                                        GenieInfoRow("External IP", w.optString("external_ip", "-"))
+                                        GenieInfoRow("Gateway & Subnet", "${w.optString("gateway", "-")} / ${w.optString("subnet", "-")}")
+                                        GenieInfoRow("DNS Servers", w.optString("dns", "-"))
+                                        GenieInfoRow("VLAN ID & NAT", "VLAN: ${w.optString("vlan").ifEmpty { "-" }} • NAT: ${if (w.optBoolean("nat")) "Yes" else "No"}")
 
-                        "hosts" -> {
-                            if (connectedHostsList.isEmpty()) {
-                                Surface(
-                                    color = Color(0xFF141B2D),
-                                    shape = RoundedCornerShape(14.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(
-                                        text = "Belum ada daftar perangkat/HP aktif yang dilaporkan oleh tabel LAN Host ONT/Router. Tekan tombol Summon di bawah untuk menarik daftar perangkat.",
-                                        fontSize = 12.5.sp,
-                                        color = Color.White.copy(alpha = 0.75f),
-                                        modifier = Modifier.padding(16.dp)
-                                    )
-                                }
-                            } else {
-                                connectedHostsList.forEach { h ->
-                                    val isAct = h.optBoolean("active", true)
-                                    val iface = h.optString("interface_type", "WiFi")
-                                    val sig = h.optString("signal", "")
-
-                                    Surface(
-                                        color = Color(0xFF141B2D),
-                                        shape = RoundedCornerShape(12.dp),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
                                         Row(
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(12.dp)
+                                            horizontalArrangement = Arrangement.End,
+                                            modifier = Modifier.fillMaxWidth()
                                         ) {
-                                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                                                Icon(
-                                                    imageVector = if (iface.contains("LAN", true)) Icons.Filled.SettingsEthernet else Icons.Filled.Smartphone,
-                                                    contentDescription = null,
-                                                    tint = if (isAct) ArnetaGreenSuccess else Color.Gray,
-                                                    modifier = Modifier.size(22.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(10.dp))
-                                                Column {
-                                                    Text(
-                                                        text = h.optString("hostname", "Perangkat"),
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontSize = 13.5.sp,
-                                                        color = Color.White
-                                                    )
-                                                    Text(
-                                                        text = "IP: ${h.optString("ip_address")} • MAC: ${h.optString("mac_address")}",
-                                                        fontSize = 11.5.sp,
-                                                        fontFamily = FontFamily.Monospace,
-                                                        color = Color.White.copy(alpha = 0.7f)
-                                                    )
-                                                }
-                                            }
-                                            Column(horizontalAlignment = Alignment.End) {
-                                                Surface(
-                                                    color = ArnetaCyanIncome.copy(alpha = 0.2f),
-                                                    shape = RoundedCornerShape(6.dp)
-                                                ) {
-                                                    Text(
-                                                        text = iface,
-                                                        color = ArnetaCyanIncome,
-                                                        fontSize = 10.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
-                                                    )
-                                                }
-                                                if (sig.isNotEmpty()) {
-                                                    Text(sig, fontSize = 10.5.sp, color = ArnetaGoldLight)
-                                                }
+                                            Button(
+                                                onClick = {
+                                                    isAddWanMode = false
+                                                    editingWan = w
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = ArnetaCyanIncome, contentColor = Color.Black),
+                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
+                                                modifier = Modifier.height(32.dp)
+                                            ) {
+                                                Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Edit WAN #$idx", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                                             }
                                         }
                                     }
                                 }
-                            }
-                        }
-
-                        "json" -> {
-                            Row(
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("Raw Device Data (JSON)", fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, color = ArnetaGoldPrimary)
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    if (!isFullRawLoaded) {
-                                        OutlinedButton(
-                                            onClick = { loadDetail(true) },
-                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                                            modifier = Modifier.height(30.dp)
-                                        ) {
-                                            Text("Muat Full Tree", fontSize = 11.sp, color = ArnetaCyanIncome, fontWeight = FontWeight.Bold)
-                                        }
-                                    }
-                                    FilledTonalButton(
-                                        onClick = {
-                                            val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                            cb.setPrimaryClip(ClipData.newPlainText("GenieACS JSON", rawJsonText))
-                                            Toast.makeText(context, "JSON disalin ke clipboard", Toast.LENGTH_SHORT).show()
-                                        },
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                                        modifier = Modifier.height(30.dp)
-                                    ) {
-                                        Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(13.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Salin JSON", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
-
-                            Surface(
-                                color = Color(0xFF141B2D),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(
-                                    text = rawJsonText,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 11.sp,
-                                    color = Color(0xFFA7F3D0),
-                                    modifier = Modifier
-                                        .padding(12.dp)
-                                        .horizontalScroll(rememberScrollState())
-                                )
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    "hosts" -> {
+                        if (connectedHostsList.isEmpty()) {
+                            Surface(
+                                color = Color(0xFF141B2D),
+                                shape = RoundedCornerShape(14.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "Belum ada daftar perangkat/HP aktif yang dilaporkan oleh tabel LAN Host ONT/Router. Tekan tombol Summon di bawah untuk menarik daftar perangkat.",
+                                    fontSize = 12.5.sp,
+                                    color = Color.White.copy(alpha = 0.75f),
+                                    modifier = Modifier.padding(16.dp)
+                                )
+                            }
+                        } else {
+                            connectedHostsList.forEach { h ->
+                                val isAct = h.optBoolean("active", true)
+                                val iface = h.optString("interface_type", "WiFi")
+                                val sig = h.optString("signal", "")
+
+                                Surface(
+                                    color = Color(0xFF141B2D),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(12.dp)
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                            Icon(
+                                                imageVector = if (iface.contains("LAN", true)) Icons.Filled.SettingsEthernet else Icons.Filled.Smartphone,
+                                                contentDescription = null,
+                                                tint = if (isAct) ArnetaGreenSuccess else Color.Gray,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Column {
+                                                Text(
+                                                    text = h.optString("hostname", "Perangkat"),
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 13.5.sp,
+                                                    color = Color.White
+                                                )
+                                                Text(
+                                                    text = "IP: ${h.optString("ip_address")} • MAC: ${h.optString("mac_address")}",
+                                                    fontSize = 11.5.sp,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    color = Color.White.copy(alpha = 0.7f)
+                                                )
+                                            }
+                                        }
+                                        Column(horizontalAlignment = Alignment.End) {
+                                            Surface(
+                                                color = ArnetaCyanIncome.copy(alpha = 0.2f),
+                                                shape = RoundedCornerShape(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = iface,
+                                                    color = ArnetaCyanIncome,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                            if (sig.isNotEmpty()) {
+                                                Text(sig, fontSize = 10.5.sp, color = ArnetaGoldLight)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    "json" -> {
+                        Row(
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Raw Device Data (JSON)", fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, color = ArnetaGoldPrimary)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                if (!isFullRawLoaded) {
+                                    OutlinedButton(
+                                        onClick = { loadDetail(true) },
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                                        modifier = Modifier.height(30.dp)
+                                    ) {
+                                        Text("Muat Full Tree", fontSize = 11.sp, color = ArnetaCyanIncome, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                                FilledTonalButton(
+                                    onClick = {
+                                        val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        cb.setPrimaryClip(ClipData.newPlainText("GenieACS JSON", rawJsonText))
+                                        Toast.makeText(context, "JSON disalin ke clipboard", Toast.LENGTH_SHORT).show()
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                                    modifier = Modifier.height(30.dp)
+                                ) {
+                                    Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(13.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Salin JSON", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+
+                        Surface(
+                            color = Color(0xFF141B2D),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = rawJsonText,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                                color = Color(0xFFA7F3D0),
+                                modifier = Modifier
+                                    .padding(12.dp)
+                                    .horizontalScroll(rememberScrollState())
+                            )
+                        }
+                    }
                 }
+
+                Spacer(modifier = Modifier.height(12.dp))
             }
         }
     }
 
-    // Sub-Dialog Edit WiFi (WLAN)
     if (editingWlan != null) {
         GenieAcsWlanFormDialog(
             deviceId = deviceId,
@@ -1265,7 +1231,6 @@ internal fun GenieAcsDeviceDetailDialog(
         )
     }
 
-    // Sub-Dialog Edit / Add WAN
     if (editingWan != null) {
         GenieAcsWanFormDialog(
             deviceId = deviceId,
@@ -1280,7 +1245,6 @@ internal fun GenieAcsDeviceDetailDialog(
         )
     }
 
-    // Sub-Dialog Tambah Tag
     if (showAddTagDialog) {
         AlertDialog(
             onDismissRequest = { showAddTagDialog = false },
@@ -1329,7 +1293,6 @@ internal fun GenieAcsDeviceDetailDialog(
         )
     }
 
-    // Sub-Dialog Konfirmasi Reboot / Factory Reset
     if (dangerousActionConfirm != null) {
         val act = dangerousActionConfirm!!
         val (titleTxt, descTxt) = when (act) {
@@ -1398,225 +1361,212 @@ internal fun GenieAcsWlanFormDialog(
 
     val canSave = !isSaving && ssid.isNotBlank() && (securityMode == "None" || password.isEmpty() || password.length >= 8)
 
-    Dialog(
+    ArnetaFullScreenDialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = true
-        )
-    ) {
-        Scaffold(
-            contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            modifier = Modifier
-                .fillMaxSize()
-                .systemBarsPadding()
-                .imePadding(),
-            containerColor = MaterialTheme.colorScheme.background,
-            topBar = {
-                Surface(
-                    color = Color(0xFF141B2D),
-                    shadowElevation = 6.dp,
-                    modifier = Modifier.fillMaxWidth()
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            Surface(
+                color = Color(0xFF141B2D),
+                shadowElevation = 6.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 10.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 10.dp)
-                    ) {
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.Filled.ArrowBack, contentDescription = "Kembali", tint = Color.White)
-                        }
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Column {
-                            Text(
-                                text = "Konfigurasi WiFi #$wlanIndex ($band)",
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 17.sp,
-                                color = Color.White
-                            )
-                            Text(
-                                text = "Device: $deviceId",
-                                fontSize = 11.5.sp,
-                                color = ArnetaGoldLight
-                            )
-                        }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "Kembali", tint = Color.White)
                     }
-                }
-            },
-            bottomBar = {
-                Surface(
-                    color = Color(0xFF141B2D),
-                    shadowElevation = 12.dp,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .navigationBarsPadding()
-                            .padding(horizontal = 16.dp, vertical = 12.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = onDismiss,
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .weight(0.36f)
-                                .height(48.dp)
-                        ) {
-                            Text("Batal", fontWeight = FontWeight.Bold)
-                        }
-
-                        Button(
-                            enabled = canSave,
-                            onClick = {
-                                isSaving = true
-                                scope.launch {
-                                    val res = ApiClient.request(
-                                        "admin_genieacs_wlan_save",
-                                        mapOf(
-                                            "id" to deviceId,
-                                            "host_id" to hostId,
-                                            "wlan_index" to wlanIndex,
-                                            "ssid" to ssid.trim(),
-                                            "password" to password,
-                                            "security_mode" to securityMode,
-                                            "channel" to channel.trim(),
-                                            "enable" to if (isEnabled) "1" else "0",
-                                            "source" to source
-                                        )
-                                    )
-                                    isSaving = false
-                                    Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
-                                    if (res.status) onSaved()
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .weight(0.64f)
-                                .height(48.dp)
-                        ) {
-                            Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (isSaving) "Menyimpan..." else "Update WiFi #$wlanIndex",
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 13.5.sp
-                            )
-                        }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Column {
+                        Text(
+                            text = "Konfigurasi WiFi #$wlanIndex ($band)",
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 17.sp,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "Device: $deviceId",
+                            fontSize = 11.5.sp,
+                            color = ArnetaGoldLight
+                        )
                     }
                 }
             }
-        ) { innerPadding ->
-            Column(
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 14.dp, vertical = 12.dp)
+        },
+        bottomBar = {
+            Surface(
+                color = Color(0xFF141B2D),
+                shadowElevation = 12.dp,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Card(
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    modifier = Modifier.fillMaxWidth()
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
                 ) {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.padding(14.dp)
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .weight(0.36f)
+                            .height(46.dp)
                     ) {
-                        Row(
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Aktifkan Radio WiFi #$wlanIndex", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = ArnetaGoldPrimary)
-                            Switch(checked = isEnabled, onCheckedChange = { isEnabled = it })
-                        }
+                        Text("Batal", fontWeight = FontWeight.Bold)
+                    }
 
-                        OutlinedTextField(
-                            value = ssid,
-                            onValueChange = { ssid = it },
-                            label = { Text("Nama WiFi (SSID) *") },
-                            leadingIcon = { Icon(Icons.Filled.Wifi, contentDescription = null, tint = ArnetaGoldPrimary) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        OutlinedTextField(
-                            value = password,
-                            onValueChange = { password = it },
-                            label = { Text("Password Baru (Kosongkan jika tidak diubah)") },
-                            placeholder = { Text("Minimal 8 karakter") },
-                            visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                            trailingIcon = {
-                                IconButton(onClick = { showPassword = !showPassword }) {
-                                    Icon(
-                                        imageVector = if (showPassword) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                                        contentDescription = null
+                    Button(
+                        enabled = canSave,
+                        onClick = {
+                            isSaving = true
+                            scope.launch {
+                                val res = ApiClient.request(
+                                    "admin_genieacs_wlan_save",
+                                    mapOf(
+                                        "id" to deviceId,
+                                        "host_id" to hostId,
+                                        "wlan_index" to wlanIndex,
+                                        "ssid" to ssid.trim(),
+                                        "password" to password,
+                                        "security_mode" to securityMode,
+                                        "channel" to channel.trim(),
+                                        "enable" to if (isEnabled) "1" else "0",
+                                        "source" to source
                                     )
-                                }
-                            },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        if (wlanObj.optString("password").isNotEmpty()) {
-                            Text(
-                                text = "Password saat ini: ${wlanObj.optString("password")}",
-                                fontSize = 11.5.sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = ArnetaCyanIncome
-                            )
-                        }
-
-                        CompactDropdownSelector(
-                            label = "Mode Keamanan (Security Mode)",
-                            selectedValue = securityMode,
-                            options = listOf(
-                                "WPA2PSK" to "WPA2-PSK (AES - Direkomendasikan)",
-                                "WPA2PSKWPAPSK" to "WPA/WPA2-PSK (Mixed)",
-                                "WPAPSK" to "WPA-PSK (TKIP)",
-                                "None" to "Open (Tanpa Password)"
-                            ),
-                            icon = Icons.Filled.Security,
-                            onValueSelected = { securityMode = it },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        Text("Pilih Cepat Channel WiFi ($band):", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = ArnetaGoldPrimary)
-                        val channelPresets = if (band.contains("5")) {
-                            listOf("" to "Auto", "36" to "Ch 36", "40" to "Ch 40", "44" to "Ch 44", "149" to "Ch 149", "161" to "Ch 161")
-                        } else {
-                            listOf("" to "Auto", "1" to "Ch 1", "6" to "Ch 6", "11" to "Ch 11")
-                        }
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.horizontalScroll(rememberScrollState())
-                        ) {
-                            channelPresets.forEach { (chVal, chLbl) ->
-                                FilterChip(
-                                    selected = channel == chVal,
-                                    onClick = { channel = chVal },
-                                    label = { Text(chLbl, fontSize = 11.5.sp) }
                                 )
+                                isSaving = false
+                                Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
+                                if (res.status) onSaved()
                             }
-                        }
-
-                        OutlinedTextField(
-                            value = channel,
-                            onValueChange = { channel = it.replace("[^0-9]".toRegex(), "") },
-                            label = { Text("Channel WiFi Manual (Opsional)") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .weight(0.64f)
+                            .height(46.dp)
+                    ) {
+                        Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isSaving) "Menyimpan..." else "Update WiFi #$wlanIndex",
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 13.5.sp
                         )
                     }
+                }
+            }
+        }
+    ) { innerPadding ->
+        Column(
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 14.dp, vertical = 12.dp)
+        ) {
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(14.dp)
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Aktifkan Radio WiFi #$wlanIndex", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = ArnetaGoldPrimary)
+                        Switch(checked = isEnabled, onCheckedChange = { isEnabled = it })
+                    }
+
+                    OutlinedTextField(
+                        value = ssid,
+                        onValueChange = { ssid = it },
+                        label = { Text("Nama WiFi (SSID) *") },
+                        leadingIcon = { Icon(Icons.Filled.Wifi, contentDescription = null, tint = ArnetaGoldPrimary) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = { Text("Password Baru (Kosongkan jika tidak diubah)") },
+                        placeholder = { Text("Minimal 8 karakter") },
+                        visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { showPassword = !showPassword }) {
+                                Icon(
+                                    imageVector = if (showPassword) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                                    contentDescription = null
+                                )
+                            }
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    if (wlanObj.optString("password").isNotEmpty()) {
+                        Text(
+                            text = "Password saat ini: ${wlanObj.optString("password")}",
+                            fontSize = 11.5.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = ArnetaCyanIncome
+                        )
+                    }
+
+                    CompactDropdownSelector(
+                        label = "Mode Keamanan (Security Mode)",
+                        selectedValue = securityMode,
+                        options = listOf(
+                            "WPA2PSK" to "WPA2-PSK (AES - Direkomendasikan)",
+                            "WPA2PSKWPAPSK" to "WPA/WPA2-PSK (Mixed)",
+                            "WPAPSK" to "WPA-PSK (TKIP)",
+                            "None" to "Open (Tanpa Password)"
+                        ),
+                        icon = Icons.Filled.Security,
+                        onValueSelected = { securityMode = it },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Text("Pilih Cepat Channel WiFi ($band):", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = ArnetaGoldPrimary)
+                    val channelPresets = if (band.contains("5")) {
+                        listOf("" to "Auto", "36" to "Ch 36", "40" to "Ch 40", "44" to "Ch 44", "149" to "Ch 149", "161" to "Ch 161")
+                    } else {
+                        listOf("" to "Auto", "1" to "Ch 1", "6" to "Ch 6", "11" to "Ch 11")
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.horizontalScroll(rememberScrollState())
+                    ) {
+                        channelPresets.forEach { (chVal, chLbl) ->
+                            FilterChip(
+                                selected = channel == chVal,
+                                onClick = { channel = chVal },
+                                label = { Text(chLbl, fontSize = 11.5.sp) }
+                            )
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = channel,
+                        onValueChange = { channel = it.replace("[^0-9]".toRegex(), "") },
+                        label = { Text("Channel WiFi Manual (Opsional)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
         }
@@ -1649,248 +1599,235 @@ internal fun GenieAcsWanFormDialog(
     var pickedCustomer by remember { mutableStateOf<JSONObject?>(null) }
     var isSaving by remember { mutableStateOf(false) }
 
-    Dialog(
+    ArnetaFullScreenDialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = true
-        )
-    ) {
-        Scaffold(
-            contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            modifier = Modifier
-                .fillMaxSize()
-                .systemBarsPadding()
-                .imePadding(),
-            containerColor = MaterialTheme.colorScheme.background,
-            topBar = {
-                Surface(
-                    color = Color(0xFF141B2D),
-                    shadowElevation = 6.dp,
-                    modifier = Modifier.fillMaxWidth()
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            Surface(
+                color = Color(0xFF141B2D),
+                shadowElevation = 6.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 10.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 10.dp)
-                    ) {
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.Filled.ArrowBack, contentDescription = "Kembali", tint = Color.White)
-                        }
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Column {
-                            Text(
-                                text = if (isAddMode) "Tambah Koneksi WAN (#$connIndex)" else "Edit WAN Connection #$connIndex",
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 17.sp,
-                                color = Color.White
-                            )
-                            Text(
-                                text = "Device: $deviceId",
-                                fontSize = 11.5.sp,
-                                color = ArnetaGoldLight
-                            )
-                        }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "Kembali", tint = Color.White)
                     }
-                }
-            },
-            bottomBar = {
-                Surface(
-                    color = Color(0xFF141B2D),
-                    shadowElevation = 12.dp,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .navigationBarsPadding()
-                            .padding(horizontal = 16.dp, vertical = 12.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = onDismiss,
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .weight(0.36f)
-                                .height(48.dp)
-                        ) {
-                            Text("Batal", fontWeight = FontWeight.Bold)
-                        }
-
-                        Button(
-                            enabled = !isSaving,
-                            onClick = {
-                                isSaving = true
-                                scope.launch {
-                                    val res = ApiClient.request(
-                                        "admin_genieacs_wan_save",
-                                        mapOf(
-                                            "id" to deviceId,
-                                            "host_id" to hostId,
-                                            "connection_index" to connIndex,
-                                            "connection_type" to connType,
-                                            "enable" to if (isEnabled) "1" else "0",
-                                            "username" to username.trim(),
-                                            "password" to password,
-                                            "vlan" to vlan.trim(),
-                                            "nat" to natMode,
-                                            "customer_id" to (pickedCustomer?.optInt("id") ?: 0)
-                                        )
-                                    )
-                                    isSaving = false
-                                    Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
-                                    if (res.status) onSaved()
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .weight(0.64f)
-                                .height(48.dp)
-                        ) {
-                            Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (isSaving) "Menyimpan..." else if (isAddMode) "Tambah WAN" else "Update WAN",
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 13.5.sp
-                            )
-                        }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Column {
+                        Text(
+                            text = if (isAddMode) "Tambah Koneksi WAN (#$connIndex)" else "Edit WAN Connection #$connIndex",
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 17.sp,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "Device: $deviceId",
+                            fontSize = 11.5.sp,
+                            color = ArnetaGoldLight
+                        )
                     }
                 }
             }
-        ) { innerPadding ->
-            Column(
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 14.dp, vertical = 12.dp)
+        },
+        bottomBar = {
+            Surface(
+                color = Color(0xFF141B2D),
+                shadowElevation = 12.dp,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Card(
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    modifier = Modifier.fillMaxWidth()
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
                 ) {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.padding(14.dp)
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .weight(0.36f)
+                            .height(46.dp)
                     ) {
+                        Text("Batal", fontWeight = FontWeight.Bold)
+                    }
+
+                    Button(
+                        enabled = !isSaving,
+                        onClick = {
+                            isSaving = true
+                            scope.launch {
+                                val res = ApiClient.request(
+                                    "admin_genieacs_wan_save",
+                                    mapOf(
+                                        "id" to deviceId,
+                                        "host_id" to hostId,
+                                        "connection_index" to connIndex,
+                                        "connection_type" to connType,
+                                        "enable" to if (isEnabled) "1" else "0",
+                                        "username" to username.trim(),
+                                        "password" to password,
+                                        "vlan" to vlan.trim(),
+                                        "nat" to natMode,
+                                        "customer_id" to (pickedCustomer?.optInt("id") ?: 0)
+                                    )
+                                )
+                                isSaving = false
+                                Toast.makeText(context, res.message, Toast.LENGTH_LONG).show()
+                                if (res.status) onSaved()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .weight(0.64f)
+                            .height(46.dp)
+                    ) {
+                        Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isSaving) "Menyimpan..." else if (isAddMode) "Tambah WAN" else "Update WAN",
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 13.5.sp
+                        )
+                    }
+                }
+            }
+        }
+    ) { innerPadding ->
+        Column(
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 14.dp, vertical = 12.dp)
+        ) {
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(14.dp)
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Aktifkan Koneksi WAN #$connIndex", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = ArnetaGoldPrimary)
+                        Switch(checked = isEnabled, onCheckedChange = { isEnabled = it })
+                    }
+
+                    if (isAddMode) {
+                        CompactDropdownSelector(
+                            label = "Connection Index (Slot 1 - 8)",
+                            selectedValue = connIndex.toString(),
+                            options = (1..8).map { "$it" to "WANConnectionDevice.$it" },
+                            icon = Icons.Filled.FormatListNumbered,
+                            onValueSelected = { connIndex = it.toIntOrNull() ?: connIndex },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    CompactDropdownSelector(
+                        label = "Tipe Koneksi WAN",
+                        selectedValue = connType,
+                        options = listOf(
+                            "ppp" to "PPP (PPPoE)",
+                            "ip" to "IP (DHCP / Static)"
+                        ),
+                        icon = Icons.Filled.Lan,
+                        onValueSelected = { connType = it },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    if (connType == "ppp") {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
                         Row(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Aktifkan Koneksi WAN #$connIndex", fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = ArnetaGoldPrimary)
-                            Switch(checked = isEnabled, onCheckedChange = { isEnabled = it })
-                        }
-
-                        if (isAddMode) {
-                            CompactDropdownSelector(
-                                label = "Connection Index (Slot 1 - 8)",
-                                selectedValue = connIndex.toString(),
-                                options = (1..8).map { "$it" to "WANConnectionDevice.$it" },
-                                icon = Icons.Filled.FormatListNumbered,
-                                onValueSelected = { connIndex = it.toIntOrNull() ?: connIndex },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-
-                        CompactDropdownSelector(
-                            label = "Tipe Koneksi WAN",
-                            selectedValue = connType,
-                            options = listOf(
-                                "ppp" to "PPP (PPPoE)",
-                                "ip" to "IP (DHCP / Static)"
-                            ),
-                            icon = Icons.Filled.Lan,
-                            onValueSelected = { connType = it },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        if (connType == "ppp") {
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
-                            Row(
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("Kredensial PPPoE:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ArnetaCyanIncome)
-                                TextButton(onClick = { showCustomerPicker = !showCustomerPicker }) {
-                                    Icon(Icons.Filled.PersonSearch, contentDescription = null, modifier = Modifier.size(15.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = if (showCustomerPicker) "Tutup Pemilih" else "Ambil dari Pelanggan",
-                                        fontSize = 11.5.sp,
-                                        color = ArnetaGoldPrimary,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-
-                            AnimatedVisibility(visible = showCustomerPicker) {
-                                CustomerLiveSearchPicker(
-                                    selectedCustomer = pickedCustomer,
-                                    onCustomerSelected = { cust ->
-                                        pickedCustomer = cust
-                                        if (cust != null) {
-                                            val pppU = cust.optString("pppoe_username").ifEmpty { cust.optString("username") }
-                                            val pppP = cust.optString("pppoe_password")
-                                            username = pppU
-                                            if (pppP.isNotEmpty()) password = pppP
-                                            showCustomerPicker = false
-                                        }
-                                    },
-                                    label = "Pilih Pelanggan PHPNuxBill"
+                            Text("Kredensial PPPoE:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = ArnetaCyanIncome)
+                            TextButton(onClick = { showCustomerPicker = !showCustomerPicker }) {
+                                Icon(Icons.Filled.PersonSearch, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (showCustomerPicker) "Tutup Pemilih" else "Ambil dari Pelanggan",
+                                    fontSize = 11.5.sp,
+                                    color = ArnetaGoldPrimary,
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
+                        }
 
-                            OutlinedTextField(
-                                value = username,
-                                onValueChange = { username = it },
-                                label = { Text("PPPoE Username") },
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-
-                            OutlinedTextField(
-                                value = password,
-                                onValueChange = { password = it },
-                                label = { Text("PPPoE Password Baru (Kosongkan jika tetap)") },
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
+                        AnimatedVisibility(visible = showCustomerPicker) {
+                            CustomerLiveSearchPicker(
+                                selectedCustomer = pickedCustomer,
+                                onCustomerSelected = { cust ->
+                                    pickedCustomer = cust
+                                    if (cust != null) {
+                                        val pppU = cust.optString("pppoe_username").ifEmpty { cust.optString("username") }
+                                        val pppP = cust.optString("pppoe_password")
+                                        username = pppU
+                                        if (pppP.isNotEmpty()) password = pppP
+                                        showCustomerPicker = false
+                                    }
+                                },
+                                label = "Pilih Pelanggan PHPNuxBill"
                             )
                         }
 
                         OutlinedTextField(
-                            value = vlan,
-                            onValueChange = { vlan = it.replace("[^0-9]".toRegex(), "") },
-                            label = { Text("VLAN ID (Opsional, misal: 10 atau 100)") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            value = username,
+                            onValueChange = { username = it },
+                            label = { Text("PPPoE Username") },
                             singleLine = true,
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
                         )
 
-                        CompactDropdownSelector(
-                            label = "Status NAT (NAT Enabled)",
-                            selectedValue = natMode,
-                            placeholder = "Biarkan Tetap (Unchanged)",
-                            options = listOf(
-                                "" to "Biarkan Tetap (Leave Unchanged)",
-                                "1" to "Enable NAT",
-                                "0" to "Disable NAT"
-                            ),
-                            icon = Icons.Filled.Security,
-                            onValueSelected = { natMode = it },
+                        OutlinedTextField(
+                            value = password,
+                            onValueChange = { password = it },
+                            label = { Text("PPPoE Password Baru (Kosongkan jika tetap)") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
+
+                    OutlinedTextField(
+                        value = vlan,
+                        onValueChange = { vlan = it.replace("[^0-9]".toRegex(), "") },
+                        label = { Text("VLAN ID (Opsional, misal: 10 atau 100)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    CompactDropdownSelector(
+                        label = "Status NAT (NAT Enabled)",
+                        selectedValue = natMode,
+                        placeholder = "Biarkan Tetap (Unchanged)",
+                        options = listOf(
+                            "" to "Biarkan Tetap (Leave Unchanged)",
+                            "1" to "Enable NAT",
+                            "0" to "Disable NAT"
+                        ),
+                        icon = Icons.Filled.Security,
+                        onValueSelected = { natMode = it },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
         }
