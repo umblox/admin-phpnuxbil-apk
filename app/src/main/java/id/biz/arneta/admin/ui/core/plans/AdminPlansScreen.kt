@@ -2,11 +2,9 @@ package id.biz.arneta.admin.ui.screens
 
 import android.widget.Toast
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -22,32 +20,86 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.biz.arneta.admin.network.ApiClient
 import id.biz.arneta.admin.network.formatRupiah
+import id.biz.arneta.admin.network.optSafeDouble
 import id.biz.arneta.admin.ui.theme.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
-/**
- * LAYAR PAKET INTERNET (HOTSPOT, PPPOE, SALDO, VPN) & BANDWIDTH
- * 100% Mengikuti Struktur & Logika system/controllers/services.php & bandwidth.php
- */
+private data class ParsedPlansBundle(
+    val plans: List<JSONObject>,
+    val bandwidths: List<JSONObject>,
+    val routers: List<JSONObject>,
+    val pools: List<JSONObject>,
+    val devices: List<String>
+)
+
+private fun parsePlansResponseData(data: JSONObject?): ParsedPlansBundle {
+    if (data == null) {
+        return ParsedPlansBundle(
+            emptyList(),
+            emptyList(),
+            emptyList(),
+            emptyList(),
+            listOf("MikrotikHotspot", "MikrotikPppoe", "MikrotikVpn", "Radius", "Dummy")
+        )
+    }
+    val pArr = data.optJSONArray("plans") ?: JSONArray()
+    val pTemp = ArrayList<JSONObject>(pArr.length())
+    for (i in 0 until pArr.length()) pArr.optJSONObject(i)?.let { pTemp.add(it) }
+
+    val bArr = data.optJSONArray("bandwidths") ?: JSONArray()
+    val bTemp = ArrayList<JSONObject>(bArr.length())
+    for (i in 0 until bArr.length()) bArr.optJSONObject(i)?.let { bTemp.add(it) }
+
+    val rArr = data.optJSONArray("routers") ?: JSONArray()
+    val rTemp = ArrayList<JSONObject>(rArr.length())
+    for (i in 0 until rArr.length()) rArr.optJSONObject(i)?.let { rTemp.add(it) }
+
+    val poolArr = data.optJSONArray("pools") ?: JSONArray()
+    val poolTemp = ArrayList<JSONObject>(poolArr.length())
+    for (i in 0 until poolArr.length()) poolArr.optJSONObject(i)?.let { poolTemp.add(it) }
+
+    val devArr = data.optJSONArray("devices")
+    val dTemp = mutableListOf<String>()
+    if (devArr != null) {
+        for (i in 0 until devArr.length()) {
+            val dv = devArr.optString(i).trim()
+            if (dv.isNotEmpty()) dTemp.add(dv)
+        }
+    }
+    val finalDevices = if (dTemp.isNotEmpty()) dTemp else listOf("MikrotikHotspot", "MikrotikPppoe", "MikrotikVpn", "Radius", "Dummy")
+    return ParsedPlansBundle(pTemp, bTemp, rTemp, poolTemp, finalDevices)
+}
+
 @Composable
-fun AdminPlansScreen() {
+fun AdminPlansScreen(
+    initialTab: String = "Hotspot"
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var currentTab by remember { mutableStateOf("Hotspot") } // Hotspot | PPPOE | Balance | VPN | Bandwidth
+    val initialCached = remember {
+        ApiClient.getCached("admin_plans")?.takeIf { it.status }?.let { parsePlansResponseData(it.data) }
+    }
+
+    var currentTab by remember { mutableStateOf(initialTab) }
     var searchQuery by remember { mutableStateOf("") }
     var selectedRouterFilter by remember { mutableStateOf("All") }
 
-    var plansList by remember { mutableStateOf(emptyList<JSONObject>()) }
-    var bwList by remember { mutableStateOf(emptyList<JSONObject>()) }
-    var routersList by remember { mutableStateOf(emptyList<JSONObject>()) }
-    var poolsList by remember { mutableStateOf(emptyList<JSONObject>()) }
+    var plansList by remember { mutableStateOf(initialCached?.plans ?: emptyList()) }
+    var bwList by remember { mutableStateOf(initialCached?.bandwidths ?: emptyList()) }
+    var routersList by remember { mutableStateOf(initialCached?.routers ?: emptyList()) }
+    var poolsList by remember { mutableStateOf(initialCached?.pools ?: emptyList()) }
     var devicesList by remember {
-        mutableStateOf(listOf("MikrotikHotspot", "MikrotikPppoe", "MikrotikVpn", "Radius", "Dummy"))
+        mutableStateOf(
+            initialCached?.devices ?: listOf("MikrotikHotspot", "MikrotikPppoe", "MikrotikVpn", "Radius", "Dummy")
+        )
     }
-    var isLoading by remember { mutableStateOf(false) }
+
+    var isLoading by remember { mutableStateOf(initialCached == null) }
     var isSyncing by remember { mutableStateOf(false) }
 
     var showPlanDialog by remember { mutableStateOf(false) }
@@ -59,47 +111,50 @@ fun AdminPlansScreen() {
     var deletingPlanTarget by remember { mutableStateOf<JSONObject?>(null) }
     var deletingBwTarget by remember { mutableStateOf<JSONObject?>(null) }
 
-    fun loadPlansData() {
-        isLoading = true
+    LaunchedEffect(initialTab) {
+        currentTab = initialTab
+    }
+
+    fun loadPlansData(forceRefresh: Boolean = false) {
+        if (plansList.isEmpty() && bwList.isEmpty()) isLoading = true
         scope.launch {
-            val res = ApiClient.request("admin_plans")
+            val res = ApiClient.request("admin_plans", emptyMap(), forceRefresh = forceRefresh)
             if (res.status && res.data != null) {
-                val pArr = res.data.optJSONArray("plans") ?: JSONArray()
-                val pTemp = mutableListOf<JSONObject>()
-                for (i in 0 until pArr.length()) pTemp.add(pArr.getJSONObject(i))
-                plansList = pTemp
-
-                val bArr = res.data.optJSONArray("bandwidths") ?: JSONArray()
-                val bTemp = mutableListOf<JSONObject>()
-                for (i in 0 until bArr.length()) bTemp.add(bArr.getJSONObject(i))
-                bwList = bTemp
-
-                val rArr = res.data.optJSONArray("routers") ?: JSONArray()
-                val rTemp = mutableListOf<JSONObject>()
-                for (i in 0 until rArr.length()) rTemp.add(rArr.getJSONObject(i))
-                routersList = rTemp
-
-                val poolArr = res.data.optJSONArray("pools") ?: JSONArray()
-                val poolTemp = mutableListOf<JSONObject>()
-                for (i in 0 until poolArr.length()) poolTemp.add(poolArr.getJSONObject(i))
-                poolsList = poolTemp
-
-                val devArr = res.data.optJSONArray("devices")
-                if (devArr != null && devArr.length() > 0) {
-                    val dTemp = mutableListOf<String>()
-                    for (i in 0 until devArr.length()) {
-                        val dv = devArr.optString(i).trim()
-                        if (dv.isNotEmpty()) dTemp.add(dv)
-                    }
-                    if (dTemp.isNotEmpty()) devicesList = dTemp
-                }
+                val parsed = withContext(Dispatchers.Default) { parsePlansResponseData(res.data) }
+                plansList = parsed.plans
+                bwList = parsed.bandwidths
+                routersList = parsed.routers
+                poolsList = parsed.pools
+                devicesList = parsed.devices
             }
             isLoading = false
         }
     }
 
     LaunchedEffect(Unit) {
-        loadPlansData()
+        loadPlansData(forceRefresh = false)
+    }
+
+    val tabItems = remember(plansList, bwList) {
+        var hsCount = 0
+        var pppCount = 0
+        var balCount = 0
+        var vpnCount = 0
+        for (p in plansList) {
+            when (p.optString("type").uppercase()) {
+                "HOTSPOT" -> hsCount++
+                "PPPOE" -> pppCount++
+                "BALANCE" -> balCount++
+                "VPN" -> vpnCount++
+            }
+        }
+        listOf(
+            "Hotspot" to "Hotspot ($hsCount)",
+            "PPPOE" to "PPPoE ($pppCount)",
+            "Balance" to "Paket Saldo ($balCount)",
+            "VPN" to "VPN ($vpnCount)",
+            "Bandwidth" to "Bandwidth (${bwList.size})"
+        )
     }
 
     val routerFilterOptions = remember(routersList, plansList) {
@@ -142,7 +197,7 @@ fun AdminPlansScreen() {
                 p.optString("name_bw", "").lowercase().contains(q) ||
                 p.optString("routers", "").lowercase().contains(q) ||
                 p.optString("pool", "").lowercase().contains(q)
-            matchTab && (currentTab == "Balance" || matchRouter) && matchQuery
+            matchTab && (currentTab.equals("Balance", true) || matchRouter) && matchQuery
         }
     }
 
@@ -171,11 +226,11 @@ fun AdminPlansScreen() {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                IconButton(onClick = { loadPlansData() }) {
+                IconButton(onClick = { loadPlansData(forceRefresh = true) }) {
                     Icon(Icons.Filled.Refresh, contentDescription = "Muat Ulang", tint = ArnetaGoldPrimary)
                 }
 
-                if (currentTab == "Hotspot" || currentTab == "PPPOE" || currentTab == "VPN") {
+                if (currentTab.equals("Hotspot", true) || currentTab.equals("PPPOE", true) || currentTab.equals("VPN", true)) {
                     FilledTonalButton(
                         enabled = !isSyncing,
                         onClick = {
@@ -187,7 +242,7 @@ fun AdminPlansScreen() {
                                 )
                                 isSyncing = false
                                 Toast.makeText(context, sRes.message, Toast.LENGTH_LONG).show()
-                                loadPlansData()
+                                loadPlansData(forceRefresh = true)
                             }
                         },
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
@@ -206,7 +261,7 @@ fun AdminPlansScreen() {
 
                 Button(
                     onClick = {
-                        if (currentTab == "Bandwidth") {
+                        if (currentTab.equals("Bandwidth", true)) {
                             editingBw = null
                             showBwDialog = true
                         } else {
@@ -235,33 +290,13 @@ fun AdminPlansScreen() {
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.horizontalScroll(rememberScrollState())
-        ) {
-            val hsCount = plansList.count { it.optString("type").equals("Hotspot", true) }
-            val pppCount = plansList.count { it.optString("type").equals("PPPOE", true) }
-            val balCount = plansList.count { it.optString("type").equals("Balance", true) }
-            val vpnCount = plansList.count { it.optString("type").equals("VPN", true) }
+        ArnetaSubTabBar(
+            tabs = tabItems,
+            selectedKey = currentTab,
+            onSelect = { currentTab = it }
+        )
 
-            val tabItems = listOf(
-                "Hotspot" to "Hotspot ($hsCount)",
-                "PPPOE" to "PPPoE ($pppCount)",
-                "Balance" to "Paket Saldo ($balCount)",
-                "VPN" to "VPN ($vpnCount)",
-                "Bandwidth" to "Bandwidth (${bwList.size})"
-            )
-
-            tabItems.forEach { (tabKey, tabLabel) ->
-                FilterChip(
-                    selected = currentTab == tabKey,
-                    onClick = { currentTab = tabKey },
-                    label = { Text(tabLabel, fontWeight = FontWeight.SemiBold, fontSize = 12.sp) }
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -315,7 +350,7 @@ fun AdminPlansScreen() {
             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                 CircularProgressIndicator(color = ArnetaGoldPrimary)
             }
-        } else if (currentTab == "Bandwidth") {
+        } else if (currentTab.equals("Bandwidth", true)) {
             BandwidthTabContent(
                 bandwidths = filteredBandwidths,
                 onEdit = { bw ->
@@ -334,9 +369,13 @@ fun AdminPlansScreen() {
             } else {
                 LazyColumn(
                     contentPadding = PaddingValues(bottom = 95.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                    items(filteredPlans) { p ->
+                    items(
+                        items = filteredPlans,
+                        key = { it.optInt("id", it.optString("name_plan").hashCode()) }
+                    ) { p ->
                         val pType = p.optString("type", "Hotspot")
                         val isBalance = pType.equals("Balance", ignoreCase = true)
                         val isPostpaid = p.optString("prepaid", "yes").equals("no", ignoreCase = true)
@@ -345,6 +384,7 @@ fun AdminPlansScreen() {
                         val planTypeBadge = p.optString("plan_type", "Personal")
                         val priceOldStr = p.optString("price_old", "").trim()
                         val priceOldVal = priceOldStr.toDoubleOrNull() ?: 0.0
+                        val priceVal = p.optSafeDouble("price", 0.0)
                         val typebp = p.optString("typebp", "Unlimited")
                         val poolStr = p.optString("pool", "")
                         val deviceStr = p.optString("device", "")
@@ -459,7 +499,7 @@ fun AdminPlansScreen() {
                                 }
 
                                 Column(horizontalAlignment = Alignment.End) {
-                                    if (priceOldVal > p.optDouble("price", 0.0)) {
+                                    if (priceOldVal > priceVal) {
                                         Text(
                                             text = formatRupiah(priceOldVal),
                                             fontSize = 10.5.sp,
@@ -467,7 +507,7 @@ fun AdminPlansScreen() {
                                         )
                                     }
                                     Text(
-                                        text = formatRupiah(p.optDouble("price", 0.0)),
+                                        text = formatRupiah(priceVal),
                                         fontWeight = FontWeight.ExtraBold,
                                         color = ArnetaGoldPrimary,
                                         fontSize = 14.5.sp
@@ -508,7 +548,7 @@ fun AdminPlansScreen() {
             onDismiss = { showPlanDialog = false },
             onSaved = {
                 showPlanDialog = false
-                loadPlansData()
+                loadPlansData(forceRefresh = true)
             }
         )
     }
@@ -519,7 +559,7 @@ fun AdminPlansScreen() {
             onDismiss = { showBwDialog = false },
             onSaved = {
                 showBwDialog = false
-                loadPlansData()
+                loadPlansData(forceRefresh = true)
             }
         )
     }
@@ -528,7 +568,7 @@ fun AdminPlansScreen() {
         val target = deletingPlanTarget!!
         ConfirmDeleteArnetaDialog(
             title = "Hapus Paket ${target.optString("name_plan")}?",
-            subtitle = "${target.optString("type")} • ${formatRupiah(target.optDouble("price", 0.0))}",
+            subtitle = "${target.optString("type")} • ${formatRupiah(target.optSafeDouble("price", 0.0))}",
             description = "Paket ini akan dihapus dari database dan profilnya akan dicabut dari Router MikroTik / Device terkait.",
             onDismiss = { deletingPlanTarget = null },
             onConfirm = {
@@ -536,7 +576,7 @@ fun AdminPlansScreen() {
                 scope.launch {
                     val dRes = ApiClient.request("admin_plan_delete", mapOf("id" to target.optInt("id")))
                     Toast.makeText(context, dRes.message, Toast.LENGTH_SHORT).show()
-                    if (dRes.status) loadPlansData()
+                    if (dRes.status) loadPlansData(forceRefresh = true)
                 }
             }
         )
@@ -554,7 +594,7 @@ fun AdminPlansScreen() {
                 scope.launch {
                     val dRes = ApiClient.request("admin_bandwidth_delete", mapOf("id" to target.optInt("id")))
                     Toast.makeText(context, dRes.message, Toast.LENGTH_SHORT).show()
-                    if (dRes.status) loadPlansData()
+                    if (dRes.status) loadPlansData(forceRefresh = true)
                 }
             }
         )
