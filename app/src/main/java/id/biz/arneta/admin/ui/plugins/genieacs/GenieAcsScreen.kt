@@ -180,10 +180,13 @@ fun GenieAcsScreen() {
         }
     }
 
-    LaunchedEffect(currentTab, selectedHostId, statusFilter, sortBy, sortDir) {
+    LaunchedEffect(currentTab, selectedHostId, statusFilter, sortBy, sortDir, searchQuery) {
         when (currentTab) {
             "dashboard" -> loadDashboard()
-            "devices" -> loadDevices(1)
+            "devices" -> {
+                if (searchQuery.isNotEmpty()) delay(280)
+                loadDevices(1)
+            }
             "hosts" -> loadHosts()
         }
     }
@@ -475,12 +478,25 @@ fun GenieAcsScreen() {
                         if (offlineDevices.isNotEmpty()) {
                             item {
                                 Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Perangkat Offline (${offlineDevices.size})",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    color = ArnetaRedDanger
-                                )
+                                Row(
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = "Perangkat Offline (${offlineDevices.size})",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        color = ArnetaRedDanger
+                                    )
+                                    TextButton(
+                                        onClick = { triggerDeviceAction("", "clean_junk") }
+                                    ) {
+                                        Icon(Icons.Filled.CleaningServices, contentDescription = null, tint = ArnetaOrangeActive, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Bersihkan Bot", fontSize = 11.5.sp, color = ArnetaOrangeActive, fontWeight = FontWeight.Bold)
+                                    }
+                                }
                             }
                             items(offlineDevices) { d ->
                                 GenieAcsDeviceCard(
