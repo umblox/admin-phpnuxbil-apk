@@ -14,7 +14,7 @@ on:
       gradle_version:
         description: 'Versi Gradle Builder'
         required: true
-        default: '9.4.0'
+        default: '9.6.0'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event.inputs.build_variant }}
