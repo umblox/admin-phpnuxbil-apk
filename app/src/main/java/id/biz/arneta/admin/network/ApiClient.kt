@@ -2,7 +2,10 @@ package id.biz.arneta.admin.network
 
 import android.content.Context
 import android.content.SharedPreferences
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -27,6 +30,7 @@ data class ApiResponse(
 object ApiClient {
     private const val PREF_NAME = "arneta_admin_prefs"
     private lateinit var prefs: SharedPreferences
+    private val bgScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val defaultShortcuts = setOf(
         "add_customer",
@@ -47,12 +51,16 @@ object ApiClient {
 
     private val memoryCache = ConcurrentHashMap<String, CacheEntry>()
 
-    private val cacheableActions = setOf(
-        "admin_plans",
-        "admin_customers",
-        "admin_routers",
-        "admin_pools",
-        "admin_bandwidths"
+    private val nonCacheableActions = setOf(
+        "admin_login",
+        "admin_user_live_traffic",
+        "admin_resend_invoice_wa",
+        "admin_test_notif",
+        "admin_system_tools",
+        "admin_db_backup",
+        "admin_kick_user",
+        "admin_router_reboot",
+        "admin_customer_sync"
     )
 
     private val mutationActions = setOf(
@@ -185,9 +193,50 @@ object ApiClient {
         return "$baseUrl/system/api.php?r=plugin/mobile_api/webview_sso&redirect=$encodedRedirect&token=$encodedToken"
     }
 
+    private fun buildCacheKey(action: String, params: Map<String, Any?>): String {
+        val sortedParams = params.entries
+            .filter { it.value != null && it.value.toString().isNotEmpty() }
+            .sortedBy { it.key }
+            .joinToString("&") { "${it.key}=${it.value}" }
+        return "$baseUrl|$action|$sortedParams"
+    }
+
+    private fun isCacheable(action: String): Boolean {
+        return !mutationActions.contains(action) && !nonCacheableActions.contains(action)
+    }
+
+    /**
+     * Mengambil snapshot terakhir dari RAM dalam 0 milidetik agar layar langsung tampil tanpa loading spinner.
+     */
+    fun getCached(action: String, params: Map<String, Any?> = emptyMap()): ApiResponse? {
+        if (!isCacheable(action)) return null
+        return memoryCache[buildCacheKey(action, params)]?.response
+    }
+
+    /**
+     * Memanaskan data utama di background saat aplikasi dibuka agar perpindahan menu berlangsung 0 detik.
+     */
+    fun warmupCacheInBackground() {
+        if (!isLoggedIn()) return
+        bgScope.launch {
+            listOf(
+                "admin_plans" to emptyMap(),
+                "admin_customers" to mapOf("search" to "", "service_type" to "", "limit" to 300),
+                "admin_prepaid_list" to mapOf("limit" to 250),
+                "admin_vouchers" to mapOf("limit" to 200),
+                "admin_coupons" to emptyMap()
+            ).forEach { (act, p) ->
+                if (getCached(act, p) == null) {
+                    runCatching { request(act, p) }
+                }
+            }
+        }
+    }
+
     suspend fun request(
         action: String,
-        params: Map<String, Any?> = emptyMap()
+        params: Map<String, Any?> = emptyMap(),
+        forceRefresh: Boolean = false
     ): ApiResponse = withContext(Dispatchers.IO) {
         if (baseUrl.isBlank()) {
             return@withContext ApiResponse(
@@ -196,17 +245,13 @@ object ApiClient {
             )
         }
 
-        if (mutationActions.contains(action)) {
-            clearCache()
-        }
+        val isMutation = mutationActions.contains(action)
+        val cacheKey = if (isCacheable(action)) buildCacheKey(action, params) else null
 
-        val cacheKey = if (cacheableActions.contains(action)) {
-            "$baseUrl|$action|${params.entries.sortedBy { it.key }.joinToString("&") { "${it.key}=${it.value}" }}"
-        } else null
-
-        if (cacheKey != null) {
+        if (!forceRefresh && cacheKey != null) {
             val cached = memoryCache[cacheKey]
-            if (cached != null && (System.currentTimeMillis() - cached.timestamp) < 3500L) {
+            // Cegah request duplikat beruntun dalam rentang 1.5 detik
+            if (cached != null && (System.currentTimeMillis() - cached.timestamp) < 1500L) {
                 return@withContext cached.response
             }
         }
@@ -216,7 +261,14 @@ object ApiClient {
 
         val res = executeHttpPost(endpoint, action, params)
 
-        if (cacheKey != null && res.status) {
+        if (isMutation && res.status) {
+            // Reset timestamp cache agar request berikutnya langsung mengambil data terbaru dari server,
+            // namun data lama tetap ada di RAM untuk mencegah layar berkedip menjadi loading spinner.
+            for ((k, v) in memoryCache) {
+                memoryCache[k] = v.copy(timestamp = 0L)
+            }
+            warmupCacheInBackground()
+        } else if (cacheKey != null && res.status) {
             memoryCache[cacheKey] = CacheEntry(res, System.currentTimeMillis())
         }
 
@@ -234,7 +286,7 @@ object ApiClient {
             conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = 12000
-                readTimeout = 18000
+                readTimeout = 20000
                 doInput = true
                 doOutput = true
                 useCaches = false
@@ -255,6 +307,8 @@ object ApiClient {
             for ((k, v) in params) {
                 when (v) {
                     null -> jsonBody.put(k, JSONObject.NULL)
+                    is Double -> jsonBody.put(k, if (v.isNaN() || v.isInfinite()) 0.0 else v)
+                    is Float -> jsonBody.put(k, if (v.isNaN() || v.isInfinite()) 0f else v)
                     is Collection<*> -> jsonBody.put(k, JSONArray(v))
                     is Array<*> -> jsonBody.put(k, JSONArray(v.toList()))
                     else -> jsonBody.put(k, v)
@@ -297,7 +351,6 @@ object ApiClient {
             val dataObj = root.optJSONObject("data") ?: root.optJSONObject("result")
             val dataArr = root.optJSONArray("data") ?: root.optJSONArray("result")
 
-            // Sinkronisasi otomatis companyName & currencyCode setiap kali server mengirimkannya
             if (dataObj != null) {
                 val compObj = dataObj.optJSONObject("company")
                 val dynCompName = compObj?.optString("name", "")?.takeIf { it.isNotBlank() }
@@ -328,18 +381,25 @@ object ApiClient {
     }
 }
 
+fun JSONObject?.optSafeDouble(key: String, default: Double = 0.0): Double {
+    if (this == null || !this.has(key) || this.isNull(key)) return default
+    val v = this.optDouble(key, default)
+    return if (v.isNaN() || v.isInfinite()) default else v
+}
+
 fun formatRupiah(amount: Double, currencyPrefix: String = ApiClient.currencyCode): String {
+    val safeAmount = if (amount.isNaN() || amount.isInfinite()) 0.0 else amount
     val cleanCur = currencyPrefix.trim()
     if (cleanCur.equals("USD", ignoreCase = true) || cleanCur == "$") {
         val usFormat = NumberFormat.getNumberInstance(Locale.US).apply {
             minimumFractionDigits = 2
             maximumFractionDigits = 2
         }
-        return "USD ${usFormat.format(amount)}"
+        return "USD ${usFormat.format(safeAmount)}"
     }
     val idFormat = NumberFormat.getNumberInstance(Locale("in", "ID")).apply {
         maximumFractionDigits = 0
     }
     val prefix = if (cleanCur.isEmpty()) "Rp." else cleanCur
-    return "$prefix ${idFormat.format(amount)}"
+    return "$prefix ${idFormat.format(safeAmount)}"
 }
