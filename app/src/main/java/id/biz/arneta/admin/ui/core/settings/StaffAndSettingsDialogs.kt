@@ -101,12 +101,14 @@ internal fun StaffFormDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false
+            decorFitsSystemWindows = true
         )
     ) {
         Scaffold(
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
             modifier = Modifier
                 .fillMaxSize()
+                .systemBarsPadding()
                 .imePadding(),
             containerColor = MaterialTheme.colorScheme.background,
             topBar = {
@@ -120,7 +122,6 @@ internal fun StaffFormDialog(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .windowInsetsPadding(WindowInsets.statusBars)
                             .padding(horizontal = 8.dp, vertical = 10.dp)
                     ) {
                         Row(
@@ -172,7 +173,7 @@ internal fun StaffFormDialog(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .windowInsetsPadding(WindowInsets.navigationBars)
+                            .navigationBarsPadding()
                             .padding(horizontal = 16.dp, vertical = 12.dp)
                     ) {
                         OutlinedButton(
@@ -476,12 +477,14 @@ internal fun ChangePasswordDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false
+            decorFitsSystemWindows = true
         )
     ) {
         Scaffold(
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
             modifier = Modifier
                 .fillMaxSize()
+                .systemBarsPadding()
                 .imePadding(),
             containerColor = MaterialTheme.colorScheme.background,
             topBar = {
@@ -494,7 +497,6 @@ internal fun ChangePasswordDialog(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .windowInsetsPadding(WindowInsets.statusBars)
                             .padding(horizontal = 8.dp, vertical = 10.dp)
                     ) {
                         IconButton(onClick = onDismiss) {
@@ -527,7 +529,7 @@ internal fun ChangePasswordDialog(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .windowInsetsPadding(WindowInsets.navigationBars)
+                            .navigationBarsPadding()
                             .padding(horizontal = 16.dp, vertical = 12.dp)
                     ) {
                         OutlinedButton(
