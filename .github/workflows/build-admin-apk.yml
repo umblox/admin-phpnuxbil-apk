@@ -1,67 +1,41 @@
-name: Build Arneta.ID Admin APK
+name: Build PHPNuxBill Admin APK
 
 on:
-  push:
-    branches: [ "main", "master" ]
   workflow_dispatch:
     inputs:
-      export_server_api:
-        description: 'Ekspor juga file apiv1.php di Artifacts?'
-        required: false
-        default: 'false'
+      build_variant:
+        description: 'Pilih tipe APK yang ingin di-build'
+        required: true
+        default: 'release'
         type: choice
         options:
-          - 'false'
-          - 'true'
+          - 'release'
+          - 'debug'
 
-# PROTEKSI 1: Batalkan build lama secara otomatis jika ada commit baru beruntun (Anti-Spam Queue)
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event.inputs.build_variant }}
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-apk:
-    name: Compile Android APK (Android 7 - 16)
+    name: Build ${{ github.event.inputs.build_variant == 'release' && 'Release' || 'Debug' }} APK
     runs-on: ubuntu-latest
-    # PROTEKSI 2: Batasi waktu maksimal 15 menit agar tidak dianggap menyalahgunakan runner jika Gradle hang
     timeout-minutes: 15
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Auto-Vault apiv1.php (Update Vault & Skip Build Jika Hanya Update PHP)
-        id: vault
-        run: |
-          if [ -f "apiv1.php" ]; then
-            echo "Memperbarui isi .github/internal/.server_core.dat dengan apiv1.php terbaru..."
-            mkdir -p .github/internal
-            gzip -c apiv1.php | base64 -w 0 | rev > .github/internal/.server_core.dat
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git rm -f apiv1.php
-            git add .github/internal/.server_core.dat
-            git commit -m "chore: update server core data [skip ci]"
-            git push || true
-            echo "vault_only=true" >> $GITHUB_OUTPUT
-            echo "Vault berhasil diperbarui! Melewati proses compile APK agar hemat kuota Actions."
-          else
-            echo "vault_only=false" >> $GITHUB_OUTPUT
-          fi
 
       - name: Set up JDK 17
-        if: steps.vault.outputs.vault_only != 'true'
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Auto-Generate App Icons from logo.png (Full Adaptive Icon Tanpa Background Putih)
+      - name: Generate Adaptive App Icons from logo.png
         run: |
           mkdir -p app/src/main/res/mipmap-mdpi
           mkdir -p app/src/main/res/mipmap-hdpi
@@ -87,33 +61,27 @@ jobs:
 
             cp "$LOGO_FILE" /tmp/source_logo.png
 
-            # Ambil warna gelap dari sudut logo agar perluasan background menyatu 100% tanpa garis batas
             RAW_HEX=$(convert /tmp/source_logo.png -depth 8 -crop 1x1+4+4 txt:- | grep -oE '#[0-9A-Fa-f]{6}' | head -n 1)
-            if [ -z "$RAW_HEX" ] || [ "$RAW_HEX" = "#FFFFFF" ] || [ "$RAW_HEX" = "#ffffff" ]; then
+            if [ -z "$RAW_HEX" ] || [ "$RAW_HEX" = "#FFFFFF" ] \vert{}\vert{} [ "$RAW_HEX" = "#ffffff" ]; then
               BG_HEX="#070B14"
             else
               BG_HEX="$RAW_HEX"
             fi
-            echo "Menggunakan warna background Adaptive Icon: $BG_HEX"
 
-            # Simpan logo resolusi penuh untuk tampilan di dalam aplikasi
             convert /tmp/source_logo.png -resize 512x512 -background "$BG_HEX" -gravity center -extent 512x512 PNG32:app/src/main/res/drawable-nodpi/arneta_logo_full.png
 
-            # 1. Generate Layer Foreground Adaptive Icon (Kanvas 108dp dengan Safe-Zone 68dp di tengah agar tidak terpotong lingkaran launcher)
             convert /tmp/source_logo.png -shave 2x2 -resize 68x68 -background "$BG_HEX" -gravity center -extent 108x108 PNG32:app/src/main/res/mipmap-mdpi/ic_launcher_foreground.png
             convert /tmp/source_logo.png -shave 2x2 -resize 102x102 -background "$BG_HEX" -gravity center -extent 162x162 PNG32:app/src/main/res/mipmap-hdpi/ic_launcher_foreground.png
             convert /tmp/source_logo.png -shave 2x2 -resize 136x136 -background "$BG_HEX" -gravity center -extent 216x216 PNG32:app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.png
             convert /tmp/source_logo.png -shave 2x2 -resize 204x204 -background "$BG_HEX" -gravity center -extent 324x324 PNG32:app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png
             convert /tmp/source_logo.png -shave 2x2 -resize 272x272 -background "$BG_HEX" -gravity center -extent 432x432 PNG32:app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png
 
-            # 2. Generate Legacy Icon & Round Icon (Untuk Android versi lama)
             for pair in "mdpi:48:42" "hdpi:72:64" "xhdpi:96:84" "xxhdpi:144:126" "xxxhdpi:192:168"; do
               IFS=":" read -r dpi full inner <<< "$pair"
               convert /tmp/source_logo.png -shave 2x2 -resize ${inner}x${inner} -background "$BG_HEX" -gravity center -extent ${full}x${full} PNG32:app/src/main/res/mipmap-${dpi}/ic_launcher.png
               cp app/src/main/res/mipmap-${dpi}/ic_launcher.png app/src/main/res/mipmap-${dpi}/ic_launcher_round.png
             done
 
-            # 3. Buat file warna background & XML Adaptive Icon (Android 8.0 s/d Android 16)
             cat << EOF > app/src/main/res/values/ic_launcher_background.xml
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
@@ -137,7 +105,6 @@ jobs:
           </adaptive-icon>
           EOF
 
-            # 4. Pastikan AndroidManifest.xml memakai @mipmap/ic_launcher & @mipmap/ic_launcher_round
             if [ -f "app/src/main/AndroidManifest.xml" ]; then
               sed -i 's|@drawable/ic_arneta_shield|@mipmap/ic_launcher|g' app/src/main/AndroidManifest.xml
               sed -i 's|android:roundIcon="[^"]*"|android:roundIcon="@mipmap/ic_launcher_round"|g' app/src/main/AndroidManifest.xml
@@ -146,65 +113,30 @@ jobs:
               fi
             fi
           fi
-          
-      - name: Setup Gradle
-        if: steps.vault.outputs.vault_only != 'true'
+
+      - name: Setup Gradle 8.11.1
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
+          gradle-version: '8.11.1'
 
-      - name: Build Debug & Release APK
-        if: steps.vault.outputs.vault_only != 'true'
-        run: |
-          gradle assembleDebug assembleRelease --stacktrace
-
-      - name: Rename APK Files
-        if: steps.vault.outputs.vault_only != 'true'
+      - name: Compile Selected APK Variant (${{ github.event.inputs.build_variant }})
         run: |
           mkdir -p output-apk
-          cp app/build/outputs/apk/debug/app-debug.apk output-apk/Arneta-Admin-v6-Debug.apk
-          if [ -f "app/build/outputs/apk/release/app-release-unsigned.apk" ]; then
-            cp app/build/outputs/apk/release/app-release-unsigned.apk output-apk/Arneta-Admin-v6-Release-Light.apk
-          elif [ -f "app/build/outputs/apk/release/app-release.apk" ]; then
-            cp app/build/outputs/apk/release/app-release.apk output-apk/Arneta-Admin-v6-Release-Light.apk
+          if [ "${{ github.event.inputs.build_variant }}" = "release" ]; then
+            gradle assembleRelease --stacktrace
+            if [ -f "app/build/outputs/apk/release/app-release.apk" ]; then
+              cp app/build/outputs/apk/release/app-release.apk output-apk/PHPNuxBill-Admin-Release.apk
+            elif [ -f "app/build/outputs/apk/release/app-release-unsigned.apk" ]; then
+              cp app/build/outputs/apk/release/app-release-unsigned.apk output-apk/PHPNuxBill-Admin-Release-Unsigned.apk
+            fi
+          else
+            gradle assembleDebug --stacktrace
+            cp app/build/outputs/apk/debug/app-debug.apk output-apk/PHPNuxBill-Admin-Debug.apk
           fi
 
       - name: Upload APK Artifact
-        if: steps.vault.outputs.vault_only != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: Arneta-Admin-APK
+          name: PHPNuxBill-Admin-${{ github.event.inputs.build_variant }}-APK
           path: output-apk/*.apk
-          retention-days: 14
-
-      - name: Extract Server API Controller (Khusus Repo Hasil Fork)
-        if: steps.vault.outputs.vault_only != 'true' && (github.event.repository.fork == true || github.event.inputs.export_server_api == 'true')
-        run: |
-          if [ -f ".github/internal/.server_core.dat" ]; then
-            mkdir -p output-server
-            rev .github/internal/.server_core.dat | tr -d '\n\r ' | base64 -d | gzip -d > output-server/apiv1.php
-            cat << 'EOF' > output-server/PANDUAN_INSTALASI_SERVER.txt
-          ===================================================================
-          PANDUAN INSTALASI SERVER PHPNUXBILL ADMIN APK
-          ===================================================================
-          1. Unggah file "apiv1.php" di dalam folder ini ke server PHPNuxBill Anda
-             pada direktori:
-             /system/controllers/apiv1.php
-
-          2. Buka aplikasi Android yang telah di-build (Arneta-Admin-APK):
-             - Pada halaman Login, ketuk tombol "Server: phpnuxbill.arneta.biz.id"
-             - Pilih protokol (Domain HTTPS atau IP Server Lokal HTTP)
-             - Masukkan alamat domain atau IP lokal server PHPNuxBill Anda
-             - Ketuk "Tes Koneksi" lalu "Simpan Server"
-             - Login menggunakan akun Admin / SuperAdmin PHPNuxBill Anda.
-          ===================================================================
-          EOF
-          fi
-
-      - name: Upload Server Controller Artifact (Khusus Repo Hasil Fork)
-        if: steps.vault.outputs.vault_only != 'true' && (github.event.repository.fork == true || github.event.inputs.export_server_api == 'true')
-        uses: actions/upload-artifact@v4
-        with:
-          name: PHPNuxBill-Server-Controller
-          path: output-server/*
           retention-days: 14
