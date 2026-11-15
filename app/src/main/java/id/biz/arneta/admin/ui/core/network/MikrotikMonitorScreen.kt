@@ -1234,12 +1234,14 @@ internal fun RouterFormDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false
+            decorFitsSystemWindows = true
         )
     ) {
         Scaffold(
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
             modifier = Modifier
                 .fillMaxSize()
+                .systemBarsPadding()
                 .imePadding(),
             containerColor = MaterialTheme.colorScheme.background,
             topBar = {
@@ -1253,7 +1255,6 @@ internal fun RouterFormDialog(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .windowInsetsPadding(WindowInsets.statusBars)
                             .padding(horizontal = 8.dp, vertical = 10.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1288,7 +1289,7 @@ internal fun RouterFormDialog(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .windowInsetsPadding(WindowInsets.navigationBars)
+                            .navigationBarsPadding()
                             .padding(horizontal = 16.dp, vertical = 12.dp)
                     ) {
                         OutlinedButton(
@@ -1520,12 +1521,14 @@ internal fun PoolFormDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false
+            decorFitsSystemWindows = true
         )
     ) {
         Scaffold(
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
             modifier = Modifier
                 .fillMaxSize()
+                .systemBarsPadding()
                 .imePadding(),
             containerColor = MaterialTheme.colorScheme.background,
             topBar = {
@@ -1538,7 +1541,6 @@ internal fun PoolFormDialog(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .windowInsetsPadding(WindowInsets.statusBars)
                             .padding(horizontal = 8.dp, vertical = 10.dp)
                     ) {
                         IconButton(onClick = onDismiss) {
@@ -1571,7 +1573,7 @@ internal fun PoolFormDialog(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .windowInsetsPadding(WindowInsets.navigationBars)
+                            .navigationBarsPadding()
                             .padding(horizontal = 16.dp, vertical = 12.dp)
                     ) {
                         OutlinedButton(
