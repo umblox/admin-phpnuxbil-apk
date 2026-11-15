@@ -24,14 +24,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.biz.arneta.admin.network.ApiClient
 import id.biz.arneta.admin.network.formatRupiah
+import id.biz.arneta.admin.network.optSafeDouble
 import id.biz.arneta.admin.ui.theme.*
 import id.biz.arneta.admin.util.BluetoothPrinterHelper
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
-/**
- * MANAJER & WIDGET TOAST STRUK TRANSAKSI INTERAKTIF (PRINT BLUETOOTH + RESEND WA WEB)
- */
 object ArnetaTransactionToastManager {
     var currentReceipt by mutableStateOf<JSONObject?>(null)
 
@@ -44,38 +42,72 @@ object ArnetaTransactionToastManager {
         fallbackMethod: String = "-",
         fallbackRouter: String = "-"
     ) {
-        val receiptObj = resData?.optJSONObject("receipt")
-        if (receiptObj != null) {
-            receiptObj.put("toast_title", fallbackTitle)
-            currentReceipt = receiptObj
-            return
-        }
-        val invObj = resData?.optJSONObject("invoice")
-        val constructed = JSONObject().apply {
-            put("toast_title", fallbackTitle)
-            put("trx_id", invObj?.optInt("id") ?: 0)
-            put("invoice", invObj?.optString("invoice")?.ifEmpty { null } ?: "INV-${System.currentTimeMillis() % 10000}")
-            put("username", invObj?.optString("username")?.ifEmpty { null } ?: fallbackCustomer?.optString("username", "-"))
-            put("fullname", fallbackCustomer?.optString("fullname")?.ifEmpty { null } ?: invObj?.optString("username", "-"))
-            put("phonenumber", fallbackCustomer?.optString("phonenumber", "") ?: "")
-            put("plan_name", invObj?.optString("plan_name")?.ifEmpty { null } ?: fallbackPlanName)
-            put("type", invObj?.optString("type")?.ifEmpty { null } ?: if (fallbackMethod.equals("Deposit", true)) "Balance" else "Layanan")
-            put("price", invObj?.optDouble("price") ?: fallbackPrice)
-            put("method", invObj?.optString("method")?.ifEmpty { null } ?: fallbackMethod)
-            put("routers", invObj?.optString("routers")?.ifEmpty { null } ?: fallbackRouter)
-            put(
-                "recharged_at",
-                if (invObj != null) "${invObj.optString("recharged_on")} ${invObj.optString("recharged_time")}".trim()
-                else "Baru saja"
+        try {
+            val receiptObj = resData?.optJSONObject("receipt")
+            if (receiptObj != null) {
+                val copyObj = JSONObject(receiptObj.toString())
+                copyObj.put("toast_title", fallbackTitle)
+                currentReceipt = copyObj
+                return
+            }
+
+            val invObj = resData?.optJSONObject("invoice") ?: resData
+            val safeFallbackPrice = if (fallbackPrice.isNaN() || fallbackPrice.isInfinite()) 0.0 else fallbackPrice
+            val resolvedPrice = invObj.optSafeDouble("price", safeFallbackPrice)
+            val resolvedBalance = resData.optSafeDouble(
+                "balance",
+                invObj.optSafeDouble("balance", fallbackCustomer.optSafeDouble("balance", 0.0))
             )
-            put(
-                "expiration",
-                if (invObj != null) "${invObj.optString("expiration")} ${invObj.optString("time")}".trim()
-                else "-"
-            )
-            put("balance_after", resData?.optDouble("balance") ?: (fallbackCustomer?.optDouble("balance", 0.0) ?: 0.0))
+
+            val uname = invObj?.optString("username", "")?.takeIf { it.isNotEmpty() }
+                ?: fallbackCustomer?.optString("username", "-")
+                ?: "-"
+            val fname = fallbackCustomer?.optString("fullname", "")?.takeIf { it.isNotEmpty() }
+                ?: invObj?.optString("fullname", "")?.takeIf { it.isNotEmpty() }
+                ?: uname
+            val phone = fallbackCustomer?.optString("phonenumber", "")?.takeIf { it.isNotEmpty() }
+                ?: invObj?.optString("phonenumber", "")
+                ?: ""
+            val planStr = invObj?.optString("plan_name", "")?.takeIf { it.isNotEmpty() }
+                ?: invObj?.optString("namebp", "")?.takeIf { it.isNotEmpty() }
+                ?: fallbackPlanName
+            val methodStr = invObj?.optString("method", "")?.takeIf { it.isNotEmpty() } ?: fallbackMethod
+            val routerStr = invObj?.optString("routers", "")?.takeIf { it.isNotEmpty() } ?: fallbackRouter
+            val typeStr = invObj?.optString("type", "")?.takeIf { it.isNotEmpty() }
+                ?: if (methodStr.contains("Deposit", true) || routerStr.equals("balance", true)) "Balance" else "Layanan"
+
+            val rechAt = if (invObj != null && invObj.optString("recharged_on").isNotEmpty()) {
+                "${invObj.optString("recharged_on")} ${invObj.optString("recharged_time")}".trim()
+            } else {
+                invObj?.optString("recharged_at", "Baru saja") ?: "Baru saja"
+            }
+
+            val expAt = if (invObj != null && invObj.optString("expiration").isNotEmpty()) {
+                "${invObj.optString("expiration")} ${invObj.optString("time")}".trim()
+            } else {
+                "-"
+            }
+
+            val constructed = JSONObject().apply {
+                put("toast_title", fallbackTitle)
+                put("trx_id", invObj?.optInt("id", 0) ?: 0)
+                put("invoice", invObj?.optString("invoice", "")?.takeIf { it.isNotEmpty() } ?: "INV-${invObj?.optInt("id", 0) ?: 0}")
+                put("username", uname)
+                put("fullname", fname)
+                put("phonenumber", phone)
+                put("plan_name", planStr)
+                put("type", typeStr)
+                put("price", resolvedPrice)
+                put("method", methodStr)
+                put("routers", routerStr)
+                put("recharged_at", rechAt)
+                put("expiration", expAt)
+                put("balance_after", resolvedBalance)
+            }
+            currentReceipt = constructed
+        } catch (_: Exception) {
+            currentReceipt = null
         }
-        currentReceipt = constructed
     }
 
     fun dismiss() {
@@ -90,7 +122,7 @@ fun ArnetaInteractiveTransactionToast() {
     val scope = rememberCoroutineScope()
     var isResendingWa by remember { mutableStateOf(false) }
 
-    val title = receipt.optString("toast_title", "Transaksi Berhasil!")
+    val title = receipt.optString("toast_title", "Detail Transaksi")
     val trxId = receipt.optInt("trx_id", 0)
     val invoiceNo = receipt.optString("invoice", "-")
     val fullname = receipt.optString("fullname", "-")
@@ -98,15 +130,15 @@ fun ArnetaInteractiveTransactionToast() {
     val phone = receipt.optString("phonenumber", "")
     val planName = receipt.optString("plan_name", "-")
     val typeStr = receipt.optString("type", "Layanan")
-    val priceVal = receipt.optDouble("price", 0.0)
+    val priceVal = receipt.optSafeDouble("price", 0.0)
     val methodStr = receipt.optString("method", "-")
     val routerStr = receipt.optString("routers", "-")
     val rechargedAt = receipt.optString("recharged_at", "-")
     val expiration = receipt.optString("expiration", "-")
     val isBalanceTrx = typeStr.equals("Balance", ignoreCase = true) ||
         routerStr.equals("balance", ignoreCase = true) ||
-        methodStr.equals("Deposit", ignoreCase = true)
-    val balanceAfter = receipt.optDouble("balance_after", 0.0)
+        methodStr.contains("Deposit", ignoreCase = true)
+    val balanceAfter = receipt.optSafeDouble("balance_after", 0.0)
 
     AlertDialog(
         onDismissRequest = { ArnetaTransactionToastManager.dismiss() },
@@ -169,7 +201,7 @@ fun ArnetaInteractiveTransactionToast() {
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.padding(12.dp)
                     ) {
-                        ToastDetailRow("Pelanggan", "$fullname (@$username)")
+                        ToastDetailRow("Pelanggan", if (fullname != username) "$fullname (@$username)" else "@$username")
                         ToastDetailRow("Paket / Layanan", planName)
                         ToastDetailRow("Nominal Harga", formatRupiah(priceVal), valueColor = ArnetaGoldPrimary)
                         ToastDetailRow("Metode Bayar", methodStr)
@@ -177,7 +209,9 @@ fun ArnetaInteractiveTransactionToast() {
                             ToastDetailRow("Waktu Trx", rechargedAt)
                         }
                         if (isBalanceTrx) {
-                            ToastDetailRow("Saldo Saat Ini", formatRupiah(balanceAfter), valueColor = ArnetaCyanIncome)
+                            if (balanceAfter > 0.0) {
+                                ToastDetailRow("Saldo Saat Ini", formatRupiah(balanceAfter), valueColor = ArnetaCyanIncome)
+                            }
                         } else {
                             if (expiration.isNotEmpty() && expiration != "-") {
                                 ToastDetailRow("Aktif s/d", expiration, valueColor = ArnetaGreenSuccess)
@@ -216,7 +250,9 @@ fun ArnetaInteractiveTransactionToast() {
                                     "Tgl Trx" to rechargedAt
                                 )
                                 if (isBalanceTrx) {
-                                    lines.add("Saldo Baru" to formatRupiah(balanceAfter))
+                                    if (balanceAfter > 0.0) {
+                                        lines.add("Saldo Baru" to formatRupiah(balanceAfter))
+                                    }
                                 } else {
                                     lines.add("Aktif s/d" to expiration)
                                     lines.add("Router" to routerStr)
