@@ -31,7 +31,6 @@ import org.json.JSONObject
 
 /**
  * LAYAR PENUH NATIVE: FORM TAMBAH & EDIT PAKET (HOTSPOT, PPPOE, SALDO, VPN)
- * Sesuai system/controllers/services.php & core_plans_bandwidth.php
  */
 @Composable
 internal fun PlanFormDialog(
@@ -78,7 +77,6 @@ internal fun PlanFormDialog(
     }
     var planType by remember { mutableStateOf(initial?.optString("plan_type")?.ifEmpty { null } ?: "Personal") }
 
-    // Khusus Hotspot (Unlimited vs Limited)
     var typebp by remember { mutableStateOf(initial?.optString("typebp")?.ifEmpty { null } ?: "Unlimited") }
     var limitType by remember { mutableStateOf(initial?.optString("limit_type")?.ifEmpty { null } ?: "Time_Limit") }
     var timeLimit by remember { mutableStateOf(initial?.optInt("time_limit", 4)?.toString() ?: "4") }
@@ -87,7 +85,6 @@ internal fun PlanFormDialog(
     var dataUnit by remember { mutableStateOf(initial?.optString("data_unit")?.ifEmpty { null } ?: "GB") }
     var sharedUsers by remember { mutableStateOf(initial?.optInt("shared_users", 1)?.toString() ?: "1") }
 
-    // Bandwidth, Masa Aktif, Router, Radius, Pool & Device
     var bwId by remember {
         mutableIntStateOf(
             initial?.optInt("id_bw")?.takeIf { it > 0 } ?: (bandwidths.firstOrNull()?.optInt("id") ?: 0)
@@ -210,12 +207,14 @@ internal fun PlanFormDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false
+            decorFitsSystemWindows = true
         )
     ) {
         Scaffold(
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
             modifier = Modifier
                 .fillMaxSize()
+                .systemBarsPadding()
                 .imePadding(),
             containerColor = MaterialTheme.colorScheme.background,
             topBar = {
@@ -229,7 +228,6 @@ internal fun PlanFormDialog(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .windowInsetsPadding(WindowInsets.statusBars)
                             .padding(horizontal = 8.dp, vertical = 10.dp)
                     ) {
                         Row(
@@ -283,7 +281,7 @@ internal fun PlanFormDialog(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .windowInsetsPadding(WindowInsets.navigationBars)
+                            .navigationBarsPadding()
                             .padding(horizontal = 16.dp, vertical = 12.dp)
                     ) {
                         val parsedPrice = price.toDoubleOrNull() ?: 0.0
