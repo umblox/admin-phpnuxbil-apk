@@ -33,7 +33,6 @@ import org.json.JSONObject
 
 /**
  * TAB DAFTAR PROFIL BANDWIDTH & LAYAR PENUH FORM BANDWIDTH + BURST PRESET
- * Sesuai system/controllers/bandwidth.php & core_plans_bandwidth.php
  */
 @Composable
 internal fun BandwidthTabContent(
@@ -167,12 +166,14 @@ internal fun BandwidthFormDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false
+            decorFitsSystemWindows = true
         )
     ) {
         Scaffold(
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
             modifier = Modifier
                 .fillMaxSize()
+                .systemBarsPadding()
                 .imePadding(),
             containerColor = MaterialTheme.colorScheme.background,
             topBar = {
@@ -185,7 +186,6 @@ internal fun BandwidthFormDialog(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .windowInsetsPadding(WindowInsets.statusBars)
                             .padding(horizontal = 8.dp, vertical = 10.dp)
                     ) {
                         IconButton(onClick = onDismiss) {
@@ -217,7 +217,7 @@ internal fun BandwidthFormDialog(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .windowInsetsPadding(WindowInsets.navigationBars)
+                            .navigationBarsPadding()
                             .padding(horizontal = 16.dp, vertical = 12.dp)
                     ) {
                         Row(
