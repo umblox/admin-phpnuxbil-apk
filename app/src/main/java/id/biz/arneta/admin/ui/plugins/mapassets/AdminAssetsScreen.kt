@@ -30,8 +30,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import id.biz.arneta.admin.network.ApiClient
 import id.biz.arneta.admin.network.formatRupiah
@@ -351,286 +349,273 @@ private fun AssetFormFullDialog(
         }
     }
 
-    Dialog(
+    ArnetaFullScreenDialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = true
-        )
-    ) {
-        Scaffold(
-            contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            modifier = Modifier
-                .fillMaxSize()
-                .systemBarsPadding()
-                .imePadding(),
-            containerColor = MaterialTheme.colorScheme.background,
-            topBar = {
-                Surface(
-                    color = Color(0xFF141B2D),
-                    shadowElevation = 6.dp,
-                    modifier = Modifier.fillMaxWidth()
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            Surface(
+                color = Color(0xFF141B2D),
+                shadowElevation = 6.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 10.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 10.dp)
-                    ) {
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.Filled.ArrowBack, contentDescription = "Kembali", tint = Color.White)
-                        }
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Column {
-                            Text(
-                                text = if (isEdit) "Edit Inventaris Aset" else "Tambah Inventaris Aset",
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 17.sp,
-                                color = Color.White
-                            )
-                            Text(
-                                text = "Data ODP, ODC, ONT, Router & Titik Peta",
-                                fontSize = 11.5.sp,
-                                color = ArnetaGoldLight
-                            )
-                        }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Filled.ArrowBack, contentDescription = "Kembali", tint = Color.White)
                     }
-                }
-            },
-            bottomBar = {
-                Surface(
-                    color = Color(0xFF141B2D),
-                    shadowElevation = 12.dp,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .navigationBarsPadding()
-                            .padding(horizontal = 16.dp, vertical = 12.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = onDismiss,
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .weight(0.36f)
-                                .height(48.dp)
-                        ) {
-                            Text("Batal", fontWeight = FontWeight.Bold)
-                        }
-
-                        Button(
-                            enabled = !isSaving && name.isNotBlank(),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = ArnetaGoldPrimary,
-                                contentColor = Color.Black
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                            onClick = {
-                                isSaving = true
-                                scope.launch {
-                                    val res = ApiClient.request(
-                                        "admin_asset_save",
-                                        mapOf(
-                                            "id" to (initial?.optInt("id") ?: 0),
-                                            "name" to name.trim(),
-                                            "category" to category.trim(),
-                                            "brand" to brand.trim(),
-                                            "serial_number" to serial.trim(),
-                                            "cost" to (cost.toDoubleOrNull() ?: 0.0),
-                                            "location" to location.trim(),
-                                            "coordinates" to coords.trim(),
-                                            "condition_status" to conditionStatus,
-                                            "notes" to notes.trim()
-                                        )
-                                    )
-                                    isSaving = false
-                                    Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
-                                    if (res.status) onSaved()
-                                }
-                            },
-                            modifier = Modifier
-                                .weight(0.64f)
-                                .height(48.dp)
-                        ) {
-                            Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (isSaving) "Menyimpan..." else "Simpan Aset",
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 13.5.sp
-                            )
-                        }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Column {
+                        Text(
+                            text = if (isEdit) "Edit Inventaris Aset" else "Tambah Inventaris Aset",
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 17.sp,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "Data ODP, ODC, ONT, Router & Titik Peta",
+                            fontSize = 11.5.sp,
+                            color = ArnetaGoldLight
+                        )
                     }
                 }
             }
-        ) { innerPadding ->
-            Column(
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 14.dp, vertical = 12.dp)
+        },
+        bottomBar = {
+            Surface(
+                color = Color(0xFF141B2D),
+                shadowElevation = 12.dp,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Card(
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    modifier = Modifier.fillMaxWidth()
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
                 ) {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.padding(14.dp)
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .weight(0.36f)
+                            .height(46.dp)
                     ) {
+                        Text("Batal", fontWeight = FontWeight.Bold)
+                    }
+
+                    Button(
+                        enabled = !isSaving && name.isNotBlank(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ArnetaGoldPrimary,
+                            contentColor = Color.Black
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        onClick = {
+                            isSaving = true
+                            scope.launch {
+                                val res = ApiClient.request(
+                                    "admin_asset_save",
+                                    mapOf(
+                                        "id" to (initial?.optInt("id") ?: 0),
+                                        "name" to name.trim(),
+                                        "category" to category.trim(),
+                                        "brand" to brand.trim(),
+                                        "serial_number" to serial.trim(),
+                                        "cost" to (cost.toDoubleOrNull() ?: 0.0),
+                                        "location" to location.trim(),
+                                        "coordinates" to coords.trim(),
+                                        "condition_status" to conditionStatus,
+                                        "notes" to notes.trim()
+                                    )
+                                )
+                                isSaving = false
+                                Toast.makeText(context, res.message, Toast.LENGTH_SHORT).show()
+                                if (res.status) onSaved()
+                            }
+                        },
+                        modifier = Modifier
+                            .weight(0.64f)
+                            .height(46.dp)
+                    ) {
+                        Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "1. Kategori, Kondisi & Identitas Aset",
-                            fontSize = 13.sp,
+                            text = if (isSaving) "Menyimpan..." else "Simpan Aset",
                             fontWeight = FontWeight.ExtraBold,
-                            color = ArnetaGoldPrimary
-                        )
-
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.horizontalScroll(rememberScrollState())
-                        ) {
-                            listOf("ODP/ODC", "ONT/Modem", "Router", "Kabel/Optik", "Lainnya").forEach { cat ->
-                                FilterChip(
-                                    selected = category.equals(cat, ignoreCase = true),
-                                    onClick = { category = cat },
-                                    label = { Text(cat, fontSize = 11.5.sp) }
-                                )
-                            }
-                        }
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf(
-                                "Good" to "Good (Baik)",
-                                "Repair" to "Repair (Perbaikan)",
-                                "Damaged" to "Damaged (Rusak)"
-                            ).forEach { (cKey, cLbl) ->
-                                FilterChip(
-                                    selected = conditionStatus.equals(cKey, ignoreCase = true),
-                                    onClick = { conditionStatus = cKey },
-                                    label = { Text(cLbl, fontSize = 11.sp) }
-                                )
-                            }
-                        }
-
-                        OutlinedTextField(
-                            value = name,
-                            onValueChange = { name = it },
-                            label = { Text("Nama Perangkat / ODP *") },
-                            placeholder = { Text("Contoh: ODP-01 Jl. Merdeka") },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
-                                value = brand,
-                                onValueChange = { brand = it },
-                                label = { Text("Merk / Brand") },
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(1f)
-                            )
-                            OutlinedTextField(
-                                value = serial,
-                                onValueChange = { serial = it },
-                                label = { Text("Serial Number") },
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-
-                        OutlinedTextField(
-                            value = cost,
-                            onValueChange = { cost = it },
-                            label = { Text("Harga Perolehan (${ApiClient.currencyCode})") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
+                            fontSize = 13.5.sp
                         )
                     }
                 }
-
-                Card(
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    modifier = Modifier.fillMaxWidth()
+            }
+        }
+    ) { innerPadding ->
+        Column(
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 14.dp, vertical = 12.dp)
+        ) {
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(14.dp)
                 ) {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.padding(14.dp)
+                    Text(
+                        text = "1. Kategori, Kondisi & Identitas Aset",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = ArnetaGoldPrimary
+                    )
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.horizontalScroll(rememberScrollState())
                     ) {
-                        Row(
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = "2. Lokasi & Titik Koordinat Peta",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = ArnetaCyanIncome
+                        listOf("ODP/ODC", "ONT/Modem", "Router", "Kabel/Optik", "Lainnya").forEach { cat ->
+                            FilterChip(
+                                selected = category.equals(cat, ignoreCase = true),
+                                onClick = { category = cat },
+                                label = { Text(cat, fontSize = 11.5.sp) }
                             )
-                            TextButton(
-                                onClick = {
-                                    val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-                                    val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-                                    if (hasFine || hasCoarse) {
-                                        fillWithCurrentGps()
-                                    } else {
-                                        gpsPermLauncher.launch(
-                                            arrayOf(
-                                                Manifest.permission.ACCESS_FINE_LOCATION,
-                                                Manifest.permission.ACCESS_COARSE_LOCATION
-                                            )
-                                        )
-                                    }
-                                },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                            ) {
-                                Icon(Icons.Filled.MyLocation, contentDescription = null, tint = ArnetaGoldPrimary, modifier = Modifier.size(15.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Ambil Lokasi GPS Saya", fontSize = 11.5.sp, color = ArnetaGoldPrimary, fontWeight = FontWeight.Bold)
-                            }
                         }
+                    }
 
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(
+                            "Good" to "Good (Baik)",
+                            "Repair" to "Repair (Perbaikan)",
+                            "Damaged" to "Damaged (Rusak)"
+                        ).forEach { (cKey, cLbl) ->
+                            FilterChip(
+                                selected = conditionStatus.equals(cKey, ignoreCase = true),
+                                onClick = { conditionStatus = cKey },
+                                label = { Text(cLbl, fontSize = 11.sp) }
+                            )
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("Nama Perangkat / ODP *") },
+                        placeholder = { Text("Contoh: ODP-01 Jl. Merdeka") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(
-                            value = coords,
-                            onValueChange = { coords = it },
-                            label = { Text("Koordinat Peta (Lat, Lng)") },
-                            placeholder = { Text("-6.200000, 106.816666") },
-                            leadingIcon = { Icon(Icons.Filled.LocationOn, contentDescription = null, tint = ArnetaCyanIncome) },
+                            value = brand,
+                            onValueChange = { brand = it },
+                            label = { Text("Merk / Brand") },
                             singleLine = true,
                             shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.weight(1f)
                         )
-
                         OutlinedTextField(
-                            value = location,
-                            onValueChange = { location = it },
-                            label = { Text("Alamat / Patokan Lokasi") },
-                            placeholder = { Text("Contoh: Tiang depan gang RT 03") },
+                            value = serial,
+                            onValueChange = { serial = it },
+                            label = { Text("Serial Number") },
                             singleLine = true,
                             shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        OutlinedTextField(
-                            value = notes,
-                            onValueChange = { notes = it },
-                            label = { Text("Catatan Tambahan (Splitter / Port Terpakai)") },
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.weight(1f)
                         )
                     }
+
+                    OutlinedTextField(
+                        value = cost,
+                        onValueChange = { cost = it },
+                        label = { Text("Harga Perolehan (${ApiClient.currencyCode})") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(14.dp)
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "2. Lokasi & Titik Koordinat Peta",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = ArnetaCyanIncome
+                        )
+                        TextButton(
+                            onClick = {
+                                val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                                val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                                if (hasFine || hasCoarse) {
+                                    fillWithCurrentGps()
+                                } else {
+                                    gpsPermLauncher.launch(
+                                        arrayOf(
+                                            Manifest.permission.ACCESS_FINE_LOCATION,
+                                            Manifest.permission.ACCESS_COARSE_LOCATION
+                                        )
+                                    )
+                                }
+                            },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                        ) {
+                            Icon(Icons.Filled.MyLocation, contentDescription = null, tint = ArnetaGoldPrimary, modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Ambil Lokasi GPS Saya", fontSize = 11.5.sp, color = ArnetaGoldPrimary, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = coords,
+                        onValueChange = { coords = it },
+                        label = { Text("Koordinat Peta (Lat, Lng)") },
+                        placeholder = { Text("-6.200000, 106.816666") },
+                        leadingIcon = { Icon(Icons.Filled.LocationOn, contentDescription = null, tint = ArnetaCyanIncome) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = location,
+                        onValueChange = { location = it },
+                        label = { Text("Alamat / Patokan Lokasi") },
+                        placeholder = { Text("Contoh: Tiang depan gang RT 03") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = notes,
+                        onValueChange = { notes = it },
+                        label = { Text("Catatan Tambahan (Splitter / Port Terpakai)") },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
         }
