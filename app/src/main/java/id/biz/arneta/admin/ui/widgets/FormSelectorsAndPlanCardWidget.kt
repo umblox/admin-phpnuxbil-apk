@@ -1,13 +1,16 @@
 package id.biz.arneta.admin.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.PersonSearch
@@ -16,6 +19,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -23,13 +27,82 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.biz.arneta.admin.network.ApiClient
 import id.biz.arneta.admin.network.formatRupiah
+import id.biz.arneta.admin.network.optSafeDouble
 import id.biz.arneta.admin.ui.theme.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * KOMPONEN REUSABLE: DROPDOWN PEMILIH KOMPAK (DENGAN PLACEHOLDER & OPSI DISABLED SALDO KURANG)
+ * BAR SUB-TAB HORIZONTAL CEPAT & ANTI-STUCK (Berbasis LazyRow & Direct Clickable Surface)
  */
+@Composable
+fun ArnetaSubTabBar(
+    tabs: List<Pair<String, String>>,
+    selectedKey: String,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier.fillMaxWidth()
+    ) {
+        items(items = tabs, key = { it.first }) { (tabKey, tabLabel) ->
+            val isSelected = selectedKey.equals(tabKey, ignoreCase = true)
+            val bgColor = if (isSelected) {
+                ArnetaIndigoAccent.copy(alpha = 0.45f)
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+            }
+            val borderColor = if (isSelected) {
+                ArnetaGoldPrimary
+            } else {
+                MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+            }
+            val textColor = if (isSelected) {
+                ArnetaGoldPrimary
+            } else {
+                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f)
+            }
+
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(bgColor)
+                    .border(
+                        width = if (isSelected) 1.5.dp else 1.dp,
+                        color = borderColor,
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                    .clickable { onSelect(tabKey) }
+                    .padding(horizontal = 13.dp, vertical = 8.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isSelected) {
+                        Icon(
+                            imageVector = Icons.Filled.Check,
+                            contentDescription = null,
+                            tint = ArnetaGoldPrimary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(5.dp))
+                    }
+                    Text(
+                        text = tabLabel,
+                        fontSize = 12.sp,
+                        fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                        color = textColor,
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun CompactDropdownSelector(
     label: String,
@@ -147,19 +220,35 @@ fun CompactDropdownSelector(
     }
 }
 
-/**
- * KOMPONEN REUSABLE: PENCARIAN & PEMILIH PELANGGAN OTOMATIS
- */
+private fun parseCustomersJsonList(resData: JSONObject?, resArr: JSONArray?): List<JSONObject> {
+    val arr = resData?.optJSONArray("customers") ?: resArr ?: JSONArray()
+    val list = ArrayList<JSONObject>(arr.length())
+    for (i in 0 until arr.length()) {
+        arr.optJSONObject(i)?.let { list.add(it) }
+    }
+    return list
+}
+
 @Composable
 fun CustomerLiveSearchPicker(
     selectedCustomer: JSONObject?,
     onCustomerSelected: (JSONObject?) -> Unit,
     label: String = "Cari & Pilih Pelanggan"
 ) {
-    var allCustomers by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    val defaultParams = remember { mapOf("search" to "", "service_type" to "", "limit" to 300) }
+    val fallbackParams = remember { mapOf("limit" to 300) }
+
+    var allCustomers by remember {
+        val cached = ApiClient.getCached("admin_customers", defaultParams)
+            ?: ApiClient.getCached("admin_customers", fallbackParams)
+        mutableStateOf(
+            if (cached != null && cached.status) parseCustomersJsonList(cached.data, cached.dataArray)
+            else emptyList()
+        )
+    }
     var searchText by remember { mutableStateOf("") }
     var isExpanded by remember { mutableStateOf(selectedCustomer == null) }
-    var isLoading by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(allCustomers.isEmpty()) }
 
     LaunchedEffect(selectedCustomer) {
         if (selectedCustomer == null) {
@@ -168,20 +257,19 @@ fun CustomerLiveSearchPicker(
     }
 
     LaunchedEffect(Unit) {
-        isLoading = true
-        val res = ApiClient.request("admin_customers", mapOf("limit" to 300))
-        val arr = res.data?.optJSONArray("customers") ?: res.dataArray ?: JSONArray()
-        val list = mutableListOf<JSONObject>()
-        for (i in 0 until arr.length()) {
-            list.add(arr.getJSONObject(i))
+        if (allCustomers.isEmpty()) isLoading = true
+        val res = ApiClient.request("admin_customers", defaultParams)
+        if (res.status) {
+            allCustomers = withContext(Dispatchers.Default) {
+                parseCustomersJsonList(res.data, res.dataArray)
+            }
         }
-        allCustomers = list
         isLoading = false
     }
 
     val filteredCustomers = remember(allCustomers, searchText) {
         val q = searchText.trim().lowercase()
-        if (q.isEmpty()) {
+        val matched = if (q.isEmpty()) {
             allCustomers
         } else {
             allCustomers.filter { c ->
@@ -193,6 +281,7 @@ fun CustomerLiveSearchPicker(
                     c.optString("city", "").lowercase().contains(q)
             }
         }
+        matched.take(60)
     }
 
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -231,7 +320,7 @@ fun CustomerLiveSearchPicker(
                             Text(
                                 text = "${selectedCustomer.optString("service_type", "Hotspot")}" +
                                     (if (activeRouter.isNotEmpty()) " • Router: $activeRouter" else "") +
-                                    " • Saldo: ${formatRupiah(selectedCustomer.optDouble("balance", 0.0))}",
+                                    " • Saldo: ${formatRupiah(selectedCustomer.optSafeDouble("balance", 0.0))}",
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
                                 maxLines = 1,
@@ -295,7 +384,10 @@ fun CustomerLiveSearchPicker(
                         contentPadding = PaddingValues(6.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        items(filteredCustomers) { cust ->
+                        items(
+                            items = filteredCustomers,
+                            key = { it.optInt("id", it.optString("username").hashCode()) }
+                        ) { cust ->
                             val isSel = selectedCustomer?.optInt("id") == cust.optInt("id")
                             Surface(
                                 color = if (isSel) ArnetaGoldPrimary.copy(alpha = 0.22f) else MaterialTheme.colorScheme.surface,
@@ -327,7 +419,7 @@ fun CustomerLiveSearchPicker(
                                         )
                                     }
                                     Text(
-                                        text = formatRupiah(cust.optDouble("balance", 0.0)),
+                                        text = formatRupiah(cust.optSafeDouble("balance", 0.0)),
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = ArnetaGoldPrimary
@@ -377,9 +469,6 @@ internal fun extractRouterOptions(plans: List<JSONObject>, routersArray: JSONArr
     return result
 }
 
-/**
- * KARTU PILIHAN PAKET DENGAN RADIO BUTTON + BADGE LOKASI ROUTER, PREPAID/POSTPAID, HARGA CORET & HIDDEN
- */
 @Composable
 internal fun SelectablePlanCard(
     plan: JSONObject,
@@ -393,7 +482,7 @@ internal fun SelectablePlanCard(
     val planCategory = plan.optString("plan_type", "Personal")
     val routerName = if (isRadius) "Radius Server" else plan.optString("routers", "-")
     val validityStr = "${plan.optInt("validity", 30)} ${plan.optString("validity_unit", "Days")}"
-    val priceVal = plan.optDouble("price", 0.0)
+    val priceVal = plan.optSafeDouble("price", 0.0)
     val priceOldVal = plan.optString("price_old", "").toDoubleOrNull() ?: 0.0
 
     Surface(
