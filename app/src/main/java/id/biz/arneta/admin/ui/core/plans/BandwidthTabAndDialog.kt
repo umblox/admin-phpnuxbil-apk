@@ -280,11 +280,6 @@ internal fun BandwidthFormDialog(
                             fontSize = 17.sp,
                             color = Color.White
                         )
-                        Text(
-                            text = "Sesuai struktur resmi system/controllers/bandwidth.php",
-                            fontSize = 11.5.sp,
-                            color = ArnetaGoldLight
-                        )
                     }
                 }
             }
@@ -492,7 +487,7 @@ internal fun BandwidthFormDialog(
                             )
                             Text(
                                 text = if (anyBurstFilled && !allBurstFilled) {
-                                    "Semua 5 kolom Burst wajib diisi agar tersimpan (sesuai bandwidth.php)"
+                                    "Semua 5 kolom Burst wajib diisi agar tersimpan"
                                 } else {
                                     "Kosongkan semua kolom Burst jika tidak menggunakan Burst Limit"
                                 },
@@ -554,7 +549,7 @@ internal fun BandwidthFormDialog(
                     if (burstPresets.isNotEmpty()) {
                         HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
                         Text(
-                            text = "Burst Limit Preset (Web PHPNuxBill):",
+                            text = "Burst Limit Preset:",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = ArnetaGoldPrimary
@@ -599,7 +594,7 @@ internal fun BandwidthFormDialog(
                     OutlinedTextField(
                         value = burstLimit,
                         onValueChange = { burstLimit = it },
-                        label = { Text("Burst Limit — burst[0]") },
+                        label = { Text("Burst Limit") },
                         placeholder = { Text("[Upload]/[Download]") },
                         singleLine = true,
                         shape = RoundedCornerShape(12.dp),
@@ -609,7 +604,7 @@ internal fun BandwidthFormDialog(
                     OutlinedTextField(
                         value = burstThreshold,
                         onValueChange = { burstThreshold = it },
-                        label = { Text("Burst Threshold — burst[1]") },
+                        label = { Text("Burst Threshold") },
                         placeholder = { Text("[Upload]/[Download]") },
                         singleLine = true,
                         shape = RoundedCornerShape(12.dp),
@@ -620,8 +615,8 @@ internal fun BandwidthFormDialog(
                         OutlinedTextField(
                             value = burstTime,
                             onValueChange = { burstTime = it },
-                            label = { Text("Burst Time — burst[2]") },
-                            placeholder = { Text("[Upload]/[Download]") },
+                            label = { Text("Burst Time") },
+                            placeholder = { Text("[16]/[16]") },
                             singleLine = true,
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.weight(1f)
@@ -629,7 +624,7 @@ internal fun BandwidthFormDialog(
                         OutlinedTextField(
                             value = burstPriority,
                             onValueChange = { burstPriority = it },
-                            label = { Text("Priority — burst[3]") },
+                            label = { Text("Priority") },
                             placeholder = { Text("8") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             singleLine = true,
@@ -641,7 +636,7 @@ internal fun BandwidthFormDialog(
                     OutlinedTextField(
                         value = burstLimitAt,
                         onValueChange = { burstLimitAt = it },
-                        label = { Text("Limit At — burst[4]") },
+                        label = { Text("Limit At") },
                         placeholder = { Text("[Upload]/[Download]") },
                         singleLine = true,
                         shape = RoundedCornerShape(12.dp),
