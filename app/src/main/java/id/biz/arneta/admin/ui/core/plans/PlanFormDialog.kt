@@ -2,7 +2,6 @@ package id.biz.arneta.admin.ui.screens
 
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.biz.arneta.admin.network.ApiClient
 import id.biz.arneta.admin.network.formatRupiah
+import id.biz.arneta.admin.network.optSafeDouble
 import id.biz.arneta.admin.ui.theme.*
 import kotlinx.coroutines.launch
 import org.json.JSONObject
@@ -62,7 +62,7 @@ internal fun PlanFormDialog(
     var namePlan by remember { mutableStateOf(initial?.optString("name_plan") ?: "") }
     var price by remember {
         mutableStateOf(
-            if (initial != null) initial.optDouble("price", 0.0).toLong().toString() else ""
+            if (initial != null) initial.optSafeDouble("price", 0.0).toLong().toString() else ""
         )
     }
     var priceOld by remember { mutableStateOf(initial?.optString("price_old", "") ?: "") }
@@ -406,24 +406,14 @@ internal fun PlanFormDialog(
                         color = ArnetaGoldPrimary
                     )
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(
-                            selected = enabledStatus == 1,
-                            onClick = { enabledStatus = 1 },
-                            label = { Text("Aktif (Visible di Pelanggan)", fontSize = 11.5.sp) },
-                            leadingIcon = if (enabledStatus == 1) {
-                                { Icon(Icons.Filled.Visibility, contentDescription = null, modifier = Modifier.size(15.dp)) }
-                            } else null
-                        )
-                        FilterChip(
-                            selected = enabledStatus == 0,
-                            onClick = { enabledStatus = 0 },
-                            label = { Text("Nonaktif (Hidden)", fontSize = 11.5.sp) },
-                            leadingIcon = if (enabledStatus == 0) {
-                                { Icon(Icons.Filled.VisibilityOff, contentDescription = null, modifier = Modifier.size(15.dp)) }
-                            } else null
-                        )
-                    }
+                    ArnetaSubTabBar(
+                        tabs = listOf(
+                            "1" to "Aktif (Visible di Pelanggan)",
+                            "0" to "Nonaktif (Hidden)"
+                        ),
+                        selectedKey = enabledStatus.toString(),
+                        onSelect = { enabledStatus = it.toIntOrNull() ?: 1 }
+                    )
 
                     if (!isBalance) {
                         HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
@@ -434,31 +424,23 @@ internal fun PlanFormDialog(
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
                         )
 
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.horizontalScroll(rememberScrollState())
-                        ) {
-                            FilterChip(
-                                selected = prepaidMode == "yes",
-                                onClick = { prepaidMode = "yes" },
-                                label = { Text("Prepaid (Prabayar)", fontSize = 11.5.sp) }
-                            )
-                            FilterChip(
-                                selected = prepaidMode == "no",
-                                onClick = { prepaidMode = "no" },
-                                label = { Text("Postpaid (Pascabayar)", fontSize = 11.5.sp) }
-                            )
-                        }
+                        ArnetaSubTabBar(
+                            tabs = listOf(
+                                "yes" to "Prepaid (Prabayar)",
+                                "no" to "Postpaid (Pascabayar)"
+                            ),
+                            selectedKey = prepaidMode,
+                            onSelect = { prepaidMode = it }
+                        )
 
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("Personal" to "Personal (Rumahan)", "Business" to "Business (Bisnis)").forEach { (ptKey, ptLbl) ->
-                                FilterChip(
-                                    selected = planType.equals(ptKey, true),
-                                    onClick = { planType = ptKey },
-                                    label = { Text(ptLbl, fontSize = 11.5.sp) }
-                                )
-                            }
-                        }
+                        ArnetaSubTabBar(
+                            tabs = listOf(
+                                "Personal" to "Personal (Rumahan)",
+                                "Business" to "Business (Bisnis)"
+                            ),
+                            selectedKey = planType,
+                            onSelect = { planType = it }
+                        )
                     }
                 }
             }
@@ -600,18 +582,14 @@ internal fun PlanFormDialog(
                                 color = ArnetaCyanIncome
                             )
 
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FilterChip(
-                                    selected = typebp.equals("Unlimited", true),
-                                    onClick = { typebp = "Unlimited" },
-                                    label = { Text("Unlimited", fontSize = 11.5.sp) }
-                                )
-                                FilterChip(
-                                    selected = typebp.equals("Limited", true),
-                                    onClick = { typebp = "Limited" },
-                                    label = { Text("Limited (Waktu / Kuota)", fontSize = 11.5.sp) }
-                                )
-                            }
+                            ArnetaSubTabBar(
+                                tabs = listOf(
+                                    "Unlimited" to "Unlimited",
+                                    "Limited" to "Limited (Waktu / Kuota)"
+                                ),
+                                selectedKey = typebp,
+                                onSelect = { typebp = it }
+                            )
 
                             if (typebp.equals("Limited", true)) {
                                 CompactDropdownSelector(
