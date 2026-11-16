@@ -62,6 +62,24 @@ private fun parseLatLngPair(coordsStr: String?): Pair<Double, Double>? {
     return lat to lng
 }
 
+private fun mergeRouterJsonLists(arr1: JSONArray?, arr2: JSONArray?): List<JSONObject> {
+    val result = mutableListOf<JSONObject>()
+    val seenNames = HashSet<String>()
+    fun appendFrom(arr: JSONArray?) {
+        if (arr == null) return
+        for (i in 0 until arr.length()) {
+            val obj = arr.optJSONObject(i) ?: continue
+            val name = obj.optString("name").trim()
+            if (name.isNotEmpty() && seenNames.add(name.lowercase())) {
+                result.add(obj)
+            }
+        }
+    }
+    appendFrom(arr2)
+    appendFrom(arr1)
+    return result
+}
+
 /**
  * DIALOG PEMILIH TITIK KOORDINAT PETA INTERAKTIF (LEAFLET)
  * Otomatis melakukan Zoom-In ke titik koordinat & lingkaran radius Router Server terpilih.
@@ -218,7 +236,6 @@ internal fun ArnetaMapCoordinatePickerDialog(
                     return d >= 1000 ? ((d / 1000).toFixed(2) + ' km (' + d + ' m)') : (d + ' m');
                 }
 
-                // Lingkaran radius server
                 L.circle([routerLat, routerLng], {
                     radius: routerCov,
                     color: '#00C0EF',
@@ -227,11 +244,9 @@ internal fun ArnetaMapCoordinatePickerDialog(
                     fillOpacity: 0.15
                 }).addTo(map);
 
-                // Marker Server
                 var rIcon = makePinIcon('📡 ' + routerName + ' (' + fmtDist(routerCov) + ')', '#F59E0B', '📡', 'pin-label-router');
                 L.marker([routerLat, routerLng], { icon: rIcon, zIndexOffset: 900 }).addTo(map);
 
-                // Marker Titik Lokasi Pelanggan (Draggable)
                 var pIcon = makePinIcon('📍 Titik Lokasi', '#3B82F6', '📍', 'pin-label-pick');
                 var pickMarker = L.marker([$pLat, $pLng], { icon: pIcon, draggable: true, zIndexOffset: 2000 }).addTo(map);
 
@@ -492,23 +507,12 @@ internal fun CustomerFormDialog(
             val p = arr.getJSONObject(i)
             if (!p.optString("type").equals("Balance", ignoreCase = true)) list.add(p)
         }
-        mutableStateOf<List<JSONObject>>(list)
+        mutableStateOf(list.toList())
     }
-    var routersDetailMap by remember {
-        val map = linkedMapOf<String, JSONObject>()
-        val rArr1 = cachedPlans?.optJSONArray("routers") ?: JSONArray()
-        for (i in 0 until rArr1.length()) {
-            val r = rArr1.optJSONObject(i) ?: continue
-            val n = r.optString("name").trim()
-            if (n.isNotEmpty()) map[n.lowercase()] = r
-        }
-        val rArr2 = cachedRouters?.dataArray ?: cachedRouters?.data?.optJSONArray("routers") ?: JSONArray()
-        for (i in 0 until rArr2.length()) {
-            val r = rArr2.optJSONObject(i) ?: continue
-            val n = r.optString("name").trim()
-            if (n.isNotEmpty()) map[n.lowercase()] = r
-        }
-        mutableStateOf>(map)
+    var routersCatalogList by remember {
+        val rArr1 = cachedPlans?.optJSONArray("routers")
+        val rArr2 = cachedRouters?.dataArray ?: cachedRouters?.data?.optJSONArray("routers")
+        mutableStateOf(mergeRouterJsonLists(rArr1, rArr2))
     }
 
     var routerOptions by remember {
@@ -541,12 +545,13 @@ internal fun CustomerFormDialog(
                 if (k.isNotEmpty()) initList.add(k to v)
             }
         }
-        mutableStateOf<List<Pair<String, String>>>(initList)
+        mutableStateOf(initList.toList())
     }
     var isSaving by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         val res = ApiClient.request("admin_plans")
+        val rArrFromPlans = res.data?.optJSONArray("routers")
         if (res.status && res.data != null) {
             val arr = res.data.optJSONArray("plans") ?: JSONArray()
             val pList = mutableListOf<JSONObject>()
@@ -557,18 +562,8 @@ internal fun CustomerFormDialog(
                 }
             }
             allInternetPlans = pList
-            val rArr = res.data.optJSONArray("routers")
-            routerOptions = extractRouterOptions(pList, rArr)
-
-            val newMap = routersDetailMap.toMutableMap()
-            if (rArr != null) {
-                for (i in 0 until rArr.length()) {
-                    val r = rArr.optJSONObject(i) ?: continue
-                    val n = r.optString("name").trim()
-                    if (n.isNotEmpty()) newMap[n.lowercase()] = r
-                }
-            }
-            routersDetailMap = newMap
+            routerOptions = extractRouterOptions(pList, rArrFromPlans)
+            routersCatalogList = mergeRouterJsonLists(rArrFromPlans, null)
 
             val uArr = res.data.optJSONArray("usings")
             if (uArr != null && uArr.length() > 0) {
@@ -582,21 +577,13 @@ internal fun CustomerFormDialog(
             }
         }
 
-        // Ambil detail koordinat & coverage router dari admin_routers
         val rRes = ApiClient.request("admin_routers")
         if (rRes.status) {
-            val rArr = rRes.dataArray ?: rRes.data?.optJSONArray("routers") ?: JSONArray()
-            val newMap = routersDetailMap.toMutableMap()
-            for (i in 0 until rArr.length()) {
-                val r = rArr.optJSONObject(i) ?: continue
-                val n = r.optString("name").trim()
-                if (n.isNotEmpty()) newMap[n.lowercase()] = r
-            }
-            routersDetailMap = newMap
+            val rArrFull = rRes.dataArray ?: rRes.data?.optJSONArray("routers")
+            routersCatalogList = mergeRouterJsonLists(rArrFromPlans, rArrFull)
         }
     }
 
-    // Jika hanya ada 1 router server di sistem dan masih 'All', otomatis pilih router tersebut
     LaunchedEffect(routerOptions) {
         val specificRouters = routerOptions.filter { it.first != "All" && !it.first.equals("Radius", ignoreCase = true) }
         if (selectedRouterFilter == "All" && specificRouters.size == 1) {
@@ -626,7 +613,6 @@ internal fun CustomerFormDialog(
         }
     }
 
-    // Nama router server aktif yang digunakan untuk kunci koordinat & zoom peta
     val effectiveServerName = remember(selectedRouterFilter, selectedPlan, initial) {
         when {
             selectedRouterFilter.isNotBlank() && selectedRouterFilter != "All" -> selectedRouterFilter
@@ -637,8 +623,8 @@ internal fun CustomerFormDialog(
         }
     }
     val isServerChosenForMap = effectiveServerName.isNotBlank() && !effectiveServerName.equals("All", ignoreCase = true)
-    val selectedRouterDetailObj = remember(effectiveServerName, routersDetailMap) {
-        routersDetailMap[effectiveServerName.lowercase()]
+    val selectedRouterDetailObj = remember(effectiveServerName, routersCatalogList) {
+        routersCatalogList.firstOrNull { it.optString("name").equals(effectiveServerName, ignoreCase = true) }
     }
 
     val existingBalance = initial.optSafeDouble("balance", 0.0)
@@ -1074,7 +1060,7 @@ internal fun CustomerFormDialog(
                                 modifier = Modifier.padding(end = 4.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Filled.Map,
+                                    imageVector = Icons.Filled.Place,
                                     contentDescription = null,
                                     tint = if (isServerChosenForMap) ArnetaGoldPrimary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
                                     modifier = Modifier.size(16.dp)
@@ -1443,7 +1429,7 @@ fun QuickRechargeOrDepositDialog(
             if (isDeposit && pType == "BALANCE") list.add(p)
             else if (!isDeposit && pType != "BALANCE") list.add(p)
         }
-        mutableStateOf<List<JSONObject>>(list)
+        mutableStateOf(list.toList())
     }
     var routerOptions by remember {
         mutableStateOf(extractRouterOptions(plans, cachedPlans?.optJSONArray("routers")))
