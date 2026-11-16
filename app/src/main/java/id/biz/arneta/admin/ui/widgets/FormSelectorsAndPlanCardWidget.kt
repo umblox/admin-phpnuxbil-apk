@@ -7,6 +7,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -147,7 +148,6 @@ fun ArnetaSubTabBar(
                     }
                 }
 
-                // Pastikan tab yang sedang aktif selalu terlihat di dalam area scroll
                 selectedChipView?.let { target ->
                     scrollView.post {
                         val targetLeft = target.left
