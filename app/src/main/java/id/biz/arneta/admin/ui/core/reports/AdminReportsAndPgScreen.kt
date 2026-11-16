@@ -264,64 +264,50 @@ fun AdminReportsAndPgScreen(
     ) {
         Spacer(modifier = Modifier.height(10.dp))
 
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            FilterChip(
-                selected = currentTab == 0,
-                onClick = { currentTab = 0 },
-                label = { Text("Laporan Keuangan", fontWeight = FontWeight.Bold) },
-                leadingIcon = { Icon(Icons.Filled.Assessment, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                modifier = Modifier.weight(1f)
-            )
-            FilterChip(
-                selected = currentTab == 1,
-                onClick = { currentTab = 1 },
-                label = { Text("Payment Gateway", fontWeight = FontWeight.Bold) },
-                leadingIcon = { Icon(Icons.Filled.Payments, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                modifier = Modifier.weight(1f)
-            )
-        }
+        ArnetaSubTabBar(
+            tabs = listOf(
+                "0" to "📊 Laporan Keuangan",
+                "1" to "💳 Audit Payment Gateway"
+            ),
+            selectedKey = currentTab.toString(),
+            onSelect = { currentTab = it.toIntOrNull() ?: 0 }
+        )
 
         Spacer(modifier = Modifier.height(8.dp))
 
         if (currentTab == 0) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-            ) {
-                FilterChip(
-                    selected = startDate == todayDate && endDate == todayDate,
-                    onClick = {
-                        startDate = todayDate
-                        endDate = todayDate
-                        loadReports(forceRefresh = false)
-                    },
-                    label = { Text("Hari Ini", fontSize = 11.5.sp) }
-                )
-                FilterChip(
-                    selected = startDate == monthStartDate && endDate == todayDate,
-                    onClick = {
-                        startDate = monthStartDate
-                        endDate = todayDate
-                        loadReports(forceRefresh = false)
-                    },
-                    label = { Text("Bulan Ini", fontSize = 11.5.sp) }
-                )
-                FilterChip(
-                    selected = startDate == yearStartDate && endDate == todayDate,
-                    onClick = {
-                        startDate = yearStartDate
-                        endDate = todayDate
-                        loadReports(forceRefresh = false)
-                    },
-                    label = { Text("Tahun Ini", fontSize = 11.5.sp) }
-                )
+            val activeDatePreset = when {
+                startDate == todayDate && endDate == todayDate -> "today"
+                startDate == monthStartDate && endDate == todayDate -> "month"
+                startDate == yearStartDate && endDate == todayDate -> "year"
+                else -> "custom"
             }
+
+            ArnetaSubTabBar(
+                tabs = listOf(
+                    "today" to "Hari Ini",
+                    "month" to "Bulan Ini",
+                    "year" to "Tahun Ini"
+                ),
+                selectedKey = activeDatePreset,
+                onSelect = { preset ->
+                    when (preset) {
+                        "today" -> {
+                            startDate = todayDate
+                            endDate = todayDate
+                        }
+                        "month" -> {
+                            startDate = monthStartDate
+                            endDate = todayDate
+                        }
+                        "year" -> {
+                            startDate = yearStartDate
+                            endDate = todayDate
+                        }
+                    }
+                    loadReports(forceRefresh = false)
+                }
+            )
 
             Spacer(modifier = Modifier.height(6.dp))
 
@@ -400,35 +386,23 @@ fun AdminReportsAndPgScreen(
 
                     if (gatewayBreakdown.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(10.dp))
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState())
-                        ) {
-                            FilterChip(
-                                selected = selectedReportMethod == "All",
-                                onClick = { selectedReportMethod = "All" },
-                                label = { Text("Semua Metode", fontSize = 11.sp) }
-                            )
+                        val methodTabs = remember(gatewayBreakdown) {
+                            val list = mutableListOf("All" to "Semua Metode")
                             gatewayBreakdown.forEach { bd ->
                                 val gwName = bd.optString("gateway", "LAINNYA")
                                 val gwCnt = bd.optInt("count", 0)
                                 val gwTot = bd.optSafeDouble("total", 0.0)
-                                FilterChip(
-                                    selected = selectedReportMethod.equals(gwName, ignoreCase = true),
-                                    onClick = {
-                                        selectedReportMethod = if (selectedReportMethod.equals(gwName, ignoreCase = true)) "All" else gwName
-                                    },
-                                    label = {
-                                        Text(
-                                            text = "$gwName ($gwCnt): ${formatRupiah(gwTot)}",
-                                            fontSize = 11.sp
-                                        )
-                                    }
-                                )
+                                list.add(gwName to "$gwName ($gwCnt): ${formatRupiah(gwTot)}")
                             }
+                            list
                         }
+                        ArnetaSubTabBar(
+                            tabs = methodTabs,
+                            selectedKey = selectedReportMethod,
+                            onSelect = { gwName ->
+                                selectedReportMethod = if (selectedReportMethod.equals(gwName, ignoreCase = true) && gwName != "All") "All" else gwName
+                            }
+                        )
                     }
                 }
             }
@@ -468,10 +442,7 @@ fun AdminReportsAndPgScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(
-                        items = transactions,
-                        key = { it.optInt("id", it.optString("invoice").hashCode()) }
-                    ) { trx ->
+                    items(transactions) { trx ->
                         val inv = trx.optString("invoice").ifEmpty { "INV-${trx.optInt("id")}" }
                         val uname = trx.optString("username", "-")
                         val planName = trx.optString("plan_name", "-")
@@ -660,17 +631,8 @@ fun AdminReportsAndPgScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-            ) {
-                FilterChip(
-                    selected = pgGatewayFilter == "All",
-                    onClick = { pgGatewayFilter = "All" },
-                    label = { Text("Semua Gateway", fontSize = 11.5.sp) }
-                )
+            val gatewayTabList = remember(pgGatewayOptions) {
+                val list = mutableListOf("All" to "Semua Gateway")
                 pgGatewayOptions.forEach { gw ->
                     val label = when (gw.lowercase()) {
                         "viaqris" -> "ViaQRIS"
@@ -684,34 +646,30 @@ fun AdminReportsAndPgScreen(
                         "flip" -> "Flip"
                         else -> gw.uppercase()
                     }
-                    FilterChip(
-                        selected = pgGatewayFilter.equals(gw, ignoreCase = true),
-                        onClick = { pgGatewayFilter = gw },
-                        label = { Text(label, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold) }
-                    )
+                    list.add(gw to label)
                 }
+                list
             }
 
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-            ) {
-                listOf(
+            ArnetaSubTabBar(
+                tabs = gatewayTabList,
+                selectedKey = pgGatewayFilter,
+                onSelect = { pgGatewayFilter = it }
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            ArnetaSubTabBar(
+                tabs = listOf(
                     "All" to "Semua Status",
                     "1" to "Menunggu",
                     "2" to "Lunas",
                     "3" to "Expired",
                     "4" to "Dibatalkan"
-                ).forEach { (stKey, stLabel) ->
-                    FilterChip(
-                        selected = pgStatusFilter == stKey,
-                        onClick = { pgStatusFilter = stKey },
-                        label = { Text(stLabel, fontSize = 11.5.sp) }
-                    )
-                }
-            }
+                ),
+                selectedKey = pgStatusFilter,
+                onSelect = { pgStatusFilter = it }
+            )
 
             Spacer(modifier = Modifier.height(6.dp))
 
@@ -748,10 +706,7 @@ fun AdminReportsAndPgScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(
-                        items = pgItems,
-                        key = { it.optInt("id", it.optString("trx_invoice").hashCode()) }
-                    ) { item ->
+                    items(pgItems) { item ->
                         val trxId = item.optInt("id")
                         val st = item.optInt("status", 1)
                         val stLabel = item.optString("status_label", "MENUNGGU PEMBAYARAN")
