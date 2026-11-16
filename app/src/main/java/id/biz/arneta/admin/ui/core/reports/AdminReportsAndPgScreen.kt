@@ -1,13 +1,18 @@
 package id.biz.arneta.admin.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
-import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -20,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.biz.arneta.admin.network.ApiClient
@@ -27,25 +33,36 @@ import id.biz.arneta.admin.network.formatRupiah
 import id.biz.arneta.admin.network.optSafeDouble
 import id.biz.arneta.admin.ui.theme.*
 import id.biz.arneta.admin.util.BluetoothPrinterHelper
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-private fun parseJsonArrayToList(arr: JSONArray?): List<JSONObject> {
-    if (arr == null) return emptyList()
-    val list = ArrayList<JSONObject>(arr.length())
-    for (i in 0 until arr.length()) {
-        arr.optJSONObject(i)?.let { list.add(it) }
-    }
-    return list
-}
+private val ValidPaymentGatewayIds = setOf(
+    "viaqris",
+    "tripay",
+    "duitku",
+    "xendit",
+    "paypal",
+    "midtrans",
+    "ipaymu",
+    "tokopay",
+    "flip",
+    "moota",
+    "oy",
+    "doku",
+    "faspay",
+    "nicepay",
+    "stripe"
+)
 
+/**
+ * LAYAR LAPORAN KEUANGAN & AUDIT SEMUA PAYMENT GATEWAY
+ * (ViaQRIS, Tripay, Duitku, Xendit, PayPal, dll.)
+ */
 @Composable
 fun AdminReportsAndPgScreen(
     initialTab: String = "reports"
@@ -53,198 +70,191 @@ fun AdminReportsAndPgScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var currentTab by remember { mutableStateOf(initialTab) }
+    var currentTab by remember {
+        mutableIntStateOf(if (initialTab.equals("payment_gateway", ignoreCase = true)) 1 else 0)
+    }
 
     LaunchedEffect(initialTab) {
-        currentTab = initialTab
+        currentTab = if (initialTab.equals("payment_gateway", ignoreCase = true)) 1 else 0
     }
 
-    val sdf = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US) }
-    val todayStr = remember { sdf.format(Date()) }
-    val firstDayOfMonthStr = remember {
-        val cal = Calendar.getInstance()
-        cal.set(Calendar.DAY_OF_MONTH, 1)
-        sdf.format(cal.time)
-    }
-    val firstDayOfYearStr = remember {
-        val cal = Calendar.getInstance()
-        cal.set(Calendar.DAY_OF_YEAR, 1)
-        sdf.format(cal.time)
-    }
+    val todayDate = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()) }
+    val monthStartDate = remember { SimpleDateFormat("yyyy-MM-01", Locale.US).format(Date()) }
+    val yearStartDate = remember { SimpleDateFormat("yyyy-01-01", Locale.US).format(Date()) }
 
-    var startDate by remember { mutableStateOf(firstDayOfMonthStr) }
-    var endDate by remember { mutableStateOf(todayStr) }
-    var selectedDatePreset by remember { mutableStateOf("month") }
-    var selectedMethodFilter by remember { mutableStateOf("All") }
-    var reportSearchQuery by remember { mutableStateOf("") }
+    var startDate by remember { mutableStateOf(monthStartDate) }
+    var endDate by remember { mutableStateOf(todayDate) }
+    var reportSearch by remember { mutableStateOf("") }
+    var selectedReportMethod by remember { mutableStateOf("All") }
+    var isLoadingReport by remember { mutableStateOf(false) }
 
-    val initReportParams = remember(startDate, endDate) {
-        mapOf("start_date" to startDate, "end_date" to endDate, "limit" to 300)
-    }
-    val cachedReports = remember { ApiClient.getCached("admin_reports", initReportParams) }
-    val cachedPg = remember { ApiClient.getCached("admin_payment_gateway", mapOf("limit" to 200)) }
+    var totalIncome by remember { mutableDoubleStateOf(0.0) }
+    var totalTrxCount by remember { mutableIntStateOf(0) }
+    var gatewayBreakdown by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var transactions by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
 
-    var transactionsList by remember {
-        mutableStateOf(
-            if (cachedReports?.status == true) {
-                parseJsonArrayToList(cachedReports.data?.optJSONArray("transactions") ?: cachedReports.data?.optJSONArray("items") ?: cachedReports.dataArray)
-            } else emptyList()
-        )
-    }
-    var totalIncome by remember {
-        mutableDoubleStateOf(
-            cachedReports?.data?.optJSONObject("summary").optSafeDouble("total_income", cachedReports?.data.optSafeDouble("total_income", 0.0))
-        )
-    }
-
-    var pgList by remember {
-        mutableStateOf(
-            if (cachedPg?.status == true) {
-                parseJsonArrayToList(cachedPg.data?.optJSONArray("transactions") ?: cachedPg.data?.optJSONArray("items") ?: cachedPg.dataArray)
-            } else emptyList()
-        )
-    }
     var pgStatusFilter by remember { mutableStateOf("All") }
-    var pgSearchQuery by remember { mutableStateOf("") }
+    var pgGatewayFilter by remember { mutableStateOf("All") }
+    var pgSearch by remember { mutableStateOf("") }
+    var isLoadingPg by remember { mutableStateOf(false) }
 
-    var isLoading by remember { mutableStateOf(false) }
-    var actionLoadingId by remember { mutableIntStateOf(0) }
-    var approveConfirmTarget by remember { mutableStateOf<JSONObject?>(null) }
+    var pgItems by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var pgGatewayOptions by remember { mutableStateOf(listOf("viaqris", "tripay", "duitku", "xendit", "paypal")) }
+    var pgByGatewayStats by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var pgTotalPaidAmount by remember { mutableDoubleStateOf(0.0) }
+    var pgTotalUnpaidCount by remember { mutableIntStateOf(0) }
+
+    // Konfirmasi sebelum Approve Manual / Cancel tagihan Payment Gateway
+    var confirmPgActionTarget by remember { mutableStateOf<Pair<JSONObject, String>?>(null) }
+
+    fun applyReportData(data: JSONObject) {
+        val sum = data.optJSONObject("summary")
+        totalIncome = sum.optSafeDouble("total_income", 0.0)
+        totalTrxCount = sum?.optInt("total_transactions", 0) ?: 0
+
+        val bdArr = data.optJSONArray("gateway_breakdown") ?: JSONArray()
+        val bdList = mutableListOf<JSONObject>()
+        for (i in 0 until bdArr.length()) {
+            bdArr.optJSONObject(i)?.let { bdList.add(it) }
+        }
+        gatewayBreakdown = bdList
+
+        val tArr = data.optJSONArray("transactions") ?: JSONArray()
+        val tList = mutableListOf<JSONObject>()
+        for (i in 0 until tArr.length()) {
+            tArr.optJSONObject(i)?.let { tList.add(it) }
+        }
+        transactions = tList
+    }
+
+    fun applyPgData(data: JSONObject) {
+        val sum = data.optJSONObject("summary")
+        pgTotalPaidAmount = sum.optSafeDouble("total_paid_amount", 0.0)
+        pgTotalUnpaidCount = sum?.optInt("total_unpaid", 0) ?: 0
+
+        val byGwArr = sum?.optJSONArray("by_gateway") ?: JSONArray()
+        val statList = mutableListOf<JSONObject>()
+        for (i in 0 until byGwArr.length()) {
+            val obj = byGwArr.optJSONObject(i) ?: continue
+            val gwKey = obj.optString("gateway", "").trim().lowercase()
+            if (gwKey in ValidPaymentGatewayIds) {
+                statList.add(obj)
+            }
+        }
+        pgByGatewayStats = statList
+
+        val gwArr = data.optJSONArray("gateways")
+        if (gwArr != null && gwArr.length() > 0) {
+            val gList = mutableListOf<String>()
+            for (i in 0 until gwArr.length()) {
+                val g = gwArr.optString(i).trim().lowercase()
+                if (g.isNotEmpty() && g in ValidPaymentGatewayIds && g !in gList) {
+                    gList.add(g)
+                }
+            }
+            if (gList.isNotEmpty()) pgGatewayOptions = gList
+        }
+
+        val arr = data.optJSONArray("items") ?: JSONArray()
+        val list = mutableListOf<JSONObject>()
+        for (i in 0 until arr.length()) {
+            arr.optJSONObject(i)?.let { list.add(it) }
+        }
+        pgItems = list
+    }
 
     fun loadReports(forceRefresh: Boolean = false) {
-        if (transactionsList.isEmpty()) isLoading = true
+        val reqParams = mapOf(
+            "start_date" to startDate.trim(),
+            "end_date" to endDate.trim(),
+            "search" to reportSearch.trim(),
+            "gateway" to if (selectedReportMethod == "All") "" else selectedReportMethod
+        )
+        val cached = ApiClient.getCached("admin_reports", reqParams)
+        if (cached?.status == true && cached.data != null) {
+            applyReportData(cached.data)
+        }
+        if (transactions.isEmpty() && cached == null) {
+            isLoadingReport = true
+        }
         scope.launch {
-            val params = mapOf(
-                "start_date" to startDate.trim(),
-                "end_date" to endDate.trim(),
-                "limit" to 300
-            )
-            val res = ApiClient.request("admin_reports", params, forceRefresh = forceRefresh)
-            if (res.status) {
-                val parsed = withContext(Dispatchers.Default) {
-                    parseJsonArrayToList(
-                        res.data?.optJSONArray("transactions")
-                            ?: res.data?.optJSONArray("items")
-                            ?: res.dataArray
-                    )
-                }
-                transactionsList = parsed
-                val sumObj = res.data?.optJSONObject("summary")
-                totalIncome = sumObj.optSafeDouble(
-                    "total_income",
-                    res.data.optSafeDouble("total_income", parsed.sumOf { it.optSafeDouble("price", 0.0) })
-                )
+            val res = ApiClient.request("admin_reports", reqParams, forceRefresh = forceRefresh)
+            if (res.status && res.data != null) {
+                applyReportData(res.data)
             }
-            isLoading = false
+            isLoadingReport = false
         }
     }
 
-    fun loadPaymentGateway(forceRefresh: Boolean = false) {
-        if (pgList.isEmpty()) isLoading = true
+    fun loadPaymentGateways(forceRefresh: Boolean = false) {
+        val reqParams = mapOf(
+            "sub_action" to "list",
+            "status" to if (pgStatusFilter == "All") "" else pgStatusFilter,
+            "gateway" to if (pgGatewayFilter == "All") "" else pgGatewayFilter,
+            "search" to pgSearch.trim()
+        )
+        val cached = ApiClient.getCached("admin_payment_gateways", reqParams)
+        if (cached?.status == true && cached.data != null) {
+            applyPgData(cached.data)
+        }
+        if (pgItems.isEmpty() && cached == null) {
+            isLoadingPg = true
+        }
         scope.launch {
-            val res = ApiClient.request("admin_payment_gateway", mapOf("limit" to 200), forceRefresh = forceRefresh)
-            if (res.status) {
-                pgList = withContext(Dispatchers.Default) {
-                    parseJsonArrayToList(
-                        res.data?.optJSONArray("transactions")
-                            ?: res.data?.optJSONArray("items")
-                            ?: res.dataArray
-                    )
-                }
+            val res = ApiClient.request("admin_payment_gateways", reqParams, forceRefresh = forceRefresh)
+            if (res.status && res.data != null) {
+                applyPgData(res.data)
             }
-            isLoading = false
+            isLoadingPg = false
         }
     }
 
-    LaunchedEffect(currentTab) {
-        if (currentTab == "reports") {
-            loadReports(forceRefresh = false)
-        } else {
-            loadPaymentGateway(forceRefresh = false)
+    fun showSafeInvoiceReceipt(trx: JSONObject) {
+        val inv = trx.optString("invoice").ifEmpty { "INV-${trx.optInt("id", 0)}" }
+        val safePrice = trx.optSafeDouble("price", 0.0)
+        val safeTrx = JSONObject().apply {
+            put("id", trx.optInt("id", 0))
+            put("invoice", inv)
+            put("username", trx.optString("username", "-"))
+            put("fullname", trx.optString("fullname").ifEmpty { trx.optString("username", "-") })
+            put("phonenumber", trx.optString("phonenumber", ""))
+            put("plan_name", trx.optString("plan_name", "-"))
+            put("type", trx.optString("type", "Layanan"))
+            put("price", safePrice)
+            put("recharged_on", trx.optString("recharged_on", ""))
+            put("recharged_time", trx.optString("recharged_time", ""))
+            put("expiration", trx.optString("expiration", ""))
+            put("time", trx.optString("time", ""))
+            put("method", trx.optString("method", "-"))
+            put("routers", trx.optString("routers", "-"))
         }
-    }
-
-    val methodSummaryTabs = remember(transactionsList) {
-        val grouped = linkedMapOf<String, Pair<Int, Double>>()
-        for (tr in transactionsList) {
-            val rawM = tr.optString("method", "Lainnya").trim()
-            val mKey = rawM.split("-").firstOrNull()?.trim()?.ifEmpty { "Lainnya" } ?: "Lainnya"
-            val cur = grouped[mKey] ?: (0 to 0.0)
-            grouped[mKey] = (cur.first + 1) to (cur.second + tr.optSafeDouble("price", 0.0))
-        }
-        val tabs = mutableListOf("All" to "Semua Metode (${transactionsList.size})")
-        grouped.forEach { (mName, pair) ->
-            tabs.add(mName to "${mName.uppercase()} (${pair.first}): ${formatRupiah(pair.second)}")
-        }
-        tabs
-    }
-
-    val filteredTransactions = remember(transactionsList, selectedMethodFilter, reportSearchQuery) {
-        val q = reportSearchQuery.trim().lowercase()
-        transactionsList.filter { tr ->
-            val rawM = tr.optString("method", "")
-            val matchMethod = selectedMethodFilter == "All" || rawM.startsWith(selectedMethodFilter, ignoreCase = true)
-            val matchQuery = q.isEmpty() ||
-                tr.optString("invoice", "").lowercase().contains(q) ||
-                tr.optString("username", "").lowercase().contains(q) ||
-                tr.optString("fullname", "").lowercase().contains(q) ||
-                tr.optString("plan_name", "").lowercase().contains(q) ||
-                rawM.lowercase().contains(q) ||
-                tr.optString("routers", "").lowercase().contains(q)
-            matchMethod && matchQuery
-        }
-    }
-
-    val filteredTotals = remember(filteredTransactions) {
-        filteredTransactions.sumOf { it.optSafeDouble("price", 0.0) }
-    }
-
-    val filteredPgList = remember(pgList, pgStatusFilter, pgSearchQuery) {
-        val q = pgSearchQuery.trim().lowercase()
-        pgList.filter { item ->
-            val st = item.optInt("status", 1).toString()
-            val matchSt = pgStatusFilter == "All" || st == pgStatusFilter
-            val matchQuery = q.isEmpty() ||
-                item.optString("username", "").lowercase().contains(q) ||
-                item.optString("plan_name", "").lowercase().contains(q) ||
-                item.optString("gateway", "").lowercase().contains(q) ||
-                item.optString("payment_channel", "").lowercase().contains(q) ||
-                item.optString("trx_invoice", "").lowercase().contains(q) ||
-                item.optString("gateway_trx_id", "").lowercase().contains(q)
-            matchSt && matchQuery
-        }
-    }
-
-    fun openTransactionReceiptModal(tr: JSONObject) {
-        val safeInvoice = JSONObject().apply {
-            put("id", tr.optInt("id", 0))
-            put("invoice", tr.optString("invoice").ifEmpty { "INV-${tr.optInt("id", 0)}" })
-            put("username", tr.optString("username", "-"))
-            put("fullname", tr.optString("fullname").ifEmpty { tr.optString("username", "-") })
-            put("phonenumber", tr.optString("phonenumber", ""))
-            put("plan_name", tr.optString("plan_name", "-"))
-            put("type", tr.optString("type", "Layanan"))
-            put("price", tr.optSafeDouble("price", 0.0))
-            put("recharged_on", tr.optString("recharged_on", ""))
-            put("recharged_time", tr.optString("recharged_time", ""))
-            put("expiration", tr.optString("expiration", ""))
-            put("time", tr.optString("time", ""))
-            put("method", tr.optString("method", "-"))
-            put("routers", tr.optString("routers", "-"))
-        }
-        val wrapper = JSONObject().apply {
-            put("invoice", safeInvoice)
-            put("balance", tr.optSafeDouble("balance", 0.0))
+        val payload = JSONObject().apply {
+            put("invoice", safeTrx)
+            put("balance", trx.optSafeDouble("balance", 0.0))
         }
         ArnetaTransactionToastManager.showFromApiResponse(
-            resData = wrapper,
-            fallbackTitle = "Detail Struk Transaksi",
-            fallbackCustomer = safeInvoice,
-            fallbackPlanName = safeInvoice.optString("plan_name", "-"),
-            fallbackPrice = safeInvoice.optSafeDouble("price", 0.0),
-            fallbackMethod = safeInvoice.optString("method", "-"),
-            fallbackRouter = safeInvoice.optString("routers", "-")
+            resData = payload,
+            fallbackTitle = "Detail Invoice $inv",
+            fallbackCustomer = safeTrx,
+            fallbackPlanName = safeTrx.optString("plan_name", "-"),
+            fallbackPrice = safePrice,
+            fallbackMethod = safeTrx.optString("method", "-"),
+            fallbackRouter = safeTrx.optString("routers", "-")
         )
+    }
+
+    LaunchedEffect(currentTab, selectedReportMethod, reportSearch) {
+        if (currentTab == 0) {
+            if (reportSearch.isNotEmpty()) delay(250)
+            loadReports(forceRefresh = false)
+        }
+    }
+
+    LaunchedEffect(currentTab, pgStatusFilter, pgGatewayFilter, pgSearch) {
+        if (currentTab == 1) {
+            if (pgSearch.isNotEmpty()) delay(250)
+            loadPaymentGateways(forceRefresh = false)
+        }
     }
 
     Column(
@@ -254,54 +264,63 @@ fun AdminReportsAndPgScreen(
     ) {
         Spacer(modifier = Modifier.height(10.dp))
 
-        ArnetaSubTabBar(
-            tabs = listOf(
-                "reports" to "📊 Laporan Keuangan",
-                "payment_gateway" to "💳 Audit Payment Gateway"
-            ),
-            selectedKey = currentTab,
-            onSelect = { currentTab = it }
-        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            FilterChip(
+                selected = currentTab == 0,
+                onClick = { currentTab = 0 },
+                label = { Text("Laporan Keuangan", fontWeight = FontWeight.Bold) },
+                leadingIcon = { Icon(Icons.Filled.Assessment, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                modifier = Modifier.weight(1f)
+            )
+            FilterChip(
+                selected = currentTab == 1,
+                onClick = { currentTab = 1 },
+                label = { Text("Payment Gateway", fontWeight = FontWeight.Bold) },
+                leadingIcon = { Icon(Icons.Filled.Payments, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                modifier = Modifier.weight(1f)
+            )
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        if (currentTab == "reports") {
+        if (currentTab == 0) {
             Row(
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
             ) {
-                ArnetaSubTabBar(
-                    tabs = listOf(
-                        "today" to "Hari Ini",
-                        "month" to "Bulan Ini",
-                        "year" to "Tahun Ini"
-                    ),
-                    selectedKey = selectedDatePreset,
-                    onSelect = { preset ->
-                        selectedDatePreset = preset
-                        when (preset) {
-                            "today" -> {
-                                startDate = todayStr
-                                endDate = todayStr
-                            }
-                            "month" -> {
-                                startDate = firstDayOfMonthStr
-                                endDate = todayStr
-                            }
-                            "year" -> {
-                                startDate = firstDayOfYearStr
-                                endDate = todayStr
-                            }
-                        }
+                FilterChip(
+                    selected = startDate == todayDate && endDate == todayDate,
+                    onClick = {
+                        startDate = todayDate
+                        endDate = todayDate
                         loadReports(forceRefresh = false)
                     },
-                    modifier = Modifier.weight(1f)
+                    label = { Text("Hari Ini", fontSize = 11.5.sp) }
                 )
-
-                IconButton(onClick = { loadReports(forceRefresh = true) }) {
-                    Icon(Icons.Filled.Refresh, contentDescription = "Segarkan", tint = ArnetaGoldPrimary)
-                }
+                FilterChip(
+                    selected = startDate == monthStartDate && endDate == todayDate,
+                    onClick = {
+                        startDate = monthStartDate
+                        endDate = todayDate
+                        loadReports(forceRefresh = false)
+                    },
+                    label = { Text("Bulan Ini", fontSize = 11.5.sp) }
+                )
+                FilterChip(
+                    selected = startDate == yearStartDate && endDate == todayDate,
+                    onClick = {
+                        startDate = yearStartDate
+                        endDate = todayDate
+                        loadReports(forceRefresh = false)
+                    },
+                    label = { Text("Tahun Ini", fontSize = 11.5.sp) }
+                )
             }
 
             Spacer(modifier = Modifier.height(6.dp))
@@ -313,44 +332,36 @@ fun AdminReportsAndPgScreen(
             ) {
                 OutlinedTextField(
                     value = startDate,
-                    onValueChange = {
-                        startDate = it
-                        selectedDatePreset = "custom"
-                    },
+                    onValueChange = { startDate = it },
                     label = { Text("Dari Tanggal", fontSize = 11.sp) },
                     singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.weight(1f)
                 )
                 OutlinedTextField(
                     value = endDate,
-                    onValueChange = {
-                        endDate = it
-                        selectedDatePreset = "custom"
-                    },
+                    onValueChange = { endDate = it },
                     label = { Text("Sampai Tanggal", fontSize = 11.sp) },
                     singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.weight(1f)
                 )
-                Button(
+                IconButton(
                     onClick = { loadReports(forceRefresh = true) },
-                    colors = ButtonDefaults.buttonColors(containerColor = ArnetaGoldPrimary, contentColor = Color.Black),
-                    shape = RoundedCornerShape(12.dp),
-                    contentPadding = PaddingValues(0.dp),
                     modifier = Modifier
-                        .size(50.dp)
-                        .padding(top = 4.dp)
+                        .size(46.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(ArnetaGoldPrimary)
                 ) {
-                    Icon(Icons.Filled.Search, contentDescription = "Tampilkan")
+                    Icon(Icons.Filled.Search, contentDescription = "Filter", tint = Color.Black)
                 }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
             Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF141B2D)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
@@ -361,38 +372,63 @@ fun AdminReportsAndPgScreen(
                     ) {
                         Column {
                             Text(
-                                text = "Total Pemasukan Periode",
-                                fontSize = 11.5.sp,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                                text = if (selectedReportMethod == "All") "Total Pemasukan Periode"
+                                else "Pemasukan ($selectedReportMethod)",
+                                color = Color.White.copy(alpha = 0.7f),
+                                fontSize = 11.5.sp
                             )
                             Text(
-                                text = formatRupiah(if (selectedMethodFilter == "All" && reportSearchQuery.isBlank()) totalIncome else filteredTotals),
+                                text = formatRupiah(totalIncome),
+                                color = ArnetaGoldPrimary,
                                 fontWeight = FontWeight.ExtraBold,
-                                fontSize = 21.sp,
-                                color = ArnetaGoldPrimary
+                                fontSize = 20.sp
                             )
                         }
                         Surface(
-                            color = ArnetaCyanIncome.copy(alpha = 0.16f),
+                            color = ArnetaCyanIncome.copy(alpha = 0.2f),
                             shape = RoundedCornerShape(8.dp)
                         ) {
                             Text(
-                                text = "${filteredTransactions.size} Transaksi",
+                                text = "$totalTrxCount Transaksi",
                                 color = ArnetaCyanIncome,
-                                fontWeight = FontWeight.ExtraBold,
+                                fontWeight = FontWeight.Bold,
                                 fontSize = 12.sp,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                             )
                         }
                     }
 
-                    if (methodSummaryTabs.size > 1) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        ArnetaSubTabBar(
-                            tabs = methodSummaryTabs,
-                            selectedKey = selectedMethodFilter,
-                            onSelect = { selectedMethodFilter = it }
-                        )
+                    if (gatewayBreakdown.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                        ) {
+                            FilterChip(
+                                selected = selectedReportMethod == "All",
+                                onClick = { selectedReportMethod = "All" },
+                                label = { Text("Semua Metode", fontSize = 11.sp) }
+                            )
+                            gatewayBreakdown.forEach { bd ->
+                                val gwName = bd.optString("gateway", "LAINNYA")
+                                val gwCnt = bd.optInt("count", 0)
+                                val gwTot = bd.optSafeDouble("total", 0.0)
+                                FilterChip(
+                                    selected = selectedReportMethod.equals(gwName, ignoreCase = true),
+                                    onClick = {
+                                        selectedReportMethod = if (selectedReportMethod.equals(gwName, ignoreCase = true)) "All" else gwName
+                                    },
+                                    label = {
+                                        Text(
+                                            text = "$gwName ($gwCnt): ${formatRupiah(gwTot)}",
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -400,13 +436,13 @@ fun AdminReportsAndPgScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             OutlinedTextField(
-                value = reportSearchQuery,
-                onValueChange = { reportSearchQuery = it },
+                value = reportSearch,
+                onValueChange = { reportSearch = it },
                 placeholder = { Text("Cari invoice, username, paket, atau metode...", fontSize = 12.5.sp) },
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = ArnetaGoldPrimary) },
                 trailingIcon = {
-                    if (reportSearchQuery.isNotEmpty()) {
-                        IconButton(onClick = { reportSearchQuery = "" }) {
+                    if (reportSearch.isNotEmpty()) {
+                        IconButton(onClick = { reportSearch = "" }) {
                             Icon(Icons.Filled.Clear, contentDescription = "Bersihkan")
                         }
                     }
@@ -418,13 +454,13 @@ fun AdminReportsAndPgScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            if (isLoading && transactionsList.isEmpty()) {
+            if (isLoadingReport && transactions.isEmpty()) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                     CircularProgressIndicator(color = ArnetaGoldPrimary)
                 }
-            } else if (filteredTransactions.isEmpty()) {
+            } else if (transactions.isEmpty()) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                    Text("Tidak ada transaksi pada rentang tanggal/filter ini.", fontSize = 13.sp)
+                    Text("Tidak ada data transaksi pada periode ini.", fontSize = 13.sp)
                 }
             } else {
                 LazyColumn(
@@ -433,28 +469,26 @@ fun AdminReportsAndPgScreen(
                     modifier = Modifier.fillMaxSize()
                 ) {
                     items(
-                        items = filteredTransactions,
+                        items = transactions,
                         key = { it.optInt("id", it.optString("invoice").hashCode()) }
-                    ) { tr ->
-                        val invNo = tr.optString("invoice").ifEmpty { "INV-${tr.optInt("id")}" }
-                        val uname = tr.optString("username", "-")
-                        val fname = tr.optString("fullname").ifEmpty { uname }
-                        val pName = tr.optString("plan_name", "-")
-                        val priceVal = tr.optSafeDouble("price", 0.0)
-                        val methodStr = tr.optString("method", "-")
-                        val routerStr = tr.optString("routers", "-")
-                        val rechDateTime = "${tr.optString("recharged_on")} ${tr.optString("recharged_time")}".trim()
-                        val expDateTime = "${tr.optString("expiration")} ${tr.optString("time")}".trim()
+                    ) { trx ->
+                        val inv = trx.optString("invoice").ifEmpty { "INV-${trx.optInt("id")}" }
+                        val uname = trx.optString("username", "-")
+                        val planName = trx.optString("plan_name", "-")
+                        val price = trx.optSafeDouble("price", 0.0)
+                        val method = trx.optString("method", "-")
+                        val trxDate = "${trx.optString("recharged_on")} ${trx.optString("recharged_time")}".trim()
+                        val expDate = "${trx.optString("expiration")} ${trx.optString("time")}".trim()
 
                         Card(
-                            shape = RoundedCornerShape(14.dp),
+                            shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
-                                .clickable { openTransactionReceiptModal(tr) }
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { showSafeInvoiceReceipt(trx) }
                         ) {
-                            Column(modifier = Modifier.padding(14.dp)) {
+                            Column(modifier = Modifier.padding(12.dp)) {
                                 Row(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically,
@@ -462,30 +496,31 @@ fun AdminReportsAndPgScreen(
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            text = "$uname • $pName",
-                                            fontWeight = FontWeight.ExtraBold,
-                                            fontSize = 14.5.sp
+                                            text = "$uname • $planName",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                         Text(
-                                            text = "$invNo • $methodStr",
+                                            text = "$inv • $method",
                                             fontSize = 11.5.sp,
-                                            color = ArnetaCyanIncome,
-                                            fontWeight = FontWeight.SemiBold
+                                            color = ArnetaCyanIncome
                                         )
                                     }
                                     Text(
-                                        text = formatRupiah(priceVal),
+                                        text = formatRupiah(price),
                                         fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 15.sp,
-                                        color = ArnetaGoldPrimary
+                                        color = ArnetaGoldPrimary,
+                                        fontSize = 14.sp
                                     )
                                 }
 
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "Tgl Trx: $rechDateTime • Exp: $expDateTime ($routerStr)",
+                                    text = "Tgl Trx: $trxDate • Exp: $expDate (${trx.optString("routers", "-")})",
                                     fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f)
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                                 )
 
                                 Spacer(modifier = Modifier.height(6.dp))
@@ -495,8 +530,7 @@ fun AdminReportsAndPgScreen(
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     TextButton(
-                                        onClick = { openTransactionReceiptModal(tr) },
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
+                                        onClick = { showSafeInvoiceReceipt(trx) }
                                     ) {
                                         Icon(Icons.Filled.ReceiptLong, contentDescription = null, tint = ArnetaCyanIncome, modifier = Modifier.size(15.dp))
                                         Spacer(modifier = Modifier.width(4.dp))
@@ -510,42 +544,39 @@ fun AdminReportsAndPgScreen(
                                                     context = context,
                                                     title = "STRUK TRANSAKSI ${ApiClient.companyName.uppercase()}",
                                                     lines = listOf(
-                                                        "No. Invoice" to invNo,
-                                                        "Pelanggan" to "$fname ($uname)",
-                                                        "Paket" to pName,
-                                                        "Harga" to formatRupiah(priceVal),
-                                                        "Metode" to methodStr,
-                                                        "Tgl Trx" to rechDateTime,
-                                                        "Aktif s/d" to expDateTime,
-                                                        "Router" to routerStr
+                                                        "No. Invoice" to inv,
+                                                        "Username" to uname,
+                                                        "Paket" to planName,
+                                                        "Total" to formatRupiah(price),
+                                                        "Metode" to method,
+                                                        "Tgl Trx" to trxDate,
+                                                        "Aktif s/d" to expDate
                                                     )
                                                 )
                                             }
-                                        },
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
+                                        }
                                     ) {
-                                        Icon(Icons.Filled.Print, contentDescription = null, tint = ArnetaGoldPrimary, modifier = Modifier.size(15.dp))
+                                        Icon(Icons.Filled.Print, contentDescription = null, modifier = Modifier.size(15.dp))
                                         Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Cetak", fontSize = 11.5.sp, color = ArnetaGoldPrimary, fontWeight = FontWeight.Bold)
+                                        Text("Cetak", fontSize = 11.5.sp)
                                     }
 
                                     TextButton(
                                         onClick = {
-                                            val waMsg = BluetoothPrinterHelper.buildInvoiceText(
-                                                invoice = invNo,
-                                                username = "$fname ($uname)",
-                                                planName = pName,
-                                                price = priceVal,
-                                                expiration = expDateTime,
-                                                method = methodStr
+                                            val msg = BluetoothPrinterHelper.buildInvoiceText(
+                                                invoice = inv,
+                                                username = uname,
+                                                planName = planName,
+                                                price = price,
+                                                expiration = expDate,
+                                                method = method
                                             )
-                                            BluetoothPrinterHelper.shareToWhatsApp(context, waMsg, tr.optString("phonenumber", ""))
-                                        },
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
+                                            BluetoothPrinterHelper.shareToWhatsApp(context, msg, "")
+                                        }
                                     ) {
-                                        Icon(Icons.Filled.Share, contentDescription = null, tint = ArnetaGreenSuccess, modifier = Modifier.size(15.dp))
+                                        Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(15.dp))
                                         Spacer(modifier = Modifier.width(4.dp))
-                                        Text("WA", fontSize = 11.5.sp, color = ArnetaGreenSuccess, fontWeight = FontWeight.Bold)
+                                        Text("WA", fontSize = 11.5.sp)
                                     }
                                 }
                             }
@@ -554,45 +585,144 @@ fun AdminReportsAndPgScreen(
                 }
             }
         } else {
-            // TAB AUDIT PAYMENT GATEWAY
-            val pgStatusTabs = remember(pgList) {
-                val unpaidCnt = pgList.count { it.optInt("status", 1) == 1 }
-                val paidCnt = pgList.count { it.optInt("status", 1) == 2 }
-                val expCnt = pgList.count { it.optInt("status", 1) >= 3 }
-                listOf(
-                    "All" to "Semua (${pgList.size})",
-                    "1" to "⏳ Unpaid ($unpaidCnt)",
-                    "2" to "✅ Paid ($paidCnt)",
-                    "3" to "❌ Expired ($expCnt)"
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF141B2D)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column {
+                            Text(
+                                text = "Total Pembayaran Lunas (PG)",
+                                color = Color.White.copy(alpha = 0.7f),
+                                fontSize = 11.sp
+                            )
+                            Text(
+                                text = formatRupiah(pgTotalPaidAmount),
+                                color = ArnetaGreenSuccess,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 18.sp
+                            )
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                color = if (pgTotalUnpaidCount > 0) ArnetaOrangeActive.copy(alpha = 0.2f) else ArnetaGreenSuccess.copy(alpha = 0.2f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(
+                                    text = "$pgTotalUnpaidCount Menunggu",
+                                    color = if (pgTotalUnpaidCount > 0) ArnetaOrangeActive else ArnetaGreenSuccess,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.5.sp,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                )
+                            }
+                            IconButton(onClick = { loadPaymentGateways(forceRefresh = true) }) {
+                                Icon(Icons.Filled.Refresh, contentDescription = "Segarkan", tint = ArnetaGoldPrimary)
+                            }
+                        }
+                    }
+
+                    if (pgByGatewayStats.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                        ) {
+                            pgByGatewayStats.forEach { st ->
+                                val gwName = st.optString("gateway", "-")
+                                val pCnt = st.optInt("paid_count", 0)
+                                val uCnt = st.optInt("unpaid_count", 0)
+                                val pTot = st.optSafeDouble("paid_total", 0.0)
+                                Surface(
+                                    color = Color.White.copy(alpha = 0.08f),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        text = "$gwName • Lunas: $pCnt (${formatRupiah(pTot)}) • Pending: $uCnt",
+                                        color = Color.White.copy(alpha = 0.9f),
+                                        fontSize = 10.5.sp,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+            ) {
+                FilterChip(
+                    selected = pgGatewayFilter == "All",
+                    onClick = { pgGatewayFilter = "All" },
+                    label = { Text("Semua Gateway", fontSize = 11.5.sp) }
                 )
+                pgGatewayOptions.forEach { gw ->
+                    val label = when (gw.lowercase()) {
+                        "viaqris" -> "ViaQRIS"
+                        "tripay" -> "Tripay"
+                        "duitku" -> "Duitku"
+                        "xendit" -> "Xendit"
+                        "paypal" -> "PayPal"
+                        "midtrans" -> "Midtrans"
+                        "ipaymu" -> "iPaymu"
+                        "tokopay" -> "TokoPay"
+                        "flip" -> "Flip"
+                        else -> gw.uppercase()
+                    }
+                    FilterChip(
+                        selected = pgGatewayFilter.equals(gw, ignoreCase = true),
+                        onClick = { pgGatewayFilter = gw },
+                        label = { Text(label, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold) }
+                    )
+                }
             }
 
             Row(
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
             ) {
-                ArnetaSubTabBar(
-                    tabs = pgStatusTabs,
-                    selectedKey = pgStatusFilter,
-                    onSelect = { pgStatusFilter = it },
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(onClick = { loadPaymentGateway(forceRefresh = true) }) {
-                    Icon(Icons.Filled.Refresh, contentDescription = "Segarkan", tint = ArnetaGoldPrimary)
+                listOf(
+                    "All" to "Semua Status",
+                    "1" to "Menunggu",
+                    "2" to "Lunas",
+                    "3" to "Expired",
+                    "4" to "Dibatalkan"
+                ).forEach { (stKey, stLabel) ->
+                    FilterChip(
+                        selected = pgStatusFilter == stKey,
+                        onClick = { pgStatusFilter = stKey },
+                        label = { Text(stLabel, fontSize = 11.5.sp) }
+                    )
                 }
             }
 
             Spacer(modifier = Modifier.height(6.dp))
 
             OutlinedTextField(
-                value = pgSearchQuery,
-                onValueChange = { pgSearchQuery = it },
-                placeholder = { Text("Cari username, invoice, gateway (Tripay/QRIS/Duitku)...", fontSize = 12.5.sp) },
+                value = pgSearch,
+                onValueChange = { pgSearch = it },
+                placeholder = { Text("Cari username, paket, channel, atau nomor referensi...", fontSize = 12.5.sp) },
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = ArnetaGoldPrimary) },
                 trailingIcon = {
-                    if (pgSearchQuery.isNotEmpty()) {
-                        IconButton(onClick = { pgSearchQuery = "" }) {
+                    if (pgSearch.isNotEmpty()) {
+                        IconButton(onClick = { pgSearch = "" }) {
                             Icon(Icons.Filled.Clear, contentDescription = "Bersihkan")
                         }
                     }
@@ -604,39 +734,46 @@ fun AdminReportsAndPgScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            if (isLoading && pgList.isEmpty()) {
+            if (isLoadingPg && pgItems.isEmpty()) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                     CircularProgressIndicator(color = ArnetaGoldPrimary)
                 }
-            } else if (filteredPgList.isEmpty()) {
+            } else if (pgItems.isEmpty()) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                    Text("Belum ada tagihan Payment Gateway yang cocok.", fontSize = 13.sp)
+                    Text("Tidak ada transaksi Payment Gateway yang cocok.", fontSize = 13.sp)
                 }
             } else {
                 LazyColumn(
                     contentPadding = PaddingValues(bottom = 95.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
                     items(
-                        items = filteredPgList,
+                        items = pgItems,
                         key = { it.optInt("id", it.optString("trx_invoice").hashCode()) }
-                    ) { pg ->
-                        val pgId = pg.optInt("id")
-                        val statusInt = pg.optInt("status", 1)
-                        val (stText, stColor) = when (statusInt) {
-                            2 -> "PAID / LUNAS" to ArnetaGreenSuccess
-                            3 -> "EXPIRED" to ArnetaRedDanger
-                            4 -> "CANCELED" to Color.Gray
-                            else -> "UNPAID / PENDING" to ArnetaOrangeActive
+                    ) { item ->
+                        val trxId = item.optInt("id")
+                        val st = item.optInt("status", 1)
+                        val stLabel = item.optString("status_label", "MENUNGGU PEMBAYARAN")
+                        val gwName = item.optString("gateway", "-").uppercase()
+                        val chName = item.optString("payment_channel", item.optString("payment_method", "-"))
+                        val curCode = item.optString("currency", ApiClient.currencyCode)
+                        val priceVal = item.optSafeDouble("price", 0.0)
+                        val payCode = item.optString("pay_code", "")
+                        val checkoutUrl = item.optString("checkout_url", item.optString("pg_url_payment", ""))
+                        val refId = item.optString("gateway_trx_id", "")
+                        val invNo = item.optString("trx_invoice", "INV-$trxId")
+
+                        val statusColor = when (st) {
+                            2 -> ArnetaGreenSuccess
+                            3, 4 -> ArnetaRedDanger
+                            else -> ArnetaOrangeActive
                         }
-                        val priceVal = pg.optSafeDouble("price", 0.0)
-                        val checkoutUrl = pg.optString("pg_url_payment", pg.optString("checkout_url", "")).trim()
-                        val payCode = pg.optString("pay_code", "").trim()
 
                         Card(
                             shape = RoundedCornerShape(14.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(modifier = Modifier.padding(14.dp)) {
@@ -645,122 +782,184 @@ fun AdminReportsAndPgScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Column(modifier = Modifier.weight(1f)) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Surface(
+                                            color = ArnetaIndigoAccent.copy(alpha = 0.2f),
+                                            shape = RoundedCornerShape(6.dp)
+                                        ) {
+                                            Text(
+                                                text = "$gwName • $chName",
+                                                color = ArnetaCyanIncome,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                fontSize = 10.5.sp,
+                                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                            )
+                                        }
                                         Text(
-                                            text = "@${pg.optString("username")} • ${pg.optString("plan_name")}",
-                                            fontWeight = FontWeight.ExtraBold,
-                                            fontSize = 14.5.sp
-                                        )
-                                        Text(
-                                            text = "${pg.optString("gateway").uppercase()} (${pg.optString("payment_channel").ifEmpty { pg.optString("payment_method", "-") }})" +
-                                                if (pg.optString("gateway_trx_id").isNotEmpty()) " • Ref: ${pg.optString("gateway_trx_id")}" else "",
-                                            fontSize = 11.5.sp,
-                                            color = ArnetaCyanIncome,
-                                            fontFamily = FontFamily.Monospace
+                                            text = invNo,
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                                         )
                                     }
 
                                     Surface(
-                                        color = stColor.copy(alpha = 0.18f),
+                                        color = statusColor.copy(alpha = 0.16f),
                                         shape = RoundedCornerShape(6.dp)
                                     ) {
                                         Text(
-                                            text = stText,
-                                            color = stColor,
-                                            fontSize = 9.5.sp,
+                                            text = stLabel,
+                                            color = statusColor,
                                             fontWeight = FontWeight.ExtraBold,
-                                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                                            fontSize = 10.sp,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                                         )
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.height(4.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
+
                                 Row(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "@${item.optString("username")} — ${item.optString("plan_name")}",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.5.sp
+                                        )
+                                        Text(
+                                            text = "Dibuat: ${item.optString("created_date")}" +
+                                                if (st == 2) " • Lunas: ${item.optString("paid_date")}"
+                                                else " • Batas: ${item.optString("expired_date")}",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.68f)
+                                        )
+                                        if (refId.isNotEmpty()) {
+                                            Text(
+                                                text = "Ref Merchant: $refId",
+                                                fontSize = 10.5.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                            )
+                                        }
+                                    }
+
                                     Text(
-                                        text = "Dibuat: ${pg.optString("created_date", "-")} • Exp: ${pg.optString("expired_date", "-")}",
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
-                                    )
-                                    Text(
-                                        text = formatRupiah(priceVal),
+                                        text = formatRupiah(priceVal, curCode),
                                         fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 15.sp,
-                                        color = ArnetaGoldPrimary
+                                        color = ArnetaGoldPrimary,
+                                        fontSize = 15.sp
                                     )
                                 }
 
                                 if (payCode.isNotEmpty()) {
-                                    Text(
-                                        text = "Kode Bayar / VA: $payCode",
-                                        fontSize = 11.5.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        color = ArnetaGoldLight
-                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                        ) {
+                                            Column {
+                                                Text("Kode Bayar / Virtual Account:", fontSize = 10.sp)
+                                                Text(
+                                                    text = payCode,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    fontSize = 13.5.sp,
+                                                    color = ArnetaGoldPrimary
+                                                )
+                                            }
+                                            TextButton(
+                                                onClick = {
+                                                    val cb = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                    cb.setPrimaryClip(ClipData.newPlainText("Kode Bayar", payCode))
+                                                    Toast.makeText(context, "Kode bayar disalin", Toast.LENGTH_SHORT).show()
+                                                }
+                                            ) {
+                                                Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Salin", fontSize = 11.5.sp)
+                                            }
+                                        }
+                                    }
                                 }
 
-                                if (statusInt == 1) {
-                                    Spacer(modifier = Modifier.height(8.dp))
+                                if (st == 1) {
+                                    Spacer(modifier = Modifier.height(10.dp))
                                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
                                     Spacer(modifier = Modifier.height(6.dp))
 
                                     Row(
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.fillMaxWidth()
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState())
                                     ) {
-                                        OutlinedButton(
-                                            enabled = actionLoadingId != pgId,
+                                        FilledTonalButton(
                                             onClick = {
-                                                actionLoadingId = pgId
                                                 scope.launch {
                                                     val cRes = ApiClient.request(
                                                         "admin_pg_action",
-                                                        mapOf("id" to pgId, "sub_action" to "check")
+                                                        mapOf("sub_action" to "check", "id" to trxId)
                                                     )
-                                                    actionLoadingId = 0
                                                     Toast.makeText(context, cRes.message, Toast.LENGTH_LONG).show()
-                                                    loadPaymentGateway(forceRefresh = true)
+                                                    loadPaymentGateways(forceRefresh = true)
                                                 }
-                                            },
-                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .height(34.dp)
+                                            }
                                         ) {
-                                            Icon(Icons.Filled.Sync, contentDescription = null, modifier = Modifier.size(14.dp))
+                                            Icon(Icons.Filled.Sync, contentDescription = null, modifier = Modifier.size(15.dp))
                                             Spacer(modifier = Modifier.width(4.dp))
-                                            Text("Cek Status", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            Text("Cek Status", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                                         }
 
                                         Button(
-                                            enabled = actionLoadingId != pgId,
-                                            onClick = { approveConfirmTarget = pg },
-                                            colors = ButtonDefaults.buttonColors(containerColor = ArnetaGreenSuccess, contentColor = Color.White),
-                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                                            modifier = Modifier
-                                                .weight(1.1f)
-                                                .height(34.dp)
+                                            onClick = {
+                                                confirmPgActionTarget = item to "approve_manual"
+                                            },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = ArnetaGreenSuccess,
+                                                contentColor = Color.White
+                                            )
                                         ) {
-                                            Icon(Icons.Filled.CheckCircle, contentDescription = null, modifier = Modifier.size(14.dp))
+                                            Icon(Icons.Filled.CheckCircle, contentDescription = null, modifier = Modifier.size(15.dp))
                                             Spacer(modifier = Modifier.width(4.dp))
-                                            Text("Approve & Aktifkan", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                                            Text("Setujui Manual", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                                         }
 
-                                        if (checkoutUrl.startsWith("http")) {
-                                            IconButton(
+                                        if (checkoutUrl.isNotEmpty()) {
+                                            OutlinedButton(
                                                 onClick = {
                                                     runCatching {
                                                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(checkoutUrl)))
                                                     }
-                                                },
-                                                modifier = Modifier.size(34.dp)
+                                                }
                                             ) {
-                                                Icon(Icons.Filled.OpenInNew, contentDescription = "Buka Link", tint = ArnetaCyanIncome, modifier = Modifier.size(18.dp))
+                                                Icon(Icons.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(15.dp))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text("Link Bayar", fontSize = 11.5.sp)
                                             }
+                                        }
+
+                                        OutlinedButton(
+                                            onClick = {
+                                                confirmPgActionTarget = item to "cancel"
+                                            },
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = ArnetaRedDanger)
+                                        ) {
+                                            Icon(Icons.Filled.Cancel, contentDescription = null, modifier = Modifier.size(15.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Batalkan", fontSize = 11.5.sp)
                                         }
                                     }
                                 }
@@ -772,20 +971,33 @@ fun AdminReportsAndPgScreen(
         }
     }
 
-    if (approveConfirmTarget != null) {
-        val target = approveConfirmTarget!!
-        val pgId = target.optInt("id")
+    if (confirmPgActionTarget != null) {
+        val (targetItem, subAction) = confirmPgActionTarget!!
+        val isApprove = subAction == "approve_manual"
+        val trxId = targetItem.optInt("id")
+        val uname = targetItem.optString("username")
+        val planName = targetItem.optString("plan_name")
+        val priceFmt = formatRupiah(targetItem.optSafeDouble("price", 0.0), targetItem.optString("currency", ApiClient.currencyCode))
+
         AlertDialog(
-            onDismissRequest = { approveConfirmTarget = null },
+            onDismissRequest = { confirmPgActionTarget = null },
             containerColor = Color(0xFF141B2D),
             titleContentColor = Color.White,
             textContentColor = Color.White,
             title = {
-                Text("Setujui Manual & Aktifkan Paket?", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+                Text(
+                    text = if (isApprove) "Setujui Manual Tagihan #$trxId?" else "Batalkan Tagihan #$trxId?",
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 16.sp
+                )
             },
             text = {
                 Text(
-                    text = "Tagihan @${target.optString("username")} untuk paket ${target.optString("plan_name")} (${formatRupiah(target.optSafeDouble("price", 0.0))}) akan ditandai LUNAS dan paket akan langsung diaktifkan ke Router MikroTik.",
+                    text = if (isApprove) {
+                        "Tagihan @$uname untuk paket $planName ($priceFmt) akan ditandai LUNAS dan paket/saldo akan langsung diaktifkan ke Router MikroTik."
+                    } else {
+                        "Tagihan @$uname untuk paket $planName ($priceFmt) akan dibatalkan."
+                    },
                     fontSize = 12.5.sp,
                     color = Color.White.copy(alpha = 0.85f)
                 )
@@ -793,35 +1005,30 @@ fun AdminReportsAndPgScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        approveConfirmTarget = null
-                        actionLoadingId = pgId
+                        confirmPgActionTarget = null
                         scope.launch {
                             val aRes = ApiClient.request(
                                 "admin_pg_action",
-                                mapOf("id" to pgId, "sub_action" to "approve")
+                                mapOf("sub_action" to subAction, "id" to trxId)
                             )
-                            actionLoadingId = 0
                             Toast.makeText(context, aRes.message, Toast.LENGTH_LONG).show()
-                            if (aRes.status && aRes.data != null) {
-                                ArnetaTransactionToastManager.showFromApiResponse(
-                                    resData = aRes.data,
-                                    fallbackTitle = "Tagihan PG Disetujui & Paket Aktif!",
-                                    fallbackPlanName = target.optString("plan_name"),
-                                    fallbackPrice = target.optSafeDouble("price", 0.0),
-                                    fallbackMethod = target.optString("gateway", "Payment Gateway")
-                                )
-                            }
-                            loadPaymentGateway(forceRefresh = true)
+                            loadPaymentGateways(forceRefresh = true)
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = ArnetaGreenSuccess, contentColor = Color.White)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isApprove) ArnetaGreenSuccess else ArnetaRedDanger,
+                        contentColor = Color.White
+                    )
                 ) {
-                    Text("Ya, Approve Sekarang", fontWeight = FontWeight.Bold)
+                    Text(
+                        text = if (isApprove) "Ya, Setujui & Aktifkan" else "Ya, Batalkan",
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             },
             dismissButton = {
                 OutlinedButton(
-                    onClick = { approveConfirmTarget = null },
+                    onClick = { confirmPgActionTarget = null },
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
                 ) {
                     Text("Batal")
