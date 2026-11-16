@@ -22,13 +22,40 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.biz.arneta.admin.network.ApiClient
 import id.biz.arneta.admin.network.formatRupiah
+import id.biz.arneta.admin.network.optSafeDouble
 import id.biz.arneta.admin.ui.theme.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
+
+private fun parseDialogPlansList(
+    arr: JSONArray?,
+    excludeBalanceAndDisabled: Boolean = false,
+    filterServiceType: String? = null
+): List<JSONObject> {
+    if (arr == null) return emptyList()
+    val list = ArrayList<JSONObject>(arr.length())
+    for (i in 0 until arr.length()) {
+        val p = arr.optJSONObject(i) ?: continue
+        if (excludeBalanceAndDisabled) {
+            if (p.optString("type").equals("Balance", ignoreCase = true) || p.optInt("enabled", 1) == 0) {
+                continue
+            }
+        }
+        if (!filterServiceType.isNullOrBlank()) {
+            if (!p.optString("type").equals(filterServiceType, ignoreCase = true)) {
+                continue
+            }
+        }
+        list.add(p)
+    }
+    return list
+}
 
 /**
  * LAYAR PENUH NATIVE: GENERATE VOUCHER MASSAL (Sesuai add-voucher di plan.php)
@@ -41,32 +68,46 @@ internal fun GenerateVoucherDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
+    val cachedPlansData = remember { ApiClient.getCached("admin_plans")?.data }
+
     var selectedType by remember { mutableStateOf("Hotspot") } // Hotspot | PPPOE
-    var allPlans by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
-    var routerOptions by remember { mutableStateOf(listOf("All" to "Semua Router")) }
+    var allPlans by remember {
+        mutableStateOf(
+            parseDialogPlansList(
+                arr = cachedPlansData?.optJSONArray("plans"),
+                excludeBalanceAndDisabled = true
+            )
+        )
+    }
+    var routerOptions by remember {
+        mutableStateOf(extractRouterOptions(allPlans, cachedPlansData?.optJSONArray("routers")))
+    }
     var selectedRouter by remember { mutableStateOf("All") }
     var selectedPlan by remember { mutableStateOf<JSONObject?>(null) }
 
     var voucherFormat by remember { mutableStateOf("up") } // up | low | rand | numbers
     var count by remember { mutableStateOf("10") }
-    var prefix by remember { mutableStateOf("") }
+    var prefix by remember {
+        mutableStateOf(cachedPlansData?.optString("voucher_prefix", "") ?: "")
+    }
     var lengthCode by remember { mutableStateOf("6") }
     var isGenerating by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         val res = ApiClient.request("admin_plans")
         if (res.status && res.data != null) {
-            prefix = res.data.optString("voucher_prefix", "")
-            val arr = res.data.optJSONArray("plans") ?: JSONArray()
-            val list = mutableListOf<JSONObject>()
-            for (i in 0 until arr.length()) {
-                val p = arr.getJSONObject(i)
-                if (!p.optString("type").equals("Balance", ignoreCase = true) && p.optInt("enabled", 1) == 1) {
-                    list.add(p)
-                }
+            val serverPrefix = res.data.optString("voucher_prefix", "")
+            if (prefix.isEmpty() && serverPrefix.isNotEmpty()) {
+                prefix = serverPrefix
             }
-            allPlans = list
-            routerOptions = extractRouterOptions(list, res.data.optJSONArray("routers"))
+            val parsedList = withContext(Dispatchers.Default) {
+                parseDialogPlansList(
+                    arr = res.data.optJSONArray("plans"),
+                    excludeBalanceAndDisabled = true
+                )
+            }
+            allPlans = parsedList
+            routerOptions = extractRouterOptions(parsedList, res.data.optJSONArray("routers"))
         }
     }
 
@@ -89,7 +130,7 @@ internal fun GenerateVoucherDialog(
     }
 
     val countInt = (count.toIntOrNull() ?: 0).coerceAtLeast(0)
-    val unitPrice = selectedPlan?.optDouble("price", 0.0) ?: 0.0
+    val unitPrice = selectedPlan.optSafeDouble("price", 0.0)
     val totalValue = countInt * unitPrice
     val canGenerate = !isGenerating && selectedPlan != null && countInt > 0
 
@@ -296,18 +337,17 @@ internal fun GenerateVoucherDialog(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.horizontalScroll(rememberScrollState())
-                    ) {
-                        listOf("5", "10", "20", "50", "100").forEach { presetCnt ->
-                            FilterChip(
-                                selected = count == presetCnt,
-                                onClick = { count = presetCnt },
-                                label = { Text("$presetCnt Vcr", fontSize = 11.5.sp) }
-                            )
-                        }
-                    }
+                    ArnetaSubTabBar(
+                        tabs = listOf(
+                            "5" to "5 Vcr",
+                            "10" to "10 Vcr",
+                            "20" to "20 Vcr",
+                            "50" to "50 Vcr",
+                            "100" to "100 Vcr"
+                        ),
+                        selectedKey = count,
+                        onSelect = { count = it }
+                    )
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(
@@ -358,15 +398,14 @@ internal fun GenerateVoucherDialog(
                         color = ArnetaCyanIncome
                     )
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("Hotspot" to "Hotspot", "PPPOE" to "PPPoE").forEach { (tKey, tLbl) ->
-                            FilterChip(
-                                selected = selectedType.equals(tKey, ignoreCase = true),
-                                onClick = { selectedType = tKey },
-                                label = { Text(tLbl, fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
-                            )
-                        }
-                    }
+                    ArnetaSubTabBar(
+                        tabs = listOf(
+                            "Hotspot" to "Hotspot",
+                            "PPPOE" to "PPPoE"
+                        ),
+                        selectedKey = selectedType,
+                        onSelect = { selectedType = it }
+                    )
 
                     CompactDropdownSelector(
                         label = "Lokasi Server / Router",
@@ -426,15 +465,35 @@ internal fun EditActiveCustomerPlanDialog(
     var selectedPlanId by remember { mutableIntStateOf(activeItem.optInt("plan_id", 0)) }
     var expirationDate by remember { mutableStateOf(activeItem.optString("expiration", "")) }
     var expirationTime by remember { mutableStateOf(activeItem.optString("time", "23:59:59")) }
-    var availablePlans by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+
+    val cachedAllPlans = remember {
+        ApiClient.getCached("admin_plans", mapOf("type" to currentType))?.data
+            ?: ApiClient.getCached("admin_plans")?.data
+    }
+
+    var availablePlans by remember {
+        mutableStateOf(
+            parseDialogPlansList(
+                arr = cachedAllPlans?.optJSONArray("plans"),
+                filterServiceType = currentType
+            )
+        )
+    }
     var isSaving by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         val res = ApiClient.request("admin_plans", mapOf("type" to currentType))
-        val arr = res.data?.optJSONArray("plans") ?: JSONArray()
-        val list = mutableListOf<JSONObject>()
-        for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
-        availablePlans = list
+        if (res.status && res.data != null) {
+            val parsed = withContext(Dispatchers.Default) {
+                parseDialogPlansList(
+                    arr = res.data.optJSONArray("plans"),
+                    filterServiceType = currentType
+                )
+            }
+            if (parsed.isNotEmpty()) {
+                availablePlans = parsed
+            }
+        }
     }
 
     fun addDaysToExpiration(daysToAdd: Int) {
@@ -585,7 +644,14 @@ internal fun EditActiveCustomerPlanDialog(
                         ).forEach { (days, lbl) ->
                             AssistChip(
                                 onClick = { addDaysToExpiration(days) },
-                                label = { Text(lbl, fontSize = 11.5.sp) }
+                                label = {
+                                    Text(
+                                        text = lbl,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = ArnetaGoldPrimary
+                                    )
+                                }
                             )
                         }
                     }
@@ -639,7 +705,7 @@ internal fun EditActiveCustomerPlanDialog(
                             label = "Pilih Paket Langganan ($currentType)",
                             selectedValue = selectedPlanId.toString(),
                             options = availablePlans.map { p ->
-                                p.optInt("id").toString() to "${p.optString("name_plan")} (${formatRupiah(p.optDouble("price", 0.0))})"
+                                p.optInt("id").toString() to "${p.optString("name_plan")} (${formatRupiah(p.optSafeDouble("price", 0.0))})"
                             },
                             icon = Icons.Filled.Speed,
                             onValueSelected = { selectedPlanId = it.toIntOrNull() ?: selectedPlanId },
@@ -811,20 +877,18 @@ internal fun ExtendCustomerPlanDialog(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
                     )
 
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                    ) {
-                        listOf("1", "2", "3", "7", "14", "30").forEach { d ->
-                            FilterChip(
-                                selected = extendDays == d,
-                                onClick = { extendDays = d },
-                                label = { Text("$d Hari", fontSize = 12.sp, fontWeight = FontWeight.SemiBold) }
-                            )
-                        }
-                    }
+                    ArnetaSubTabBar(
+                        tabs = listOf(
+                            "1" to "1 Hari",
+                            "2" to "2 Hari",
+                            "3" to "3 Hari",
+                            "7" to "7 Hari",
+                            "14" to "14 Hari",
+                            "30" to "30 Hari"
+                        ),
+                        selectedKey = extendDays,
+                        onSelect = { extendDays = it }
+                    )
 
                     OutlinedTextField(
                         value = extendDays,
