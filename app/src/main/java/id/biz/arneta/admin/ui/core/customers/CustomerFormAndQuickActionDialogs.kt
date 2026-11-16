@@ -471,7 +471,7 @@ internal fun ArnetaMapCoordinatePickerDialog(
 }
 
 /**
- * LAYAR PENUH NATIVE: TAMBAH / EDIT PELANGGAN (DENGAN KUNCI KOORDINAT SERVER & INTERACTIVE MAP PICKER)
+ * LAYAR PENUH NATIVE: TAMBAH / EDIT PELANGGAN (DENGAN 1 PEMILIH ROUTER SERVER TERPADU & MAP PICKER)
  */
 @Composable
 internal fun CustomerFormDialog(
@@ -929,7 +929,7 @@ internal fun CustomerFormDialog(
                 }
             }
 
-            // SECTION 2: IDENTITAS, SERVER ROUTER & KOORDINAT PETA
+            // SECTION 2: IDENTITAS, SERVER ROUTER TERPADU & KOORDINAT PETA
             Card(
                 shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -1016,11 +1016,11 @@ internal fun CustomerFormDialog(
 
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
 
-                    // Pemilih Server Router sebelum mengisi koordinat peta
+                    // Satu-satunya Pemilih Server Router (Mengontrol Kunci Peta & Filter Paket di Bawah)
                     CompactDropdownSelector(
-                        label = "Lokasi Server / Router (Wajib sebelum mengisi koordinat)",
+                        label = "Lokasi Server / Router (Membuka Kunci Peta & Filter Paket)",
                         selectedValue = if (selectedRouterFilter == "All") "" else selectedRouterFilter,
-                        placeholder = "-- Pilih Router Server Untuk Buka Kunci Peta --",
+                        placeholder = "-- Pilih Router Server Terlebih Dahulu --",
                         options = routerOptions.filter { it.first != "All" },
                         icon = Icons.Filled.Router,
                         onValueSelected = { selectedRouterFilter = it },
@@ -1154,7 +1154,7 @@ internal fun CustomerFormDialog(
                 }
             }
 
-            // SECTION 4: AKTIVASI PAKET LANGGANAN
+            // SECTION 4: AKTIVASI PAKET LANGGANAN (Mengikuti Router yang dipilih di atas, tanpa duplikasi dropdown Router)
             Card(
                 shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -1198,49 +1198,51 @@ internal fun CustomerFormDialog(
                     }
 
                     if (!isEdit || activatePackageOnEdit) {
+                        CompactDropdownSelector(
+                            label = "Metode Pembayaran *",
+                            selectedValue = selectedUsing,
+                            placeholder = "-- Pilih Metode Pembayaran --",
+                            disabledOptions = if (isBalanceInsufficient) setOf("Balance") else emptySet(),
+                            options = paymentUsings.map { u ->
+                                u to when {
+                                    u.equals("Recharge Zero", ignoreCase = true) -> "⚡ Recharge Zero (${ApiClient.currencyCode} 0)"
+                                    u.equals("Balance", ignoreCase = true) -> {
+                                        if (isBalanceInsufficient) "💰 Potong Saldo (Saldo tidak cukup)"
+                                        else "💰 Potong Saldo (${formatRupiah(existingBalance)})"
+                                    }
+                                    else -> u
+                                }
+                            },
+                            icon = Icons.Filled.Payments,
+                            onValueSelected = { selectedUsing = it },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            CompactDropdownSelector(
-                                label = "Lokasi Router",
-                                selectedValue = selectedRouterFilter,
-                                options = routerOptions,
-                                icon = Icons.Filled.Router,
-                                onValueSelected = { selectedRouterFilter = it },
-                                modifier = Modifier.weight(1f)
+                            Text(
+                                text = "Daftar Paket $serviceType (${matchingPlans.size} tersedia):",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ArnetaCyanIncome
                             )
-                            CompactDropdownSelector(
-                                label = "Metode Pembayaran *",
-                                selectedValue = selectedUsing,
-                                placeholder = "Pilih Metode...",
-                                disabledOptions = if (isBalanceInsufficient) setOf("Balance") else emptySet(),
-                                options = paymentUsings.map { u ->
-                                    u to when {
-                                        u.equals("Recharge Zero", ignoreCase = true) -> "⚡ Recharge Zero (${ApiClient.currencyCode} 0)"
-                                        u.equals("Balance", ignoreCase = true) -> {
-                                            if (isBalanceInsufficient) "💰 Potong Saldo (Saldo tidak cukup)"
-                                            else "💰 Potong Saldo (${formatRupiah(existingBalance)})"
-                                        }
-                                        else -> u
-                                    }
-                                },
-                                icon = Icons.Filled.Payments,
-                                onValueSelected = { selectedUsing = it },
-                                modifier = Modifier.weight(1f)
-                            )
+                            if (selectedRouterFilter != "All") {
+                                TextButton(
+                                    onClick = { selectedRouterFilter = "All" },
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                    modifier = Modifier.height(26.dp)
+                                ) {
+                                    Text("Tampilkan Semua Router", fontSize = 10.5.sp, color = ArnetaGoldPrimary)
+                                }
+                            }
                         }
-
-                        Text(
-                            text = "Daftar Paket $serviceType (${matchingPlans.size} tersedia):",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = ArnetaCyanIncome
-                        )
 
                         if (matchingPlans.isEmpty()) {
                             Text(
-                                text = "Tidak ada paket $serviceType yang tersedia untuk filter router ini.",
+                                text = "Tidak ada paket $serviceType yang tersedia untuk router ini.",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                             )
