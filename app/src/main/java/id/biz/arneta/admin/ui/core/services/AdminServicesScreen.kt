@@ -29,21 +29,13 @@ import id.biz.arneta.admin.network.formatRupiah
 import id.biz.arneta.admin.network.optSafeDouble
 import id.biz.arneta.admin.ui.theme.*
 import id.biz.arneta.admin.util.BluetoothPrinterHelper
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
-private fun jsonArrayToList(arr: JSONArray?): List<JSONObject> {
-    if (arr == null) return emptyList()
-    val list = ArrayList<JSONObject>(arr.length())
-    for (i in 0 until arr.length()) {
-        arr.optJSONObject(i)?.let { list.add(it) }
-    }
-    return list
-}
-
+/**
+ * LAYAR LAYANAN LENGKAP (PELANGGAN AKTIF, ISI ULANG PAKET/SALDO, VOUCHER, REFILL, KUPON & DATA USAGE)
+ */
 @Composable
 fun AdminServicesScreen(
     initialSubTab: String = "active_users"
@@ -75,56 +67,48 @@ fun AdminServicesScreen(
     val cachedCoupons = remember { ApiClient.getCached("admin_coupons") }
     val cachedUsage = remember { ApiClient.getCached("admin_data_usage") }
 
+    var isLoading by remember { mutableStateOf(false) }
+
     var activeList by remember {
-        mutableStateOf(
-            if (cachedPrepaid?.status == true) jsonArrayToList(cachedPrepaid.data?.optJSONArray("items") ?: cachedPrepaid.dataArray)
-            else emptyList()
-        )
+        val arr = cachedPrepaid?.data?.optJSONArray("items") ?: cachedPrepaid?.dataArray ?: JSONArray()
+        mutableStateOf(List(arr.length()) { i -> arr.getJSONObject(i) })
     }
-    var allCatalogPlans by remember {
-        mutableStateOf(
-            if (cachedPlans?.status == true) jsonArrayToList(cachedPlans.data?.optJSONArray("plans"))
-            else emptyList()
-        )
+    var activeStatusFilter by remember { mutableStateOf("All") } // All | on | off
+
+    var voucherList by remember {
+        val arr = cachedVouchers?.data?.optJSONArray("vouchers") ?: cachedVouchers?.dataArray ?: JSONArray()
+        mutableStateOf(List(arr.length()) { i -> arr.getJSONObject(i) })
     }
-    var catalogRoutersJson by remember { mutableStateOf(cachedPlans?.data?.optJSONArray("routers")) }
+    var usageList by remember {
+        val arr = cachedUsage?.data?.optJSONArray("items") ?: cachedUsage?.data?.optJSONArray("users") ?: JSONArray()
+        mutableStateOf(List(arr.length()) { i -> arr.getJSONObject(i) })
+    }
+    var usageSummary by remember { mutableStateOf(cachedUsage?.data?.optJSONObject("summary")) }
+
+    var couponList by remember {
+        val arr = cachedCoupons?.dataArray ?: cachedCoupons?.data?.optJSONArray("coupons") ?: JSONArray()
+        mutableStateOf(List(arr.length()) { i -> arr.getJSONObject(i) })
+    }
+    var searchQuery by remember { mutableStateOf("") }
+
+    var targetCustomer by remember { mutableStateOf<JSONObject?>(null) }
+    var rawCatalogPlans by remember {
+        val arr = cachedPlans?.data?.optJSONArray("plans") ?: JSONArray()
+        mutableStateOf(List(arr.length()) { i -> arr.getJSONObject(i) })
+    }
+    var rawCatalogRouters by remember { mutableStateOf(cachedPlans?.data?.optJSONArray("routers")) }
+    var selectedRouterFilter by remember { mutableStateOf("All") }
     var paymentUsings by remember {
         val uArr = cachedPlans?.data?.optJSONArray("usings")
-        val initUsings = if (uArr != null && uArr.length() > 0) {
+        val initList = if (uArr != null && uArr.length() > 0) {
             List(uArr.length()) { i -> uArr.optString(i) }
         } else {
             listOf("Cash", "Balance", "Recharge Zero")
         }
-        mutableStateOf(initUsings)
+        mutableStateOf(initList)
     }
-    var voucherList by remember {
-        mutableStateOf(
-            if (cachedVouchers?.status == true) jsonArrayToList(cachedVouchers.data?.optJSONArray("vouchers") ?: cachedVouchers.dataArray)
-            else emptyList()
-        )
-    }
-    var couponList by remember {
-        mutableStateOf(
-            if (cachedCoupons?.status == true) jsonArrayToList(cachedCoupons.dataArray ?: cachedCoupons.data?.optJSONArray("coupons"))
-            else emptyList()
-        )
-    }
-    var usageSummary by remember { mutableStateOf(cachedUsage?.data?.optJSONObject("summary")) }
-    var usageList by remember {
-        mutableStateOf(
-            if (cachedUsage?.status == true) jsonArrayToList(cachedUsage.data?.optJSONArray("items") ?: cachedUsage.data?.optJSONArray("users"))
-            else emptyList()
-        )
-    }
-
-    var isLoading by remember { mutableStateOf(false) }
-    var activeStatusFilter by remember { mutableStateOf("All") }
-    var searchQuery by remember { mutableStateOf("") }
-
-    var targetCustomer by remember { mutableStateOf<JSONObject?>(null) }
-    var selectedRouterFilter by remember { mutableStateOf("All") }
     var selectedUsing by remember { mutableStateOf("") }
-    var rechargePlanFilter by remember { mutableStateOf("All") }
+    var rechargePlanFilter by remember { mutableStateOf("All") } // All | Hotspot | PPPoE
     var selectedPlan by remember { mutableStateOf<JSONObject?>(null) }
     var customDepositAmount by remember { mutableStateOf("") }
     var depositNote by remember { mutableStateOf("") }
@@ -138,43 +122,61 @@ fun AdminServicesScreen(
     var editingActivePlanTarget by remember { mutableStateOf<JSONObject?>(null) }
     var extendingActivePlanTarget by remember { mutableStateOf<JSONObject?>(null) }
 
-    var voucherStatusFilter by remember { mutableStateOf("All") }
+    var voucherStatusFilter by remember { mutableStateOf("All") } // All | 0 | 1
     var showCleanUsedVoucherDialog by remember { mutableStateOf(false) }
     var deletingVoucherTarget by remember { mutableStateOf<JSONObject?>(null) }
 
     var editingCouponTarget by remember { mutableStateOf<JSONObject?>(null) }
     var deletingCouponTarget by remember { mutableStateOf<JSONObject?>(null) }
-    var couponStatusFilter by remember { mutableStateOf("All") }
+    var couponStatusFilter by remember { mutableStateOf("All") } // All | active | inactive
+
+    val allPlans = remember(rawCatalogPlans, currentSubTab) {
+        rawCatalogPlans.filter { p ->
+            val pType = p.optString("type").uppercase()
+            if (currentSubTab == "deposit_balance") pType == "BALANCE"
+            else pType != "BALANCE"
+        }
+    }
+
+    val routerOptions = remember(allPlans, rawCatalogRouters) {
+        extractRouterOptions(allPlans, rawCatalogRouters)
+    }
 
     fun loadCurrentTab(forceRefresh: Boolean = false) {
-        val hasExistingData = when (currentSubTab) {
-            "active_users" -> activeList.isNotEmpty()
-            "recharge_plan", "deposit_balance" -> allCatalogPlans.isNotEmpty()
-            "vouchers" -> voucherList.isNotEmpty()
-            "coupons" -> couponList.isNotEmpty()
-            "data_usage" -> usageList.isNotEmpty()
-            else -> true
-        }
-        if (!hasExistingData) isLoading = true
-
         scope.launch {
             when (currentSubTab) {
                 "active_users" -> {
+                    val cRes = ApiClient.getCached("admin_prepaid_list", mapOf("limit" to 250))
+                    if (cRes?.status == true) {
+                        val cArr = cRes.data?.optJSONArray("items") ?: cRes.dataArray ?: JSONArray()
+                        activeList = List(cArr.length()) { i -> cArr.getJSONObject(i) }
+                    } else if (activeList.isEmpty()) {
+                        isLoading = true
+                    }
                     val res = ApiClient.request("admin_prepaid_list", mapOf("limit" to 250), forceRefresh = forceRefresh)
                     if (res.status) {
-                        activeList = withContext(Dispatchers.Default) {
-                            jsonArrayToList(res.data?.optJSONArray("items") ?: res.dataArray)
-                        }
+                        val arr = res.data?.optJSONArray("items") ?: res.dataArray ?: JSONArray()
+                        val list = mutableListOf<JSONObject>()
+                        for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
+                        activeList = list
                     }
                 }
                 "recharge_plan", "deposit_balance" -> {
+                    val cRes = ApiClient.getCached("admin_plans")
+                    if (cRes?.status == true && cRes.data != null) {
+                        val cArr = cRes.data.optJSONArray("plans") ?: JSONArray()
+                        rawCatalogPlans = List(cArr.length()) { i -> cArr.getJSONObject(i) }
+                        rawCatalogRouters = cRes.data.optJSONArray("routers")
+                    } else if (rawCatalogPlans.isEmpty()) {
+                        isLoading = true
+                    }
                     val res = ApiClient.request("admin_plans", emptyMap(), forceRefresh = forceRefresh)
                     if (res.status && res.data != null) {
-                        val parsedPlans = withContext(Dispatchers.Default) {
-                            jsonArrayToList(res.data.optJSONArray("plans"))
-                        }
-                        allCatalogPlans = parsedPlans
-                        catalogRoutersJson = res.data.optJSONArray("routers")
+                        val arr = res.data.optJSONArray("plans") ?: JSONArray()
+                        val list = mutableListOf<JSONObject>()
+                        for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
+                        rawCatalogPlans = list
+                        rawCatalogRouters = res.data.optJSONArray("routers")
 
                         val uArr = res.data.optJSONArray("usings")
                         if (uArr != null && uArr.length() > 0) {
@@ -185,28 +187,53 @@ fun AdminServicesScreen(
                     }
                 }
                 "vouchers" -> {
+                    val cRes = ApiClient.getCached("admin_vouchers", mapOf("limit" to 200))
+                    if (cRes?.status == true) {
+                        val cArr = cRes.data?.optJSONArray("vouchers") ?: cRes.dataArray ?: JSONArray()
+                        voucherList = List(cArr.length()) { i -> cArr.getJSONObject(i) }
+                    } else if (voucherList.isEmpty()) {
+                        isLoading = true
+                    }
                     val res = ApiClient.request("admin_vouchers", mapOf("limit" to 200), forceRefresh = forceRefresh)
                     if (res.status) {
-                        voucherList = withContext(Dispatchers.Default) {
-                            jsonArrayToList(res.data?.optJSONArray("vouchers") ?: res.dataArray)
-                        }
+                        val arr = res.data?.optJSONArray("vouchers") ?: res.dataArray ?: JSONArray()
+                        val list = mutableListOf<JSONObject>()
+                        for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
+                        voucherList = list
                     }
                 }
                 "data_usage" -> {
+                    val cRes = ApiClient.getCached("admin_data_usage")
+                    if (cRes?.status == true && cRes.data != null) {
+                        usageSummary = cRes.data.optJSONObject("summary")
+                        val cArr = cRes.data.optJSONArray("items") ?: cRes.data.optJSONArray("users") ?: JSONArray()
+                        usageList = List(cArr.length()) { i -> cArr.getJSONObject(i) }
+                    } else if (usageList.isEmpty()) {
+                        isLoading = true
+                    }
                     val res = ApiClient.request("admin_data_usage", emptyMap(), forceRefresh = forceRefresh)
                     if (res.status && res.data != null) {
                         usageSummary = res.data.optJSONObject("summary")
-                        usageList = withContext(Dispatchers.Default) {
-                            jsonArrayToList(res.data.optJSONArray("items") ?: res.data.optJSONArray("users"))
-                        }
+                        val arr = res.data.optJSONArray("items") ?: res.data.optJSONArray("users") ?: JSONArray()
+                        val list = mutableListOf<JSONObject>()
+                        for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
+                        usageList = list
                     }
                 }
                 "coupons" -> {
+                    val cRes = ApiClient.getCached("admin_coupons")
+                    if (cRes?.status == true) {
+                        val cArr = cRes.dataArray ?: cRes.data?.optJSONArray("coupons") ?: JSONArray()
+                        couponList = List(cArr.length()) { i -> cArr.getJSONObject(i) }
+                    } else if (couponList.isEmpty()) {
+                        isLoading = true
+                    }
                     val res = ApiClient.request("admin_coupons", emptyMap(), forceRefresh = forceRefresh)
                     if (res.status) {
-                        couponList = withContext(Dispatchers.Default) {
-                            jsonArrayToList(res.dataArray ?: res.data?.optJSONArray("coupons"))
-                        }
+                        val arr = res.dataArray ?: res.data?.optJSONArray("coupons") ?: JSONArray()
+                        val list = mutableListOf<JSONObject>()
+                        for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
+                        couponList = list
                     }
                 }
             }
@@ -215,26 +242,18 @@ fun AdminServicesScreen(
     }
 
     LaunchedEffect(currentSubTab) {
+        targetCustomer = null
+        selectedUsing = ""
+        customDepositAmount = ""
+        depositNote = ""
         loadCurrentTab(forceRefresh = false)
     }
 
-    val modePlans = remember(allCatalogPlans, currentSubTab) {
-        val isDep = currentSubTab == "deposit_balance"
-        allCatalogPlans.filter { p ->
-            val isBal = p.optString("type").equals("Balance", ignoreCase = true)
-            if (isDep) isBal else !isBal
-        }
-    }
-
-    val routerOptions = remember(modePlans, catalogRoutersJson) {
-        extractRouterOptions(modePlans, catalogRoutersJson)
-    }
-
-    val displayedRechargePlans = remember(modePlans, rechargePlanFilter, selectedRouterFilter, currentSubTab) {
-        if (currentSubTab == "deposit_balance") {
-            modePlans
-        } else {
-            modePlans.filter { p ->
+    val displayedRechargePlans = remember(allPlans, rechargePlanFilter, selectedRouterFilter, currentSubTab) {
+        allPlans.filter { p ->
+            if (currentSubTab == "deposit_balance") {
+                true
+            } else {
                 val matchType = rechargePlanFilter == "All" || p.optString("type").equals(rechargePlanFilter, ignoreCase = true)
                 val matchRouter = selectedRouterFilter == "All" ||
                     p.optString("routers", "").equals(selectedRouterFilter, ignoreCase = true) ||
@@ -349,9 +368,9 @@ fun AdminServicesScreen(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
-                val statusTabs = remember(activeList) {
+                val activeStatusTabs = remember(activeList) {
                     val onCnt = activeList.count { it.optString("status") == "on" }
-                    val offCnt = activeList.size - onCnt
+                    val offCnt = activeList.count { it.optString("status") != "on" }
                     listOf(
                         "All" to "Semua (${activeList.size})",
                         "on" to "🟢 Aktif ($onCnt)",
@@ -360,7 +379,7 @@ fun AdminServicesScreen(
                 }
 
                 ArnetaSubTabBar(
-                    tabs = statusTabs,
+                    tabs = activeStatusTabs,
                     selectedKey = activeStatusFilter,
                     onSelect = { activeStatusFilter = it }
                 )
@@ -378,13 +397,9 @@ fun AdminServicesScreen(
                 } else {
                     LazyColumn(
                         contentPadding = PaddingValues(bottom = 95.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        modifier = Modifier.fillMaxSize()
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        items(
-                            items = filteredActiveList,
-                            key = { it.optInt("id", it.optString("username").hashCode()) }
-                        ) { item ->
+                        items(filteredActiveList) { item ->
                             val isOn = item.optString("status") == "on"
                             val itemPrice = item.optSafeDouble("price", 0.0)
                             val invoiceNo = item.optString("invoice").ifEmpty { "INV-${item.optInt("id")}" }
@@ -661,10 +676,7 @@ fun AdminServicesScreen(
                                 verticalArrangement = Arrangement.spacedBy(7.dp),
                                 modifier = Modifier.fillMaxSize()
                             ) {
-                                items(
-                                    items = displayedRechargePlans,
-                                    key = { it.optInt("id", it.optString("name_plan").hashCode()) }
-                                ) { p ->
+                                items(displayedRechargePlans) { p ->
                                     val pid = p.optInt("id")
                                     val isSel = selectedPlan?.optInt("id") == pid && customDepositAmount.isBlank()
                                     SelectablePlanCard(
@@ -880,7 +892,7 @@ fun AdminServicesScreen(
 
                 val voucherTabs = remember(voucherList) {
                     val unusedCnt = voucherList.count { it.optString("status", "0") == "0" }
-                    val usedCnt = voucherList.size - unusedCnt
+                    val usedCnt = voucherList.count { it.optString("status", "0") == "1" }
                     listOf(
                         "All" to "Semua (${voucherList.size})",
                         "0" to "Belum Dipakai ($unusedCnt)",
@@ -917,13 +929,9 @@ fun AdminServicesScreen(
 
                 LazyColumn(
                     contentPadding = PaddingValues(bottom = 95.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxSize()
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(
-                        items = filteredVoucherList,
-                        key = { it.optInt("id", it.optString("code").hashCode()) }
-                    ) { v ->
+                    items(filteredVoucherList) { v ->
                         val used = v.optString("status") == "1"
                         val vCode = v.optString("code")
                         val vPlan = v.optString("name_plan")
@@ -1123,7 +1131,7 @@ fun AdminServicesScreen(
 
                 val couponTabs = remember(couponList) {
                     val activeCnt = couponList.count { it.optString("status", "active").equals("active", true) }
-                    val inactiveCnt = couponList.size - activeCnt
+                    val inactiveCnt = couponList.count { !it.optString("status", "active").equals("active", true) }
                     listOf(
                         "All" to "Semua (${couponList.size})",
                         "active" to "Aktif ($activeCnt)",
@@ -1169,16 +1177,12 @@ fun AdminServicesScreen(
                 } else {
                     LazyColumn(
                         contentPadding = PaddingValues(bottom = 95.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxSize()
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(
-                            items = filteredCouponList,
-                            key = { it.optInt("id", it.optString("code").hashCode()) }
-                        ) { c ->
+                        items(filteredCouponList) { c ->
                             val cId = c.optInt("id")
                             val cCode = c.optString("code")
-                            val cType = c.optString("type", "fixed")
+                            val cType = c.optString("type", "fixed") // fixed | percent
                             val cVal = c.optSafeDouble("value", 0.0)
                             val cDesc = c.optString("description", "-")
                             val maxUsage = c.optInt("max_usage", 0)
@@ -1374,13 +1378,9 @@ fun AdminServicesScreen(
 
                 LazyColumn(
                     contentPadding = PaddingValues(bottom = 95.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxSize()
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(
-                        items = usageList,
-                        key = { it.optString("username", it.hashCode().toString()) }
-                    ) { u ->
+                    items(usageList) { u ->
                         Card(
                             shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
