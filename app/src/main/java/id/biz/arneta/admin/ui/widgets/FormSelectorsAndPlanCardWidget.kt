@@ -34,8 +34,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * BAR SUB-TAB HORIZONTAL MURNI COMPOSE (TANPA ANDROIDVIEW / TANPA BLANK SAAT LOADING)
- * Menggunakan Row + rememberScrollState() + FilterChip seperti pada GenieAcsScreen.kt
+ * BAR SUB-TAB HORIZONTAL MURNI COMPOSE (ANTI-BLANK & ANTI-STUCK)
+ * Menggunakan Row + horizontalScroll(rememberScrollState()) + key(tabKey) + FilterChip
  */
 @Composable
 fun ArnetaSubTabBar(
@@ -44,7 +44,9 @@ fun ArnetaSubTabBar(
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val currentOnSelect by rememberUpdatedState(onSelect)
     val scrollState = rememberScrollState()
+
     Row(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -53,45 +55,47 @@ fun ArnetaSubTabBar(
             .horizontalScroll(scrollState)
     ) {
         tabs.forEach { (tabKey, tabLabel) ->
-            val isSelected = selectedKey.equals(tabKey, ignoreCase = true)
-            FilterChip(
-                selected = isSelected,
-                onClick = { onSelect(tabKey) },
-                label = {
-                    Text(
-                        text = tabLabel,
-                        fontSize = 12.sp,
-                        fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
-                        maxLines = 1
-                    )
-                },
-                leadingIcon = if (isSelected) {
-                    {
-                        Icon(
-                            imageVector = Icons.Filled.Check,
-                            contentDescription = null,
-                            tint = ArnetaGoldPrimary,
-                            modifier = Modifier.size(15.dp)
-                        )
-                    }
-                } else null,
-                shape = RoundedCornerShape(10.dp),
-                colors = FilterChipDefaults.filterChipColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                    labelColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.88f),
-                    selectedContainerColor = ArnetaIndigoAccent.copy(alpha = 0.48f),
-                    selectedLabelColor = ArnetaGoldPrimary,
-                    selectedLeadingIconColor = ArnetaGoldPrimary
-                ),
-                border = FilterChipDefaults.filterChipBorder(
-                    enabled = true,
+            key(tabKey) {
+                val isSelected = selectedKey.equals(tabKey, ignoreCase = true)
+                FilterChip(
                     selected = isSelected,
-                    borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
-                    selectedBorderColor = ArnetaGoldPrimary,
-                    borderWidth = 1.dp,
-                    selectedBorderWidth = 1.5.dp
+                    onClick = { currentOnSelect(tabKey) },
+                    label = {
+                        Text(
+                            text = tabLabel,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                            maxLines = 1
+                        )
+                    },
+                    leadingIcon = if (isSelected) {
+                        {
+                            Icon(
+                                imageVector = Icons.Filled.Check,
+                                contentDescription = null,
+                                tint = ArnetaGoldPrimary,
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
+                    } else null,
+                    shape = RoundedCornerShape(10.dp),
+                    colors = FilterChipDefaults.filterChipColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                        labelColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.88f),
+                        selectedContainerColor = ArnetaIndigoAccent.copy(alpha = 0.48f),
+                        selectedLabelColor = ArnetaGoldPrimary,
+                        selectedLeadingIconColor = ArnetaGoldPrimary
+                    ),
+                    border = FilterChipDefaults.filterChipBorder(
+                        enabled = true,
+                        selected = isSelected,
+                        borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
+                        selectedBorderColor = ArnetaGoldPrimary,
+                        borderWidth = 1.dp,
+                        selectedBorderWidth = 1.5.dp
+                    )
                 )
-            )
+            }
         }
     }
 }
