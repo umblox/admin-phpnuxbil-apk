@@ -1,7 +1,6 @@
 package id.biz.arneta.admin.ui.screens
 
 import android.widget.Toast
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -20,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -28,9 +28,27 @@ import id.biz.arneta.admin.network.ApiClient
 import id.biz.arneta.admin.ui.theme.*
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import kotlin.math.roundToInt
 
 /**
- * TAB DAFTAR PROFIL BANDWIDTH & LAYAR PENUH FORM BANDWIDTH + BURST PRESET
+ * Konversi nilai kecepatan (Kbps / Mbps) ke format MikroTik (k / M)
+ * Menggunakan basis biner 1024 sesuai system/controllers/bandwidth.php
+ */
+private fun formatMikrotikRateValue(kbpsValue: Double): String {
+    val roundedKbps = kbpsValue.roundToInt().coerceAtLeast(1)
+    return if (roundedKbps >= 1024 && roundedKbps % 1024 == 0) {
+        "${roundedKbps / 1024}M"
+    } else {
+        "${roundedKbps}k"
+    }
+}
+
+private fun toKbps(rate: Double, unit: String): Double {
+    return if (unit.equals("Kbps", ignoreCase = true)) rate else rate * 1024.0
+}
+
+/**
+ * TAB DAFTAR PROFIL BANDWIDTH & FORM BANDWIDTH SESUAI system/controllers/bandwidth.php
  */
 @Composable
 internal fun BandwidthTabContent(
@@ -45,10 +63,16 @@ internal fun BandwidthTabContent(
     } else {
         LazyColumn(
             contentPadding = PaddingValues(bottom = 95.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxSize()
         ) {
             items(bandwidths) { bw ->
                 val burstStr = bw.optString("burst", "").trim()
+                val rateDown = bw.optString("rate_down", "")
+                val rateDownUnit = bw.optString("rate_down_unit", "")
+                val rateUp = bw.optString("rate_up", "")
+                val rateUpUnit = bw.optString("rate_up_unit", "")
+
                 Card(
                     shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -68,7 +92,7 @@ internal fun BandwidthTabContent(
                             Text(bw.optString("name_bw"), fontWeight = FontWeight.Bold, fontSize = 15.sp)
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "↓ Download: ${bw.optInt("rate_down")} ${bw.optString("rate_down_unit")} • ↑ Upload: ${bw.optInt("rate_up")} ${bw.optString("rate_up_unit")}",
+                                text = "Rate Download: $rateDown $rateDownUnit • Rate Upload: $rateUp $rateUpUnit",
                                 fontSize = 12.sp,
                                 color = ArnetaCyanIncome,
                                 fontWeight = FontWeight.SemiBold
@@ -76,8 +100,9 @@ internal fun BandwidthTabContent(
                             if (burstStr.isNotEmpty()) {
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
-                                    text = "⚡ Burst: $burstStr",
+                                    text = "Burst: $burstStr",
                                     fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
                                     color = ArnetaGoldPrimary
                                 )
                             }
@@ -100,6 +125,8 @@ internal fun BandwidthTabContent(
 @Composable
 internal fun BandwidthFormDialog(
     initial: JSONObject? = null,
+    rateUnits: List<String> = emptyList(),
+    burstPresets: List<JSONObject> = emptyList(),
     onDismiss: () -> Unit,
     onSaved: () -> Unit
 ) {
@@ -107,58 +134,125 @@ internal fun BandwidthFormDialog(
     val scope = rememberCoroutineScope()
     val isEdit = initial != null
 
-    var nameBw by remember { mutableStateOf(initial?.optString("name_bw") ?: "") }
-    var rateDown by remember { mutableStateOf(initial?.optInt("rate_down", 10)?.toString() ?: "10") }
-    var rateDownUnit by remember { mutableStateOf(initial?.optString("rate_down_unit")?.ifEmpty { null } ?: "Mbps") }
-    var rateUp by remember { mutableStateOf(initial?.optInt("rate_up", 10)?.toString() ?: "10") }
-    var rateUpUnit by remember { mutableStateOf(initial?.optString("rate_up_unit")?.ifEmpty { null } ?: "Mbps") }
-
-    val initBurstParts = remember(initial) {
-        val raw = initial?.optString("burst", "")?.trim() ?: ""
-        if (raw.isNotEmpty()) raw.split("\\s+".toRegex()) else emptyList()
+    val unitOptions = remember(rateUnits) {
+        val src = rateUnits.ifEmpty { listOf("Kbps", "Mbps") }
+        src.map { it to it }
     }
-    var showBurstConfig by remember { mutableStateOf(initBurstParts.isNotEmpty()) }
-    var burstLimit by remember { mutableStateOf(initBurstParts.getOrNull(0) ?: "") }
-    var burstThreshold by remember { mutableStateOf(initBurstParts.getOrNull(1) ?: "") }
-    var burstTime by remember { mutableStateOf(initBurstParts.getOrNull(2) ?: "") }
-    var burstPriority by remember { mutableStateOf(initBurstParts.getOrNull(3) ?: "") }
-    var burstLimitAt by remember { mutableStateOf(initBurstParts.getOrNull(4) ?: "") }
+
+    var nameBw by remember(initial) { mutableStateOf(initial?.optString("name_bw", "") ?: "") }
+    var rateDown by remember(initial) { mutableStateOf(initial?.optString("rate_down", "") ?: "") }
+    var rateDownUnit by remember(initial, unitOptions) {
+        mutableStateOf(
+            initial?.optString("rate_down_unit", "")?.takeIf { it.isNotEmpty() }
+                ?: unitOptions.first().first
+        )
+    }
+    var rateUp by remember(initial) { mutableStateOf(initial?.optString("rate_up", "") ?: "") }
+    var rateUpUnit by remember(initial, unitOptions) {
+        mutableStateOf(
+            initial?.optString("rate_up_unit", "")?.takeIf { it.isNotEmpty() }
+                ?: unitOptions.first().first
+        )
+    }
+
+    // Membaca array burst_parts (hasil explode(" ", $d['burst']) di bandwidth.php) tanpa hardcode
+    val initBurstParts = remember(initial) {
+        val arr = initial?.optJSONArray("burst_parts")
+        if (arr != null && arr.length() > 0) {
+            List(arr.length()) { i -> arr.optString(i, "") }
+        } else {
+            val raw = initial?.optString("burst", "")?.trim() ?: ""
+            if (raw.isNotEmpty()) raw.split("\\s+".toRegex()) else emptyList()
+        }
+    }
+
+    var burstLimit by remember(initial) { mutableStateOf(initBurstParts.getOrNull(0) ?: "") }
+    var burstThreshold by remember(initial) { mutableStateOf(initBurstParts.getOrNull(1) ?: "") }
+    var burstTime by remember(initial) { mutableStateOf(initBurstParts.getOrNull(2) ?: "") }
+    var burstPriority by remember(initial) { mutableStateOf(initBurstParts.getOrNull(3) ?: "") }
+    var burstLimitAt by remember(initial) { mutableStateOf(initBurstParts.getOrNull(4) ?: "") }
+
+    var selectedPresetGroup by remember { mutableStateOf("2x") }
     var isSaving by remember { mutableStateOf(false) }
 
-    fun applyBurstPreset(multiplier: Int) {
-        val dl = rateDown.toIntOrNull() ?: 0
-        val ul = rateUp.toIntOrNull() ?: 0
-        if (dl <= 0 || ul <= 0) return
+    /**
+     * Sama persis dengan fungsi JavaScript autoBurst() di ui/ui/admin/bandwidth/add.tpl
+     */
+    fun applyWebBurstPreset(preset: JSONObject) {
+        val presetName = preset.optString("name_bw", "").trim()
+        if (nameBw.isBlank() && presetName.isNotEmpty()) {
+            nameBw = presetName
+        }
+        rateDown = preset.optInt("rate_down", 0).takeIf { it > 0 }?.toString() ?: preset.optString("rate_down", "")
+        rateDownUnit = preset.optString("rate_down_unit", rateDownUnit).ifEmpty { rateDownUnit }
+        rateUp = preset.optInt("rate_up", 0).takeIf { it > 0 }?.toString() ?: preset.optString("rate_up", "")
+        rateUpUnit = preset.optString("rate_up_unit", rateUpUnit).ifEmpty { rateUpUnit }
 
-        val dlSuffix = if (rateDownUnit == "Kbps") "K" else "M"
-        val ulSuffix = if (rateUpUnit == "Kbps") "K" else "M"
-
-        val bDl = dl * multiplier
-        val bUl = ul * multiplier
-        val tDl = (dl * 3) / 4
-        val tUl = (ul * 3) / 4
-        val limDl = (dl / 2).coerceAtLeast(1)
-        val limUl = (ul / 2).coerceAtLeast(1)
-
-        burstLimit = "${bUl}${ulSuffix}/${bDl}${dlSuffix}"
-        burstThreshold = "${tUl.coerceAtLeast(1)}${ulSuffix}/${tDl.coerceAtLeast(1)}${dlSuffix}"
-        burstTime = "16/16"
-        burstPriority = "8"
-        burstLimitAt = "${limUl}${ulSuffix}/${limDl}${dlSuffix}"
+        val bArr = preset.optJSONArray("burst")
+        if (bArr != null) {
+            burstLimit = bArr.optString(0, "")
+            burstThreshold = bArr.optString(1, "")
+            burstTime = bArr.optString(2, "")
+            burstPriority = bArr.optString(3, "")
+            burstLimitAt = bArr.optString(4, "")
+        }
     }
 
-    val isBurstValid = !showBurstConfig || (
-        burstLimit.isNotBlank() &&
-            burstThreshold.isNotBlank() &&
-            burstTime.isNotBlank() &&
-            burstPriority.isNotBlank()
-        )
+    /**
+     * Menghitung otomatis parameter Burst dari Rate Download & Rate Upload yang sedang diisi
+     * menggunakan basis biner 1024 sesuai rumus PHPNuxBill (Threshold = 3/4 Max, Limit-At = 1/2 Max)
+     */
+    fun calculateBurstFromCurrentRate(mode: String) {
+        val dlVal = rateDown.trim().toDoubleOrNull() ?: 0.0
+        val ulVal = rateUp.trim().toDoubleOrNull() ?: 0.0
+        if (dlVal <= 0.0 || ulVal <= 0.0) {
+            Toast.makeText(context, "Isi Rate Download dan Rate Upload terlebih dahulu", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val dlKbps = toKbps(dlVal, rateDownUnit)
+        val ulKbps = toKbps(ulVal, rateUpUnit)
+
+        val burstDlKbps = if (mode == "2x") dlKbps * 2.0 else dlKbps + 1024.0
+        val burstUlKbps = if (mode == "2x") ulKbps * 2.0 else ulKbps + 1024.0
+
+        val threshDlKbps = dlKbps * 0.75
+        val threshUlKbps = ulKbps * 0.75
+
+        val limitAtDlKbps = dlKbps * 0.5
+        val limitAtUlKbps = ulKbps * 0.5
+
+        val calcTime = ((threshDlKbps / burstDlKbps) * 32.0).roundToInt().coerceIn(8, 16)
+
+        burstLimit = "${formatMikrotikRateValue(burstUlKbps)}/${formatMikrotikRateValue(burstDlKbps)}"
+        burstThreshold = "${formatMikrotikRateValue(threshUlKbps)}/${formatMikrotikRateValue(threshDlKbps)}"
+        if (burstTime.isBlank()) burstTime = "$calcTime/$calcTime"
+        if (burstPriority.isBlank()) burstPriority = "8"
+        burstLimitAt = "${formatMikrotikRateValue(limitAtUlKbps)}/${formatMikrotikRateValue(limitAtDlKbps)}"
+    }
+
+    val burstArrayValues = listOf(
+        burstLimit.trim(),
+        burstThreshold.trim(),
+        burstTime.trim(),
+        burstPriority.trim(),
+        burstLimitAt.trim()
+    )
+    val anyBurstFilled = burstArrayValues.any { it.isNotEmpty() }
+    val allBurstFilled = burstArrayValues.all { it.isNotEmpty() }
 
     val canSave = !isSaving &&
-        nameBw.isNotBlank() &&
-        (rateDown.toIntOrNull() ?: 0) > 0 &&
-        (rateUp.toIntOrNull() ?: 0) > 0 &&
-        isBurstValid
+        nameBw.trim().length in 1..255 &&
+        (rateDown.trim().toDoubleOrNull() ?: 0.0) > 0.0 &&
+        (rateUp.trim().toDoubleOrNull() ?: 0.0) > 0.0 &&
+        (!anyBurstFilled || allBurstFilled)
+
+    val presetGroups = remember(burstPresets) {
+        burstPresets.map { it.optString("group", "2x") }.distinct()
+    }
+    val displayedPresets = remember(burstPresets, selectedPresetGroup) {
+        burstPresets.filter { it.optString("group", "2x").equals(selectedPresetGroup, ignoreCase = true) }
+    }
 
     ArnetaFullScreenDialog(
         onDismissRequest = onDismiss,
@@ -181,13 +275,13 @@ internal fun BandwidthFormDialog(
                     Spacer(modifier = Modifier.width(4.dp))
                     Column {
                         Text(
-                            text = if (isEdit) "Edit Profil Bandwidth" else "Tambah Profil Bandwidth",
+                            text = if (isEdit) "Edit Bandwidth" else "Add New Bandwidth",
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 17.sp,
                             color = Color.White
                         )
                         Text(
-                            text = "Atur batas kecepatan Download, Upload & MikroTik Burst",
+                            text = "Sesuai struktur resmi system/controllers/bandwidth.php",
                             fontSize = 11.5.sp,
                             color = ArnetaGoldLight
                         )
@@ -206,6 +300,15 @@ internal fun BandwidthFormDialog(
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 10.dp)
                 ) {
+                    val previewRate = if (rateUp.isNotBlank() && rateDown.isNotBlank()) {
+                        val uUnit = if (rateUpUnit.equals("Kbps", true)) "K" else "M"
+                        val dUnit = if (rateDownUnit.equals("Kbps", true)) "K" else "M"
+                        val baseRate = "${rateUp.trim()}$uUnit/${rateDown.trim()}$dUnit"
+                        if (allBurstFilled) "$baseRate ${burstArrayValues.joinToString(" ")}" else baseRate
+                    } else {
+                        "-"
+                    }
+
                     Row(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
@@ -214,16 +317,16 @@ internal fun BandwidthFormDialog(
                             .padding(bottom = 6.dp)
                     ) {
                         Text(
-                            text = nameBw.ifBlank { "Nama Bandwidth" },
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            text = "Mikrotik-Rate-Limit:",
+                            fontSize = 11.sp,
+                            color = Color.White.copy(alpha = 0.7f)
                         )
                         Text(
-                            text = "↓ ${rateDown.ifEmpty { "0" }} $rateDownUnit / ↑ ${rateUp.ifEmpty { "0" }} $rateUpUnit",
-                            fontSize = 13.5.sp,
+                            text = previewRate,
+                            fontSize = 11.5.sp,
+                            fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.ExtraBold,
-                            color = ArnetaCyanIncome
+                            color = ArnetaGoldPrimary
                         )
                     }
 
@@ -239,7 +342,7 @@ internal fun BandwidthFormDialog(
                                 .weight(0.36f)
                                 .height(46.dp)
                         ) {
-                            Text("Batal", fontWeight = FontWeight.Bold)
+                            Text("Cancel", fontWeight = FontWeight.Bold)
                         }
 
                         Button(
@@ -252,21 +355,18 @@ internal fun BandwidthFormDialog(
                             onClick = {
                                 isSaving = true
                                 scope.launch {
+                                    // Mengirimkan array burst[] persis seperti $_POST['burst'] di bandwidth.php
+                                    val burstPayload = if (allBurstFilled) burstArrayValues else emptyList()
                                     val res = ApiClient.request(
                                         "admin_bandwidth_save",
                                         mapOf(
                                             "id" to (initial?.optInt("id") ?: 0),
                                             "name" to nameBw.trim(),
-                                            "name_bw" to nameBw.trim(),
-                                            "rate_down" to (rateDown.toIntOrNull() ?: 0),
+                                            "rate_down" to rateDown.trim(),
                                             "rate_down_unit" to rateDownUnit,
-                                            "rate_up" to (rateUp.toIntOrNull() ?: 0),
+                                            "rate_up" to rateUp.trim(),
                                             "rate_up_unit" to rateUpUnit,
-                                            "burst_limit" to if (showBurstConfig) burstLimit.trim() else "",
-                                            "burst_threshold" to if (showBurstConfig) burstThreshold.trim() else "",
-                                            "burst_time" to if (showBurstConfig) burstTime.trim() else "",
-                                            "burst_priority" to if (showBurstConfig) burstPriority.trim() else "",
-                                            "burst_limit_at" to if (showBurstConfig) burstLimitAt.trim() else ""
+                                            "burst" to burstPayload
                                         )
                                     )
                                     isSaving = false
@@ -281,7 +381,7 @@ internal fun BandwidthFormDialog(
                             Icon(Icons.Filled.Save, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = if (isSaving) "Menyimpan..." else "Simpan Bandwidth",
+                                text = if (isSaving) "Saving..." else "Save Changes",
                                 fontWeight = FontWeight.ExtraBold,
                                 fontSize = 13.5.sp
                             )
@@ -299,6 +399,7 @@ internal fun BandwidthFormDialog(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 14.dp, vertical = 12.dp)
         ) {
+            // CARD 1: BANDWIDTH NAME & RATE DOWNLOAD / UPLOAD
             Card(
                 shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -309,8 +410,8 @@ internal fun BandwidthFormDialog(
                     modifier = Modifier.padding(14.dp)
                 ) {
                     Text(
-                        text = "1. Kecepatan Utama (Rate Limit)",
-                        fontSize = 13.sp,
+                        text = "Bandwidth Plans",
+                        fontSize = 13.5.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = ArnetaGoldPrimary
                     )
@@ -318,8 +419,7 @@ internal fun BandwidthFormDialog(
                     OutlinedTextField(
                         value = nameBw,
                         onValueChange = { nameBw = it },
-                        label = { Text("Nama Profil Bandwidth *") },
-                        placeholder = { Text("Misal: 10 Mbps atau Paket Hemat 5M") },
+                        label = { Text("Bandwidth Name") },
                         leadingIcon = { Icon(Icons.Filled.Speed, contentDescription = null, tint = ArnetaGoldPrimary) },
                         singleLine = true,
                         shape = RoundedCornerShape(12.dp),
@@ -330,19 +430,19 @@ internal fun BandwidthFormDialog(
                         OutlinedTextField(
                             value = rateDown,
                             onValueChange = { rateDown = it },
-                            label = { Text("Rate Download *") },
+                            label = { Text("Rate Download") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             singleLine = true,
                             shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1.2f)
                         )
                         CompactDropdownSelector(
-                            label = "Satuan DL",
+                            label = "Unit",
                             selectedValue = rateDownUnit,
-                            options = listOf("Mbps" to "Mbps", "Kbps" to "Kbps"),
+                            options = unitOptions,
                             icon = Icons.Filled.ArrowDownward,
                             onValueSelected = { rateDownUnit = it },
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(0.8f)
                         )
                     }
 
@@ -350,24 +450,25 @@ internal fun BandwidthFormDialog(
                         OutlinedTextField(
                             value = rateUp,
                             onValueChange = { rateUp = it },
-                            label = { Text("Rate Upload *") },
+                            label = { Text("Rate Upload") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             singleLine = true,
                             shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1.2f)
                         )
                         CompactDropdownSelector(
-                            label = "Satuan UL",
+                            label = "Unit",
                             selectedValue = rateUpUnit,
-                            options = listOf("Mbps" to "Mbps", "Kbps" to "Kbps"),
+                            options = unitOptions,
                             icon = Icons.Filled.ArrowUpward,
                             onValueSelected = { rateUpUnit = it },
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(0.8f)
                         )
                     }
                 }
             }
 
+            // CARD 2: OPTIONAL BURST LIMIT & PRESET RESMI WEB PHPNUXBILL
             Card(
                 shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -378,115 +479,174 @@ internal fun BandwidthFormDialog(
                     modifier = Modifier.padding(14.dp)
                 ) {
                     Row(
-                        verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "2. MikroTik Burst Limit (Opsional)",
-                                fontSize = 13.sp,
+                                text = "Optional Burst Limit",
+                                fontSize = 13.5.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 color = ArnetaCyanIncome
                             )
                             Text(
-                                text = "Berikan lonjakan kecepatan awal saat pelanggan membuka web/video",
+                                text = if (anyBurstFilled && !allBurstFilled) {
+                                    "Semua 5 kolom Burst wajib diisi agar tersimpan (sesuai bandwidth.php)"
+                                } else {
+                                    "Kosongkan semua kolom Burst jika tidak menggunakan Burst Limit"
+                                },
                                 fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                                color = if (anyBurstFilled && !allBurstFilled) ArnetaRedDanger
+                                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                             )
                         }
-                        Switch(
-                            checked = showBurstConfig,
-                            onCheckedChange = {
-                                showBurstConfig = it
-                                if (!it) {
+
+                        if (anyBurstFilled) {
+                            TextButton(
+                                onClick = {
                                     burstLimit = ""
                                     burstThreshold = ""
                                     burstTime = ""
                                     burstPriority = ""
                                     burstLimitAt = ""
                                 }
+                            ) {
+                                Text("Clear Burst", fontSize = 11.5.sp, color = ArnetaRedDanger, fontWeight = FontWeight.Bold)
                             }
+                        }
+                    }
+
+                    // KALKULATOR OTOMATIS DARI RATE YANG DIISI USER
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                    ) {
+                        AssistChip(
+                            onClick = { calculateBurstFromCurrentRate("2x") },
+                            label = {
+                                Text(
+                                    text = "Hitung 2x dari Rate",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = ArnetaGoldPrimary
+                                )
+                            },
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        AssistChip(
+                            onClick = { calculateBurstFromCurrentRate("upto") },
+                            label = {
+                                Text(
+                                    text = "Hitung UpTo (+1M) dari Rate",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = ArnetaCyanIncome
+                                )
+                            },
+                            shape = RoundedCornerShape(10.dp)
                         )
                     }
 
-                    AnimatedVisibility(visible = showBurstConfig) {
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+                    // DAFTAR BURST PRESET DARI SERVER (ui/ui/admin/bandwidth/add.tpl)
+                    if (burstPresets.isNotEmpty()) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+                        Text(
+                            text = "Burst Limit Preset (Web PHPNuxBill):",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = ArnetaGoldPrimary
+                        )
 
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState())
-                            ) {
-                                Text("Isi Otomatis:", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = ArnetaGoldPrimary)
-                                AssistChip(
-                                    onClick = { applyBurstPreset(2) },
-                                    label = { Text("⚡ Preset Burst 2x Speed", fontSize = 11.5.sp) }
-                                )
-                                AssistChip(
-                                    onClick = { applyBurstPreset(3) },
-                                    label = { Text("🚀 Preset Burst 3x Speed", fontSize = 11.5.sp) }
-                                )
-                            }
-
-                            Text(
-                                text = "Format MikroTik: Upload/Download (Keempat kolom bertanda * wajib terisi agar Burst aktif)",
-                                fontSize = 11.sp,
-                                color = if (isBurstValid) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f) else ArnetaRedDanger
-                            )
-
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedTextField(
-                                    value = burstLimit,
-                                    onValueChange = { burstLimit = it },
-                                    label = { Text("Burst Limit * (2M/5M)", fontSize = 11.sp) },
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.weight(1f)
-                                )
-                                OutlinedTextField(
-                                    value = burstThreshold,
-                                    onValueChange = { burstThreshold = it },
-                                    label = { Text("Threshold * (1M/3M)", fontSize = 11.sp) },
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedTextField(
-                                    value = burstTime,
-                                    onValueChange = { burstTime = it },
-                                    label = { Text("Burst Time * (16/16)", fontSize = 11.sp) },
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.weight(1f)
-                                )
-                                OutlinedTextField(
-                                    value = burstPriority,
-                                    onValueChange = { burstPriority = it },
-                                    label = { Text("Priority * (1-8)", fontSize = 11.sp) },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-
-                            OutlinedTextField(
-                                value = burstLimitAt,
-                                onValueChange = { burstLimitAt = it },
-                                label = { Text("Limit-At / MIR (Opsional, misal 512K/1M)", fontSize = 11.sp) },
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
+                        if (presetGroups.size > 1) {
+                            ArnetaSubTabBar(
+                                tabs = presetGroups.map { g ->
+                                    g to if (g.equals("2x", true)) "2x Speed Preset" else "UpTo (+1M) Preset"
+                                },
+                                selectedKey = selectedPresetGroup,
+                                onSelect = { selectedPresetGroup = it }
                             )
                         }
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                        ) {
+                            displayedPresets.forEach { preset ->
+                                AssistChip(
+                                    onClick = { applyWebBurstPreset(preset) },
+                                    label = {
+                                        Text(
+                                            text = preset.optString("label"),
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    },
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                            }
+                        }
                     }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+
+                    // 5 INPUT ARRAY $_POST['burst'][] SESUAI URUTAN bandwidth.php
+                    OutlinedTextField(
+                        value = burstLimit,
+                        onValueChange = { burstLimit = it },
+                        label = { Text("Burst Limit — burst[0]") },
+                        placeholder = { Text("[Upload]/[Download]") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = burstThreshold,
+                        onValueChange = { burstThreshold = it },
+                        label = { Text("Burst Threshold — burst[1]") },
+                        placeholder = { Text("[Upload]/[Download]") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = burstTime,
+                            onValueChange = { burstTime = it },
+                            label = { Text("Burst Time — burst[2]") },
+                            placeholder = { Text("[Upload]/[Download]") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedTextField(
+                            value = burstPriority,
+                            onValueChange = { burstPriority = it },
+                            label = { Text("Priority — burst[3]") },
+                            placeholder = { Text("8") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    OutlinedTextField(
+                        value = burstLimitAt,
+                        onValueChange = { burstLimitAt = it },
+                        label = { Text("Limit At — burst[4]") },
+                        placeholder = { Text("[Upload]/[Download]") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
         }
