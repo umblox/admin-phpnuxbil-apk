@@ -105,10 +105,6 @@ fun ArnetaAdminMainShell(
     // Grup menu yang sedang diekspansi di Sidebar
     var expandedSidebarGroup by remember { mutableStateOf("layanan") }
 
-    LaunchedEffect(Unit) {
-        ApiClient.warmupCacheInBackground()
-    }
-
     fun toggleGroup(groupKey: String) {
         expandedSidebarGroup = if (expandedSidebarGroup == groupKey) "" else groupKey
     }
@@ -135,10 +131,10 @@ fun ArnetaAdminMainShell(
                     else -> "All"
                 }
             }
-            screenKey in setOf("active_users", "recharge_plan", "deposit_balance", "vouchers", "data_usage", "coupons", "refill_voucher") -> {
-                activeScreenKey = screenKey
+            screenKey == "services" || screenKey in setOf("active_users", "recharge_plan", "deposit_balance", "vouchers", "data_usage", "coupons", "refill_voucher") -> {
+                activeScreenKey = "services"
                 currentBottomTab = AdminNavTab.SERVICES
-                servicesSubTabParam = screenKey
+                servicesSubTabParam = if (screenKey == "services") "active_users" else screenKey
             }
             screenKey == "plans" || screenKey.startsWith("plans_") -> {
                 activeScreenKey = "plans"
@@ -151,10 +147,10 @@ fun ArnetaAdminMainShell(
                     else -> "Hotspot"
                 }
             }
-            screenKey in setOf("live_monitor", "online_users", "ros_logs", "routers", "pools") -> {
-                activeScreenKey = screenKey
+            screenKey == "network" || screenKey in setOf("live_monitor", "online_users", "ros_logs", "routers", "pools") -> {
+                activeScreenKey = "network"
                 currentBottomTab = AdminNavTab.MENU_HUB
-                networkSubTabParam = screenKey
+                networkSubTabParam = if (screenKey == "network") "live_monitor" else screenKey
             }
             screenKey == "genieacs" || screenKey.startsWith("genieacs_") -> {
                 activeScreenKey = "genieacs"
@@ -231,16 +227,16 @@ fun ArnetaAdminMainShell(
                         icon = Icons.Filled.ConfirmationNumber,
                         label = "Layanan",
                         isExpanded = expandedSidebarGroup == "layanan",
-                        isGroupActive = currentBottomTab == AdminNavTab.SERVICES,
+                        isGroupActive = activeScreenKey == "services" || currentBottomTab == AdminNavTab.SERVICES,
                         onToggle = { toggleGroup("layanan") },
                         subItems = listOf(
-                            Triple("active_users", "Pelanggan Aktif", activeScreenKey == "active_users"),
-                            Triple("recharge_plan", "Isi Ulang Paket", activeScreenKey == "recharge_plan"),
-                            Triple("deposit_balance", "Isi Ulang Saldo", activeScreenKey == "deposit_balance"),
-                            Triple("vouchers", "Voucher & Cards", activeScreenKey == "vouchers"),
-                            Triple("refill_voucher", "Isi Ulang Voucher", activeScreenKey == "refill_voucher"),
-                            Triple("coupons", "Kupon Promo", activeScreenKey == "coupons"),
-                            Triple("data_usage", "User Data Usage", activeScreenKey == "data_usage")
+                            Triple("active_users", "Pelanggan Aktif", activeScreenKey == "services" && servicesSubTabParam == "active_users"),
+                            Triple("recharge_plan", "Isi Ulang Paket", activeScreenKey == "services" && servicesSubTabParam == "recharge_plan"),
+                            Triple("deposit_balance", "Isi Ulang Saldo", activeScreenKey == "services" && servicesSubTabParam == "deposit_balance"),
+                            Triple("vouchers", "Voucher & Cards", activeScreenKey == "services" && servicesSubTabParam == "vouchers"),
+                            Triple("refill_voucher", "Isi Ulang Voucher", activeScreenKey == "services" && servicesSubTabParam == "refill_voucher"),
+                            Triple("coupons", "Kupon Promo", activeScreenKey == "services" && servicesSubTabParam == "coupons"),
+                            Triple("data_usage", "User Data Usage", activeScreenKey == "services" && servicesSubTabParam == "data_usage")
                         ),
                         onSubItemClick = { navigateTo(it) }
                     )
@@ -281,14 +277,14 @@ fun ArnetaAdminMainShell(
                         icon = Icons.Filled.Hub,
                         label = "Jaringan & MikroTik",
                         isExpanded = expandedSidebarGroup == "jaringan",
-                        isGroupActive = activeScreenKey in setOf("live_monitor", "online_users", "ros_logs", "routers", "pools"),
+                        isGroupActive = activeScreenKey == "network",
                         onToggle = { toggleGroup("jaringan") },
                         subItems = listOf(
-                            Triple("live_monitor", "MikroTik Monitor", activeScreenKey == "live_monitor"),
-                            Triple("online_users", "User Online & Kick", activeScreenKey == "online_users"),
-                            Triple("ros_logs", "Log & Wireless", activeScreenKey == "ros_logs"),
-                            Triple("routers", "Daftar Router", activeScreenKey == "routers"),
-                            Triple("pools", "IP Pool", activeScreenKey == "pools")
+                            Triple("live_monitor", "MikroTik Monitor", activeScreenKey == "network" && networkSubTabParam == "live_monitor"),
+                            Triple("online_users", "User Online & Kick", activeScreenKey == "network" && networkSubTabParam == "online_users"),
+                            Triple("ros_logs", "Log & Wireless", activeScreenKey == "network" && networkSubTabParam == "ros_logs"),
+                            Triple("routers", "Daftar Router", activeScreenKey == "network" && networkSubTabParam == "routers"),
+                            Triple("pools", "IP Pool", activeScreenKey == "network" && networkSubTabParam == "pools")
                         ),
                         onSubItemClick = { navigateTo(it) }
                     )
@@ -411,7 +407,7 @@ fun ArnetaAdminMainShell(
                             }
                             AdminNavTab.SERVICES -> {
                                 servicesSubTabParam = "active_users"
-                                "active_users"
+                                "services"
                             }
                             AdminNavTab.MENU_HUB -> "menu_hub"
                         }
@@ -450,14 +446,14 @@ fun ArnetaAdminMainShell(
                         initialType = customerTypeParam,
                         openAddDialogInitially = openAddCustomerDialog
                     )
-                    "active_users", "recharge_plan", "deposit_balance", "vouchers", "data_usage", "coupons", "refill_voucher" -> AdminServicesScreen(
+                    "services", "active_users", "recharge_plan", "deposit_balance", "vouchers", "data_usage", "coupons", "refill_voucher" -> AdminServicesScreen(
                         initialSubTab = servicesSubTabParam
                     )
                     "menu_hub" -> AdminMenuHubScreen(
                         unpaidQrisCount = unpaidBadgeCount,
                         onOpenScreen = { key -> navigateTo(key) }
                     )
-                    "live_monitor", "online_users", "ros_logs", "routers", "pools" -> AdminNetworkAndOnlineScreen(
+                    "network", "live_monitor", "online_users", "ros_logs", "routers", "pools" -> AdminNetworkAndOnlineScreen(
                         initialTab = networkSubTabParam
                     )
                     "genieacs" -> GenieAcsScreen(
