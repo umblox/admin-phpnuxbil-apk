@@ -31,6 +31,8 @@ import org.json.JSONObject
 private data class PlansDataBundle(
     val plans: List<JSONObject>,
     val bandwidths: List<JSONObject>,
+    val rateUnits: List<String>,
+    val burstPresets: List<JSONObject>,
     val routers: List<JSONObject>,
     val pools: List<JSONObject>,
     val devices: List<String>
@@ -39,7 +41,15 @@ private data class PlansDataBundle(
 private fun parsePlansJsonBundle(data: JSONObject?): PlansDataBundle {
     val defaultDevs = listOf("MikrotikHotspot", "MikrotikPppoe", "MikrotikVpn", "Radius", "Dummy")
     if (data == null) {
-        return PlansDataBundle(emptyList(), emptyList(), emptyList(), emptyList(), defaultDevs)
+        return PlansDataBundle(
+            plans = emptyList(),
+            bandwidths = emptyList(),
+            rateUnits = listOf("Kbps", "Mbps"),
+            burstPresets = emptyList(),
+            routers = emptyList(),
+            pools = emptyList(),
+            devices = defaultDevs
+        )
     }
 
     val pArr = data.optJSONArray("plans") ?: JSONArray()
@@ -52,6 +62,21 @@ private fun parsePlansJsonBundle(data: JSONObject?): PlansDataBundle {
     val bList = ArrayList<JSONObject>(bArr.length())
     for (i in 0 until bArr.length()) {
         bArr.optJSONObject(i)?.let { bList.add(it) }
+    }
+
+    val uArr = data.optJSONArray("rate_units")
+    val uList = mutableListOf<String>()
+    if (uArr != null) {
+        for (i in 0 until uArr.length()) {
+            val u = uArr.optString(i).trim()
+            if (u.isNotEmpty()) uList.add(u)
+        }
+    }
+
+    val bpArr = data.optJSONArray("burst_presets") ?: JSONArray()
+    val bpList = ArrayList<JSONObject>(bpArr.length())
+    for (i in 0 until bpArr.length()) {
+        bpArr.optJSONObject(i)?.let { bpList.add(it) }
     }
 
     val rArr = data.optJSONArray("routers") ?: JSONArray()
@@ -78,6 +103,8 @@ private fun parsePlansJsonBundle(data: JSONObject?): PlansDataBundle {
     return PlansDataBundle(
         plans = pList,
         bandwidths = bList,
+        rateUnits = if (uList.isNotEmpty()) uList else listOf("Kbps", "Mbps"),
+        burstPresets = bpList,
         routers = rList,
         pools = poolList,
         devices = if (dList.isNotEmpty()) dList else defaultDevs
@@ -112,6 +139,8 @@ fun AdminPlansScreen(
 
     var plansList by remember { mutableStateOf(initBundle?.plans ?: emptyList()) }
     var bwList by remember { mutableStateOf(initBundle?.bandwidths ?: emptyList()) }
+    var rateUnitsList by remember { mutableStateOf(initBundle?.rateUnits ?: listOf("Kbps", "Mbps")) }
+    var burstPresetsList by remember { mutableStateOf(initBundle?.burstPresets ?: emptyList()) }
     var routersList by remember { mutableStateOf(initBundle?.routers ?: emptyList()) }
     var poolsList by remember { mutableStateOf(initBundle?.pools ?: emptyList()) }
     var devicesList by remember {
@@ -141,6 +170,8 @@ fun AdminPlansScreen(
                 }
                 plansList = cBundle.plans
                 bwList = cBundle.bandwidths
+                rateUnitsList = cBundle.rateUnits
+                burstPresetsList = cBundle.burstPresets
                 routersList = cBundle.routers
                 poolsList = cBundle.pools
                 devicesList = cBundle.devices
@@ -155,6 +186,8 @@ fun AdminPlansScreen(
                 }
                 plansList = parsed.plans
                 bwList = parsed.bandwidths
+                rateUnitsList = parsed.rateUnits
+                burstPresetsList = parsed.burstPresets
                 routersList = parsed.routers
                 poolsList = parsed.pools
                 devicesList = parsed.devices
@@ -582,6 +615,8 @@ fun AdminPlansScreen(
     if (showBwDialog) {
         BandwidthFormDialog(
             initial = editingBw,
+            rateUnits = rateUnitsList,
+            burstPresets = burstPresetsList,
             onDismiss = { showBwDialog = false },
             onSaved = {
                 showBwDialog = false
