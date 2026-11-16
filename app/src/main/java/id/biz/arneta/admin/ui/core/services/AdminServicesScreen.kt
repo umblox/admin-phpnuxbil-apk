@@ -29,9 +29,20 @@ import id.biz.arneta.admin.network.formatRupiah
 import id.biz.arneta.admin.network.optSafeDouble
 import id.biz.arneta.admin.ui.theme.*
 import id.biz.arneta.admin.util.BluetoothPrinterHelper
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+
+private fun parseServicesJsonList(arr: JSONArray?): List<JSONObject> {
+    if (arr == null) return emptyList()
+    val list = ArrayList<JSONObject>(arr.length())
+    for (i in 0 until arr.length()) {
+        arr.optJSONObject(i)?.let { list.add(it) }
+    }
+    return list
+}
 
 /**
  * LAYAR LAYANAN LENGKAP (PELANGGAN AKTIF, ISI ULANG PAKET/SALDO, VOUCHER, REFILL, KUPON & DATA USAGE)
@@ -70,31 +81,46 @@ fun AdminServicesScreen(
     var isLoading by remember { mutableStateOf(false) }
 
     var activeList by remember {
-        val arr = cachedPrepaid?.data?.optJSONArray("items") ?: cachedPrepaid?.dataArray ?: JSONArray()
-        mutableStateOf(List(arr.length()) { i -> arr.getJSONObject(i) })
+        mutableStateOf(
+            if (cachedPrepaid?.status == true) {
+                parseServicesJsonList(cachedPrepaid.data?.optJSONArray("items") ?: cachedPrepaid.dataArray)
+            } else emptyList()
+        )
     }
     var activeStatusFilter by remember { mutableStateOf("All") } // All | on | off
 
     var voucherList by remember {
-        val arr = cachedVouchers?.data?.optJSONArray("vouchers") ?: cachedVouchers?.dataArray ?: JSONArray()
-        mutableStateOf(List(arr.length()) { i -> arr.getJSONObject(i) })
+        mutableStateOf(
+            if (cachedVouchers?.status == true) {
+                parseServicesJsonList(cachedVouchers.data?.optJSONArray("vouchers") ?: cachedVouchers.dataArray)
+            } else emptyList()
+        )
     }
     var usageList by remember {
-        val arr = cachedUsage?.data?.optJSONArray("items") ?: cachedUsage?.data?.optJSONArray("users") ?: JSONArray()
-        mutableStateOf(List(arr.length()) { i -> arr.getJSONObject(i) })
+        mutableStateOf(
+            if (cachedUsage?.status == true) {
+                parseServicesJsonList(cachedUsage.data?.optJSONArray("items") ?: cachedUsage.data?.optJSONArray("users"))
+            } else emptyList()
+        )
     }
     var usageSummary by remember { mutableStateOf(cachedUsage?.data?.optJSONObject("summary")) }
 
     var couponList by remember {
-        val arr = cachedCoupons?.dataArray ?: cachedCoupons?.data?.optJSONArray("coupons") ?: JSONArray()
-        mutableStateOf(List(arr.length()) { i -> arr.getJSONObject(i) })
+        mutableStateOf(
+            if (cachedCoupons?.status == true) {
+                parseServicesJsonList(cachedCoupons.dataArray ?: cachedCoupons.data?.optJSONArray("coupons"))
+            } else emptyList()
+        )
     }
     var searchQuery by remember { mutableStateOf("") }
 
     var targetCustomer by remember { mutableStateOf<JSONObject?>(null) }
     var rawCatalogPlans by remember {
-        val arr = cachedPlans?.data?.optJSONArray("plans") ?: JSONArray()
-        mutableStateOf(List(arr.length()) { i -> arr.getJSONObject(i) })
+        mutableStateOf(
+            if (cachedPlans?.status == true) {
+                parseServicesJsonList(cachedPlans.data?.optJSONArray("plans"))
+            } else emptyList()
+        )
     }
     var rawCatalogRouters by remember { mutableStateOf(cachedPlans?.data?.optJSONArray("routers")) }
     var selectedRouterFilter by remember { mutableStateOf("All") }
@@ -147,35 +173,35 @@ fun AdminServicesScreen(
             when (currentSubTab) {
                 "active_users" -> {
                     val cRes = ApiClient.getCached("admin_prepaid_list", mapOf("limit" to 250))
-                    if (cRes?.status == true) {
-                        val cArr = cRes.data?.optJSONArray("items") ?: cRes.dataArray ?: JSONArray()
-                        activeList = List(cArr.length()) { i -> cArr.getJSONObject(i) }
+                    if (cRes?.status == true && activeList.isEmpty()) {
+                        activeList = withContext(Dispatchers.Default) {
+                            parseServicesJsonList(cRes.data?.optJSONArray("items") ?: cRes.dataArray)
+                        }
                     } else if (activeList.isEmpty()) {
                         isLoading = true
                     }
                     val res = ApiClient.request("admin_prepaid_list", mapOf("limit" to 250), forceRefresh = forceRefresh)
                     if (res.status) {
-                        val arr = res.data?.optJSONArray("items") ?: res.dataArray ?: JSONArray()
-                        val list = mutableListOf<JSONObject>()
-                        for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
-                        activeList = list
+                        activeList = withContext(Dispatchers.Default) {
+                            parseServicesJsonList(res.data?.optJSONArray("items") ?: res.dataArray)
+                        }
                     }
                 }
                 "recharge_plan", "deposit_balance" -> {
                     val cRes = ApiClient.getCached("admin_plans")
-                    if (cRes?.status == true && cRes.data != null) {
-                        val cArr = cRes.data.optJSONArray("plans") ?: JSONArray()
-                        rawCatalogPlans = List(cArr.length()) { i -> cArr.getJSONObject(i) }
+                    if (cRes?.status == true && cRes.data != null && rawCatalogPlans.isEmpty()) {
+                        rawCatalogPlans = withContext(Dispatchers.Default) {
+                            parseServicesJsonList(cRes.data.optJSONArray("plans"))
+                        }
                         rawCatalogRouters = cRes.data.optJSONArray("routers")
                     } else if (rawCatalogPlans.isEmpty()) {
                         isLoading = true
                     }
                     val res = ApiClient.request("admin_plans", emptyMap(), forceRefresh = forceRefresh)
                     if (res.status && res.data != null) {
-                        val arr = res.data.optJSONArray("plans") ?: JSONArray()
-                        val list = mutableListOf<JSONObject>()
-                        for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
-                        rawCatalogPlans = list
+                        rawCatalogPlans = withContext(Dispatchers.Default) {
+                            parseServicesJsonList(res.data.optJSONArray("plans"))
+                        }
                         rawCatalogRouters = res.data.optJSONArray("routers")
 
                         val uArr = res.data.optJSONArray("usings")
@@ -188,52 +214,52 @@ fun AdminServicesScreen(
                 }
                 "vouchers" -> {
                     val cRes = ApiClient.getCached("admin_vouchers", mapOf("limit" to 200))
-                    if (cRes?.status == true) {
-                        val cArr = cRes.data?.optJSONArray("vouchers") ?: cRes.dataArray ?: JSONArray()
-                        voucherList = List(cArr.length()) { i -> cArr.getJSONObject(i) }
+                    if (cRes?.status == true && voucherList.isEmpty()) {
+                        voucherList = withContext(Dispatchers.Default) {
+                            parseServicesJsonList(cRes.data?.optJSONArray("vouchers") ?: cRes.dataArray)
+                        }
                     } else if (voucherList.isEmpty()) {
                         isLoading = true
                     }
                     val res = ApiClient.request("admin_vouchers", mapOf("limit" to 200), forceRefresh = forceRefresh)
                     if (res.status) {
-                        val arr = res.data?.optJSONArray("vouchers") ?: res.dataArray ?: JSONArray()
-                        val list = mutableListOf<JSONObject>()
-                        for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
-                        voucherList = list
+                        voucherList = withContext(Dispatchers.Default) {
+                            parseServicesJsonList(res.data?.optJSONArray("vouchers") ?: res.dataArray)
+                        }
                     }
                 }
                 "data_usage" -> {
                     val cRes = ApiClient.getCached("admin_data_usage")
-                    if (cRes?.status == true && cRes.data != null) {
+                    if (cRes?.status == true && cRes.data != null && usageList.isEmpty()) {
                         usageSummary = cRes.data.optJSONObject("summary")
-                        val cArr = cRes.data.optJSONArray("items") ?: cRes.data.optJSONArray("users") ?: JSONArray()
-                        usageList = List(cArr.length()) { i -> cArr.getJSONObject(i) }
+                        usageList = withContext(Dispatchers.Default) {
+                            parseServicesJsonList(cRes.data.optJSONArray("items") ?: cRes.data.optJSONArray("users"))
+                        }
                     } else if (usageList.isEmpty()) {
                         isLoading = true
                     }
                     val res = ApiClient.request("admin_data_usage", emptyMap(), forceRefresh = forceRefresh)
                     if (res.status && res.data != null) {
                         usageSummary = res.data.optJSONObject("summary")
-                        val arr = res.data.optJSONArray("items") ?: res.data.optJSONArray("users") ?: JSONArray()
-                        val list = mutableListOf<JSONObject>()
-                        for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
-                        usageList = list
+                        usageList = withContext(Dispatchers.Default) {
+                            parseServicesJsonList(res.data.optJSONArray("items") ?: res.data.optJSONArray("users"))
+                        }
                     }
                 }
                 "coupons" -> {
                     val cRes = ApiClient.getCached("admin_coupons")
-                    if (cRes?.status == true) {
-                        val cArr = cRes.dataArray ?: cRes.data?.optJSONArray("coupons") ?: JSONArray()
-                        couponList = List(cArr.length()) { i -> cArr.getJSONObject(i) }
+                    if (cRes?.status == true && couponList.isEmpty()) {
+                        couponList = withContext(Dispatchers.Default) {
+                            parseServicesJsonList(cRes.dataArray ?: cRes.data?.optJSONArray("coupons"))
+                        }
                     } else if (couponList.isEmpty()) {
                         isLoading = true
                     }
                     val res = ApiClient.request("admin_coupons", emptyMap(), forceRefresh = forceRefresh)
                     if (res.status) {
-                        val arr = res.dataArray ?: res.data?.optJSONArray("coupons") ?: JSONArray()
-                        val list = mutableListOf<JSONObject>()
-                        for (i in 0 until arr.length()) list.add(arr.getJSONObject(i))
-                        couponList = list
+                        couponList = withContext(Dispatchers.Default) {
+                            parseServicesJsonList(res.dataArray ?: res.data?.optJSONArray("coupons"))
+                        }
                     }
                 }
             }
@@ -397,7 +423,8 @@ fun AdminServicesScreen(
                 } else {
                     LazyColumn(
                         contentPadding = PaddingValues(bottom = 95.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxSize()
                     ) {
                         items(filteredActiveList) { item ->
                             val isOn = item.optString("status") == "on"
@@ -929,7 +956,8 @@ fun AdminServicesScreen(
 
                 LazyColumn(
                     contentPadding = PaddingValues(bottom = 95.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxSize()
                 ) {
                     items(filteredVoucherList) { v ->
                         val used = v.optString("status") == "1"
@@ -1177,7 +1205,8 @@ fun AdminServicesScreen(
                 } else {
                     LazyColumn(
                         contentPadding = PaddingValues(bottom = 95.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
                     ) {
                         items(filteredCouponList) { c ->
                             val cId = c.optInt("id")
@@ -1378,7 +1407,8 @@ fun AdminServicesScreen(
 
                 LazyColumn(
                     contentPadding = PaddingValues(bottom = 95.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxSize()
                 ) {
                     items(usageList) { u ->
                         Card(
