@@ -1,16 +1,23 @@
 package id.biz.arneta.admin.ui.screens
 
-import androidx.compose.foundation.background
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
+import android.widget.HorizontalScrollView
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.PersonSearch
@@ -19,12 +26,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import id.biz.arneta.admin.network.ApiClient
 import id.biz.arneta.admin.network.formatRupiah
 import id.biz.arneta.admin.network.optSafeDouble
@@ -33,9 +40,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.math.roundToInt
 
 /**
- * BAR SUB-TAB HORIZONTAL CEPAT & ANTI-STUCK (Berbasis LazyRow & Direct Clickable Surface)
+ * BAR SUB-TAB HORIZONTAL NATIVE ANDROID (ANTI-STUCK & 100% RESPONSIF DI COMPILESDK 37 / KOTLIN 2.4)
+ * Menggunakan Native HorizontalScrollView + requestDisallowInterceptTouchEvent(true)
+ * agar geseran dan klik sub-tab selalu instan dan tidak pernah terblokir oleh Drawer / Compose Scrollable.
  */
 @Composable
 fun ArnetaSubTabBar(
@@ -44,63 +54,116 @@ fun ArnetaSubTabBar(
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    LazyRow(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier.fillMaxWidth()
-    ) {
-        items(items = tabs, key = { it.first }) { (tabKey, tabLabel) ->
-            val isSelected = selectedKey.equals(tabKey, ignoreCase = true)
-            val bgColor = if (isSelected) {
-                ArnetaIndigoAccent.copy(alpha = 0.45f)
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-            }
-            val borderColor = if (isSelected) {
-                ArnetaGoldPrimary
-            } else {
-                MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
-            }
-            val textColor = if (isSelected) {
-                ArnetaGoldPrimary
-            } else {
-                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f)
-            }
+    val currentOnSelect by rememberUpdatedState(onSelect)
 
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(bgColor)
-                    .border(
-                        width = if (isSelected) 1.5.dp else 1.dp,
-                        color = borderColor,
-                        shape = RoundedCornerShape(10.dp)
-                    )
-                    .clickable { onSelect(tabKey) }
-                    .padding(horizontal = 13.dp, vertical = 8.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (isSelected) {
-                        Icon(
-                            imageVector = Icons.Filled.Check,
-                            contentDescription = null,
-                            tint = ArnetaGoldPrimary,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(5.dp))
-                    }
-                    Text(
-                        text = tabLabel,
-                        fontSize = 12.sp,
-                        fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
-                        color = textColor,
-                        maxLines = 1
+    AndroidView(
+        factory = { ctx ->
+            object : HorizontalScrollView(ctx) {
+                override fun dispatchTouchEvent(ev: MotionEvent?): Boolean {
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    return super.dispatchTouchEvent(ev)
+                }
+            }.apply {
+                isHorizontalScrollBarEnabled = false
+                isFillViewport = false
+                overScrollMode = View.OVER_SCROLL_NEVER
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+
+                val container = LinearLayout(ctx).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    layoutParams = FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
                     )
                 }
+                addView(container)
             }
-        }
-    }
+        },
+        update = { scrollView ->
+            val container = scrollView.getChildAt(0) as? LinearLayout ?: return@AndroidView
+            val ctx = scrollView.context
+            val density = ctx.resources.displayMetrics.density
+
+            fun dpToPx(dp: Float): Int = (dp * density).roundToInt()
+
+            val signature = "$selectedKey|${tabs.joinToString(";") { "${it.first}:${it.second}" }}"
+            if (container.tag != signature) {
+                container.tag = signature
+                container.removeAllViews()
+
+                var selectedChipView: View? = null
+
+                tabs.forEachIndexed { index, (tabKey, tabLabel) ->
+                    val isSelected = selectedKey.equals(tabKey, ignoreCase = true)
+
+                    val chipBg = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = dpToPx(10f).toFloat()
+                        if (isSelected) {
+                            setColor(android.graphics.Color.parseColor("#733730A3")) // ArnetaIndigoAccent 45%
+                            setStroke(dpToPx(1.5f), android.graphics.Color.parseColor("#F59E0B")) // ArnetaGoldPrimary
+                        } else {
+                            setColor(android.graphics.Color.parseColor("#66283548")) // SurfaceVariant 40%
+                            setStroke(dpToPx(1f), android.graphics.Color.parseColor("#66334155")) // Outline
+                        }
+                    }
+
+                    val chipView = TextView(ctx).apply {
+                        text = if (isSelected) "✓  $tabLabel" else tabLabel
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                        typeface = Typeface.DEFAULT_BOLD
+                        setTextColor(
+                            if (isSelected) android.graphics.Color.parseColor("#F59E0B")
+                            else android.graphics.Color.parseColor("#E6F1F5F9")
+                        )
+                        gravity = Gravity.CENTER
+                        maxLines = 1
+                        isSingleLine = true
+                        background = chipBg
+                        setPadding(dpToPx(13f), dpToPx(8f), dpToPx(13f), dpToPx(8f))
+                        isClickable = true
+                        isFocusable = true
+                        setOnClickListener {
+                            currentOnSelect(tabKey)
+                        }
+                    }
+
+                    val lp = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        if (index < tabs.size - 1) {
+                            marginEnd = dpToPx(8f)
+                        }
+                    }
+
+                    container.addView(chipView, lp)
+                    if (isSelected) {
+                        selectedChipView = chipView
+                    }
+                }
+
+                // Pastikan tab yang sedang aktif selalu terlihat di dalam area scroll
+                selectedChipView?.let { target ->
+                    scrollView.post {
+                        val targetLeft = target.left
+                        val targetRight = target.right
+                        val scrollLeft = scrollView.scrollX
+                        val scrollRight = scrollLeft + scrollView.width
+                        if (targetLeft < scrollLeft || targetRight > scrollRight) {
+                            val scrollToX = (targetLeft - dpToPx(24f)).coerceAtLeast(0)
+                            scrollView.smoothScrollTo(scrollToX, 0)
+                        }
+                    }
+                }
+            }
+        },
+        modifier = modifier.fillMaxWidth()
+    )
 }
 
 @Composable
@@ -384,10 +447,7 @@ fun CustomerLiveSearchPicker(
                         contentPadding = PaddingValues(6.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        items(
-                            items = filteredCustomers,
-                            key = { it.optInt("id", it.optString("username").hashCode()) }
-                        ) { cust ->
+                        items(filteredCustomers) { cust ->
                             val isSel = selectedCustomer?.optInt("id") == cust.optInt("id")
                             Surface(
                                 color = if (isSel) ArnetaGoldPrimary.copy(alpha = 0.22f) else MaterialTheme.colorScheme.surface,
