@@ -1,8 +1,24 @@
 package id.biz.arneta.admin.ui.screens
 
+import android.Manifest
+import android.annotation.SuppressLint
+import android.content.Context
+import android.content.pm.PackageManager
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import android.os.Bundle
+import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,20 +35,428 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import id.biz.arneta.admin.network.ApiClient
 import id.biz.arneta.admin.network.formatRupiah
+import id.biz.arneta.admin.network.optSafeDouble
 import id.biz.arneta.admin.ui.theme.*
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Locale
+
+private fun parseLatLngPair(coordsStr: String?): Pair<Double, Double>? {
+    if (coordsStr.isNullOrBlank()) return null
+    val parts = coordsStr.split(",")
+    if (parts.size < 2) return null
+    val lat = parts[0].trim().toDoubleOrNull() ?: return null
+    val lng = parts[1].trim().toDoubleOrNull() ?: return null
+    if (lat.isNaN() || lng.isNaN()) return null
+    return lat to lng
+}
 
 /**
- * LAYAR PENUH NATIVE: TAMBAH / EDIT PELANGGAN (DENGAN QUICK-ADD PAKET & CUSTOM FIELDS)
+ * DIALOG PEMILIH TITIK KOORDINAT PETA INTERAKTIF (LEAFLET)
+ * Otomatis melakukan Zoom-In ke titik koordinat & lingkaran radius Router Server terpilih.
+ */
+@SuppressLint("SetJavaScriptEnabled", "MissingPermission")
+@Composable
+internal fun ArnetaMapCoordinatePickerDialog(
+    routerName: String,
+    routerObj: JSONObject?,
+    initialCoordinates: String,
+    onDismiss: () -> Unit,
+    onConfirmCoordinates: (String) -> Unit
+) {
+    val context = LocalContext.current
+
+    val routerCoordsPair = remember(routerObj) {
+        val fromCoordStr = parseLatLngPair(routerObj?.optString("coordinates"))
+        if (fromCoordStr != null) {
+            fromCoordStr
+        } else {
+            val rLat = routerObj?.optDouble("lat", Double.NaN) ?: Double.NaN
+            val rLng = routerObj?.optDouble("lng", Double.NaN) ?: Double.NaN
+            if (!rLat.isNaN() && !rLng.isNaN()) rLat to rLng else (-6.200000 to 106.816666)
+        }
+    }
+    val routerCoverageMeters = remember(routerObj) {
+        routerObj?.optString("coverage", "350")?.trim()?.toIntOrNull()?.takeIf { it > 0 }
+            ?: routerObj?.optInt("coverage", 350)?.takeIf { it > 0 }
+            ?: 350
+    }
+
+    val initialPinPair = remember(initialCoordinates, routerCoordsPair) {
+        parseLatLngPair(initialCoordinates) ?: routerCoordsPair
+    }
+
+    var pickedCoords by remember {
+        mutableStateOf(
+            String.format(Locale.US, "%.6f, %.6f", initialPinPair.first, initialPinPair.second)
+        )
+    }
+    var distanceInfoText by remember { mutableStateOf("Ketuk peta atau geser pin biru untuk menentukan lokasi") }
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+
+    fun movePinToGpsLocation() {
+        val locMgr = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return
+        val lastGps = runCatching { locMgr.getLastKnownLocation(LocationManager.GPS_PROVIDER) }.getOrNull()
+        val lastNet = runCatching { locMgr.getLastKnownLocation(LocationManager.NETWORK_PROVIDER) }.getOrNull()
+        val best = when {
+            lastGps != null && lastNet != null -> if (lastGps.time >= lastNet.time) lastGps else lastNet
+            lastGps != null -> lastGps
+            else -> lastNet
+        }
+        if (best != null) {
+            val lat = best.latitude
+            val lng = best.longitude
+            pickedCoords = String.format(Locale.US, "%.6f, %.6f", lat, lng)
+            webViewRef?.evaluateJavascript("if(window.setPickedLocation) window.setPickedLocation($lat, $lng, true);", null)
+        }
+
+        val listener = object : LocationListener {
+            override fun onLocationChanged(loc: Location) {
+                val lat = loc.latitude
+                val lng = loc.longitude
+                pickedCoords = String.format(Locale.US, "%.6f, %.6f", lat, lng)
+                webViewRef?.evaluateJavascript("if(window.setPickedLocation) window.setPickedLocation($lat, $lng, true);", null)
+                runCatching { locMgr.removeUpdates(this) }
+            }
+            @Deprecated("Deprecated in Java")
+            override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+            override fun onProviderEnabled(provider: String) {}
+            override fun onProviderDisabled(provider: String) {}
+        }
+        runCatching {
+            if (locMgr.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                locMgr.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0L, 0f, listener)
+            } else if (locMgr.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                locMgr.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 0L, 0f, listener)
+            }
+        }
+    }
+
+    val gpsPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { perms ->
+        if (perms[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            perms[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        ) {
+            movePinToGpsLocation()
+        } else {
+            Toast.makeText(context, "Izin lokasi diperlukan untuk mengambil titik GPS.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val pickerHtml = remember(routerName, routerCoordsPair, routerCoverageMeters, initialPinPair) {
+        val rLat = routerCoordsPair.first
+        val rLng = routerCoordsPair.second
+        val pLat = initialPinPair.first
+        val pLng = initialPinPair.second
+        val safeRName = routerName.replace("'", "\\'").replace("\"", "&quot;")
+
+        """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
+            <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+            <style>
+                * { box-sizing: border-box; margin: 0; padding: 0; }
+                html, body { width: 100%; height: 100vh; overflow: hidden; background: #0B1120; font-family: sans-serif; }
+                #map { position: absolute; top: 0; bottom: 0; left: 0; right: 0; width: 100%; height: 100vh; z-index: 1; }
+                .pin-wrap { display: flex; flex-direction: column; align-items: center; transform: translate(-50%, -100%); }
+                .pin-label {
+                    background: rgba(15, 23, 42, 0.92); color: #FFFFFF; padding: 2px 7px; border-radius: 6px;
+                    font-size: 11px; font-weight: bold; white-space: nowrap; box-shadow: 0 2px 5px rgba(0,0,0,0.45);
+                    margin-bottom: 3px; border: 1px solid rgba(255,255,255,0.25);
+                }
+                .pin-label-router { background: #F59E0B; color: #0B0F19; border: 1.5px solid #FFFFFF; }
+                .pin-label-pick { background: #3B82F6; color: #FFFFFF; border: 1.5px solid #FFFFFF; }
+                .pin-dot {
+                    width: 28px; height: 28px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg);
+                    display: flex; align-items: center; justify-content: center; border: 2px solid #FFFFFF;
+                    box-shadow: 0 3px 6px rgba(0,0,0,0.5);
+                }
+                .pin-dot span { transform: rotate(45deg); font-size: 13px; }
+            </style>
+        </head>
+        <body>
+            <div id="map"></div>
+            <script>
+                var osmStreet = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 20, attribution: '© OpenStreetMap' });
+                var googleHybrid = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', { maxZoom: 20, attribution: '© Google Hybrid' });
+
+                var routerLat = $rLat;
+                var routerLng = $rLng;
+                var routerCov = $routerCoverageMeters;
+                var routerName = '$safeRName';
+
+                var map = L.map('map', { center: [$pLat, $pLng], zoom: 17, layers: [osmStreet], zoomControl: true });
+                L.control.layers({
+                    "OpenStreetMap": osmStreet,
+                    "Satelit Hybrid (Atap Rumah)": googleHybrid
+                }).addTo(map);
+
+                function makePinIcon(label, bgColor, emoji, extraClass) {
+                    var html = '<div class="pin-wrap"><div class="pin-label ' + extraClass + '">' + label + '</div>' +
+                               '<div class="pin-dot" style="background:' + bgColor + ';"><span>' + emoji + '</span></div></div>';
+                    return L.divIcon({ className: '', html: html, iconSize: [0, 0], iconAnchor: [0, 0], popupAnchor: [0, -34] });
+                }
+
+                function fmtDist(m) {
+                    var d = Math.round(m || 0);
+                    return d >= 1000 ? ((d / 1000).toFixed(2) + ' km (' + d + ' m)') : (d + ' m');
+                }
+
+                // Lingkaran radius server
+                L.circle([routerLat, routerLng], {
+                    radius: routerCov,
+                    color: '#00C0EF',
+                    weight: 2,
+                    fillColor: '#00C0EF',
+                    fillOpacity: 0.15
+                }).addTo(map);
+
+                // Marker Server
+                var rIcon = makePinIcon('📡 ' + routerName + ' (' + fmtDist(routerCov) + ')', '#F59E0B', '📡', 'pin-label-router');
+                L.marker([routerLat, routerLng], { icon: rIcon, zIndexOffset: 900 }).addTo(map);
+
+                // Marker Titik Lokasi Pelanggan (Draggable)
+                var pIcon = makePinIcon('📍 Titik Lokasi', '#3B82F6', '📍', 'pin-label-pick');
+                var pickMarker = L.marker([$pLat, $pLng], { icon: pIcon, draggable: true, zIndexOffset: 2000 }).addTo(map);
+
+                function notifyAndroid(lat, lng) {
+                    var dist = Math.round(map.distance([lat, lng], [routerLat, routerLng]));
+                    var inside = dist <= routerCov;
+                    var statusTxt = inside
+                        ? ('✅ Dalam Radius ' + routerName + ' (' + fmtDist(dist) + ' / ' + fmtDist(routerCov) + ')')
+                        : ('⚠️ Luar Radius ' + routerName + ' (' + fmtDist(dist) + ' / ' + fmtDist(routerCov) + ')');
+                    if (window.AndroidCoordPicker && window.AndroidCoordPicker.onCoordinateChanged) {
+                        window.AndroidCoordPicker.onCoordinateChanged(lat.toFixed(6) + ', ' + lng.toFixed(6), statusTxt);
+                    }
+                }
+
+                pickMarker.on('dragend', function(e) {
+                    var pos = pickMarker.getLatLng();
+                    notifyAndroid(pos.lat, pos.lng);
+                });
+
+                map.on('click', function(e) {
+                    pickMarker.setLatLng(e.latlng);
+                    notifyAndroid(e.latlng.lat, e.latlng.lng);
+                });
+
+                window.setPickedLocation = function(lat, lng, fly) {
+                    pickMarker.setLatLng([lat, lng]);
+                    if (fly) map.flyTo([lat, lng], 18, { duration: 0.7 });
+                    notifyAndroid(lat, lng);
+                };
+
+                window.focusServerArea = function() {
+                    map.flyTo([routerLat, routerLng], 17, { duration: 0.7 });
+                };
+
+                setTimeout(function() {
+                    map.invalidateSize();
+                    map.setView([$pLat, $pLng], 17);
+                    notifyAndroid($pLat, $pLng);
+                }, 250);
+            </script>
+        </body>
+        </html>
+        """.trimIndent()
+    }
+
+    ArnetaFullScreenDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Color(0xFF0B1120),
+        topBar = {
+            Surface(
+                color = Color(0xFF141B2D),
+                shadowElevation = 6.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            IconButton(onClick = onDismiss) {
+                                Icon(Icons.Filled.ArrowBack, contentDescription = "Kembali", tint = Color.White)
+                            }
+                            Column {
+                                Text(
+                                    text = "Pilih Koordinat Lokasi Peta",
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 16.sp,
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = "Server: $routerName • Radius: ${routerCoverageMeters}m",
+                                    fontSize = 11.5.sp,
+                                    color = ArnetaGoldPrimary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            AssistChip(
+                                onClick = {
+                                    webViewRef?.evaluateJavascript("if(window.focusServerArea) window.focusServerArea();", null)
+                                },
+                                label = { Text("📡 Fokus Server", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                            )
+                            AssistChip(
+                                onClick = {
+                                    val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                                    val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                                    if (hasFine || hasCoarse) {
+                                        movePinToGpsLocation()
+                                    } else {
+                                        gpsPermissionLauncher.launch(
+                                            arrayOf(
+                                                Manifest.permission.ACCESS_FINE_LOCATION,
+                                                Manifest.permission.ACCESS_COARSE_LOCATION
+                                            )
+                                        )
+                                    }
+                                },
+                                label = { Text("📍 GPS Saya", fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        bottomBar = {
+            Surface(
+                color = Color(0xFF141B2D),
+                shadowElevation = 12.dp,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Koordinat Terpilih: $pickedCoords",
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 13.sp,
+                                color = ArnetaGoldPrimary
+                            )
+                            Text(
+                                text = distanceInfoText,
+                                fontSize = 11.sp,
+                                color = ArnetaCyanIncome,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedButton(
+                            onClick = onDismiss,
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(0.35f)
+                                .height(46.dp)
+                        ) {
+                            Text("Batal", fontWeight = FontWeight.Bold)
+                        }
+
+                        Button(
+                            onClick = { onConfirmCoordinates(pickedCoords) },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = ArnetaGoldPrimary,
+                                contentColor = Color(0xFF0B0F19)
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .weight(0.65f)
+                                .height(46.dp)
+                        ) {
+                            Icon(Icons.Filled.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Konfirmasi Koordinat",
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 13.5.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    ) { innerPadding ->
+        AndroidView(
+            factory = { ctx ->
+                WebView(ctx).apply {
+                    layoutParams = android.view.ViewGroup.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                    settings.apply {
+                        javaScriptEnabled = true
+                        domStorageEnabled = true
+                        databaseEnabled = true
+                        loadsImagesAutomatically = true
+                        mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                    }
+                    addJavascriptInterface(
+                        object {
+                            @JavascriptInterface
+                            fun onCoordinateChanged(coordStr: String, distStatus: String) {
+                                post {
+                                    pickedCoords = coordStr
+                                    distanceInfoText = distStatus
+                                }
+                            }
+                        },
+                        "AndroidCoordPicker"
+                    )
+                    webChromeClient = WebChromeClient()
+                    webViewClient = WebViewClient()
+                    loadDataWithBaseURL(ApiClient.baseUrl, pickerHtml, "text/html", "UTF-8", null)
+                    webViewRef = this
+                }
+            },
+            update = { webViewRef = it },
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        )
+    }
+}
+
+/**
+ * LAYAR PENUH NATIVE: TAMBAH / EDIT PELANGGAN (DENGAN KUNCI KOORDINAT SERVER & INTERACTIVE MAP PICKER)
  */
 @Composable
 internal fun CustomerFormDialog(
@@ -58,8 +482,38 @@ internal fun CustomerFormDialog(
     var pppoeIp by remember { mutableStateOf(initial?.optString("pppoe_ip") ?: "") }
     var coordinates by remember { mutableStateOf(initial?.optString("coordinates") ?: "") }
 
-    var allInternetPlans by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
-    var routerOptions by remember { mutableStateOf(listOf("All" to "Semua Router")) }
+    val cachedPlans = remember { ApiClient.getCached("admin_plans")?.data }
+    val cachedRouters = remember { ApiClient.getCached("admin_routers") }
+
+    var allInternetPlans by remember {
+        val arr = cachedPlans?.optJSONArray("plans") ?: JSONArray()
+        val list = mutableListOf<JSONObject>()
+        for (i in 0 until arr.length()) {
+            val p = arr.getJSONObject(i)
+            if (!p.optString("type").equals("Balance", ignoreCase = true)) list.add(p)
+        }
+        mutableStateOf<List<JSONObject>>(list)
+    }
+    var routersDetailMap by remember {
+        val map = linkedMapOf<String, JSONObject>()
+        val rArr1 = cachedPlans?.optJSONArray("routers") ?: JSONArray()
+        for (i in 0 until rArr1.length()) {
+            val r = rArr1.optJSONObject(i) ?: continue
+            val n = r.optString("name").trim()
+            if (n.isNotEmpty()) map[n.lowercase()] = r
+        }
+        val rArr2 = cachedRouters?.dataArray ?: cachedRouters?.data?.optJSONArray("routers") ?: JSONArray()
+        for (i in 0 until rArr2.length()) {
+            val r = rArr2.optJSONObject(i) ?: continue
+            val n = r.optString("name").trim()
+            if (n.isNotEmpty()) map[n.lowercase()] = r
+        }
+        mutableStateOf>(map)
+    }
+
+    var routerOptions by remember {
+        mutableStateOf(extractRouterOptions(allInternetPlans, cachedPlans?.optJSONArray("routers")))
+    }
     var selectedRouterFilter by remember {
         mutableStateOf(
             initial?.optJSONObject("active_package")?.optString("routers", "")?.takeIf { it.isNotEmpty() } ?: "All"
@@ -69,6 +523,7 @@ internal fun CustomerFormDialog(
     var selectedPlan by remember { mutableStateOf<JSONObject?>(null) }
     var selectedUsing by remember { mutableStateOf("") }
     var activatePackageOnEdit by remember { mutableStateOf(false) }
+    var showMapCoordinatePicker by remember { mutableStateOf(false) }
 
     var sendWelcomeMessage by remember { mutableStateOf(!isEdit) }
     var welcomeViaWa by remember { mutableStateOf(true) }
@@ -102,7 +557,18 @@ internal fun CustomerFormDialog(
                 }
             }
             allInternetPlans = pList
-            routerOptions = extractRouterOptions(pList, res.data.optJSONArray("routers"))
+            val rArr = res.data.optJSONArray("routers")
+            routerOptions = extractRouterOptions(pList, rArr)
+
+            val newMap = routersDetailMap.toMutableMap()
+            if (rArr != null) {
+                for (i in 0 until rArr.length()) {
+                    val r = rArr.optJSONObject(i) ?: continue
+                    val n = r.optString("name").trim()
+                    if (n.isNotEmpty()) newMap[n.lowercase()] = r
+                }
+            }
+            routersDetailMap = newMap
 
             val uArr = res.data.optJSONArray("usings")
             if (uArr != null && uArr.length() > 0) {
@@ -114,6 +580,27 @@ internal fun CustomerFormDialog(
                 }
                 paymentUsings = uList
             }
+        }
+
+        // Ambil detail koordinat & coverage router dari admin_routers
+        val rRes = ApiClient.request("admin_routers")
+        if (rRes.status) {
+            val rArr = rRes.dataArray ?: rRes.data?.optJSONArray("routers") ?: JSONArray()
+            val newMap = routersDetailMap.toMutableMap()
+            for (i in 0 until rArr.length()) {
+                val r = rArr.optJSONObject(i) ?: continue
+                val n = r.optString("name").trim()
+                if (n.isNotEmpty()) newMap[n.lowercase()] = r
+            }
+            routersDetailMap = newMap
+        }
+    }
+
+    // Jika hanya ada 1 router server di sistem dan masih 'All', otomatis pilih router tersebut
+    LaunchedEffect(routerOptions) {
+        val specificRouters = routerOptions.filter { it.first != "All" && !it.first.equals("Radius", ignoreCase = true) }
+        if (selectedRouterFilter == "All" && specificRouters.size == 1) {
+            selectedRouterFilter = specificRouters.first().first
         }
     }
 
@@ -139,8 +626,23 @@ internal fun CustomerFormDialog(
         }
     }
 
-    val existingBalance = initial?.optDouble("balance", 0.0) ?: 0.0
-    val selectedPlanPrice = selectedPlan?.optDouble("price", 0.0) ?: 0.0
+    // Nama router server aktif yang digunakan untuk kunci koordinat & zoom peta
+    val effectiveServerName = remember(selectedRouterFilter, selectedPlan, initial) {
+        when {
+            selectedRouterFilter.isNotBlank() && selectedRouterFilter != "All" -> selectedRouterFilter
+            selectedPlan != null && selectedPlan!!.optString("routers").isNotBlank() && !selectedPlan!!.optString("routers").equals("Radius", true) -> {
+                selectedPlan!!.optString("routers")
+            }
+            else -> initial?.optJSONObject("active_package")?.optString("routers", "")?.takeIf { it.isNotBlank() && !it.equals("Radius", true) } ?: ""
+        }
+    }
+    val isServerChosenForMap = effectiveServerName.isNotBlank() && !effectiveServerName.equals("All", ignoreCase = true)
+    val selectedRouterDetailObj = remember(effectiveServerName, routersDetailMap) {
+        routersDetailMap[effectiveServerName.lowercase()]
+    }
+
+    val existingBalance = initial.optSafeDouble("balance", 0.0)
+    val selectedPlanPrice = selectedPlan.optSafeDouble("price", 0.0)
     val isBalanceInsufficient = !isEdit || (selectedPlanPrice > 0.0 && existingBalance < selectedPlanPrice)
 
     LaunchedEffect(isBalanceInsufficient, selectedUsing) {
@@ -152,6 +654,18 @@ internal fun CustomerFormDialog(
     val needPackageAndMethod = !isEdit || activatePackageOnEdit
     val canSubmit = !isSaving && username.isNotBlank() && fullname.isNotBlank() &&
         (!needPackageAndMethod || (selectedPlan != null && selectedUsing.isNotBlank()))
+
+    fun tryOpenMapPicker() {
+        if (!isServerChosenForMap) {
+            Toast.makeText(
+                context,
+                "Pilih Lokasi Server / Router terlebih dahulu untuk membuka kunci koordinat peta!",
+                Toast.LENGTH_SHORT
+            ).show()
+        } else {
+            showMapCoordinatePicker = true
+        }
+    }
 
     ArnetaFullScreenDialog(
         onDismissRequest = onDismiss,
@@ -328,7 +842,7 @@ internal fun CustomerFormDialog(
                                                 fallbackTitle = if (isEdit) "Data & Paket Diperbarui!" else "Pelanggan & Paket Aktif!",
                                                 fallbackCustomer = res.data,
                                                 fallbackPlanName = selectedPlan?.optString("name_plan") ?: "-",
-                                                fallbackPrice = selectedPlan?.optDouble("price", 0.0) ?: 0.0,
+                                                fallbackPrice = selectedPlan.optSafeDouble("price", 0.0),
                                                 fallbackMethod = selectedUsing,
                                                 fallbackRouter = selectedPlan?.optString("routers", "-") ?: "-"
                                             )
@@ -429,7 +943,7 @@ internal fun CustomerFormDialog(
                 }
             }
 
-            // SECTION 2: IDENTITAS & KONTAK PELANGGAN
+            // SECTION 2: IDENTITAS, SERVER ROUTER & KOORDINAT PETA
             Card(
                 shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -440,7 +954,7 @@ internal fun CustomerFormDialog(
                     modifier = Modifier.padding(14.dp)
                 ) {
                     Text(
-                        text = "2. Identitas & Kontak Pelanggan",
+                        text = "2. Identitas, Kontak & Titik Lokasi Pelanggan",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = ArnetaCyanIncome
@@ -514,15 +1028,71 @@ internal fun CustomerFormDialog(
                         modifier = Modifier.fillMaxWidth()
                     )
 
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+
+                    // Pemilih Server Router sebelum mengisi koordinat peta
+                    CompactDropdownSelector(
+                        label = "Lokasi Server / Router (Wajib sebelum mengisi koordinat)",
+                        selectedValue = if (selectedRouterFilter == "All") "" else selectedRouterFilter,
+                        placeholder = "-- Pilih Router Server Untuk Buka Kunci Peta --",
+                        options = routerOptions.filter { it.first != "All" },
+                        icon = Icons.Filled.Router,
+                        onValueSelected = { selectedRouterFilter = it },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    // Kolom Koordinat Peta: Terkunci sampai Router Server dipilih, Ikon Lokasi Clickable
                     OutlinedTextField(
                         value = coordinates,
-                        onValueChange = { coordinates = it },
-                        label = { Text("Koordinat Peta (Lat, Lng)") },
-                        placeholder = { Text("-6.200000, 106.816666") },
-                        leadingIcon = { Icon(Icons.Filled.LocationOn, contentDescription = null, tint = ArnetaCyanIncome) },
+                        onValueChange = { if (isServerChosenForMap) coordinates = it },
+                        enabled = isServerChosenForMap,
+                        label = {
+                            Text(
+                                text = if (isServerChosenForMap) "Koordinat Peta (Server: $effectiveServerName)"
+                                else "🔒 Koordinat Peta (Pilih Router Server dulu)"
+                            )
+                        },
+                        placeholder = {
+                            Text(
+                                text = if (isServerChosenForMap) "Ketuk ikon 📍 untuk pilih di peta"
+                                else "Pilih Router Server di atas terlebih dahulu"
+                            )
+                        },
+                        leadingIcon = {
+                            IconButton(onClick = { tryOpenMapPicker() }) {
+                                Icon(
+                                    imageVector = if (isServerChosenForMap) Icons.Filled.LocationOn else Icons.Filled.Lock,
+                                    contentDescription = "Buka Peta",
+                                    tint = if (isServerChosenForMap) ArnetaCyanIncome else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+                                )
+                            }
+                        },
+                        trailingIcon = {
+                            TextButton(
+                                onClick = { tryOpenMapPicker() },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                modifier = Modifier.padding(end = 4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Map,
+                                    contentDescription = null,
+                                    tint = if (isServerChosenForMap) ArnetaGoldPrimary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Pilih Peta",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = if (isServerChosenForMap) ArnetaGoldPrimary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                                )
+                            }
+                        },
                         singleLine = true,
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = !isServerChosenForMap) { tryOpenMapPicker() }
                     )
                 }
             }
@@ -694,7 +1264,13 @@ internal fun CustomerFormDialog(
                                     SelectablePlanCard(
                                         plan = p,
                                         isSelected = selectedPlan?.optInt("id") == p.optInt("id"),
-                                        onClick = { selectedPlan = p }
+                                        onClick = {
+                                            selectedPlan = p
+                                            val pRouter = p.optString("routers", "").trim()
+                                            if (pRouter.isNotEmpty() && !pRouter.equals("Radius", true) && selectedRouterFilter == "All") {
+                                                selectedRouterFilter = pRouter
+                                            }
+                                        }
                                     )
                                 }
                             }
@@ -825,6 +1401,19 @@ internal fun CustomerFormDialog(
             Spacer(modifier = Modifier.height(12.dp))
         }
     }
+
+    if (showMapCoordinatePicker && isServerChosenForMap) {
+        ArnetaMapCoordinatePickerDialog(
+            routerName = effectiveServerName,
+            routerObj = selectedRouterDetailObj,
+            initialCoordinates = coordinates,
+            onDismiss = { showMapCoordinatePicker = false },
+            onConfirmCoordinates = { chosenCoords ->
+                coordinates = chosenCoords
+                showMapCoordinatePicker = false
+            }
+        )
+    }
 }
 
 /**
@@ -842,15 +1431,37 @@ fun QuickRechargeOrDepositDialog(
     val isSuperAdmin = remember { ApiClient.adminRole.equals("SuperAdmin", ignoreCase = true) }
     val isDeposit = mode == "deposit"
 
+    val cachedPlans = remember { ApiClient.getCached("admin_plans")?.data }
+
     var selectedCustomer by remember { mutableStateOf(initialCustomer) }
-    var plans by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
-    var routerOptions by remember { mutableStateOf(listOf("All" to "Semua Router")) }
+    var plans by remember {
+        val arr = cachedPlans?.optJSONArray("plans") ?: JSONArray()
+        val list = mutableListOf<JSONObject>()
+        for (i in 0 until arr.length()) {
+            val p = arr.getJSONObject(i)
+            val pType = p.optString("type").uppercase()
+            if (isDeposit && pType == "BALANCE") list.add(p)
+            else if (!isDeposit && pType != "BALANCE") list.add(p)
+        }
+        mutableStateOf<List<JSONObject>>(list)
+    }
+    var routerOptions by remember {
+        mutableStateOf(extractRouterOptions(plans, cachedPlans?.optJSONArray("routers")))
+    }
     var selectedRouterFilter by remember {
         mutableStateOf(
             initialCustomer?.optJSONObject("active_package")?.optString("routers", "")?.takeIf { it.isNotEmpty() } ?: "All"
         )
     }
-    var paymentUsings by remember { mutableStateOf(listOf("Cash", "Balance", "Recharge Zero")) }
+    var paymentUsings by remember {
+        val uArr = cachedPlans?.optJSONArray("usings")
+        val initUsings = if (uArr != null && uArr.length() > 0) {
+            List(uArr.length()) { i -> uArr.optString(i) }
+        } else {
+            listOf("Cash", "Balance", "Recharge Zero")
+        }
+        mutableStateOf(initUsings)
+    }
     var selectedUsing by remember { mutableStateOf("") }
     var selectedPlan by remember { mutableStateOf<JSONObject?>(null) }
     var customAmount by remember { mutableStateOf("") }
@@ -908,8 +1519,8 @@ fun QuickRechargeOrDepositDialog(
         }
     }
 
-    val customerBalance = selectedCustomer?.optDouble("balance", 0.0) ?: 0.0
-    val currentPlanPrice = selectedPlan?.optDouble("price", 0.0) ?: 0.0
+    val customerBalance = selectedCustomer.optSafeDouble("balance", 0.0)
+    val currentPlanPrice = selectedPlan.optSafeDouble("price", 0.0)
     val isBalanceInsufficient = selectedCustomer == null || (currentPlanPrice > 0.0 && customerBalance < currentPlanPrice)
 
     LaunchedEffect(isBalanceInsufficient, selectedUsing) {
@@ -1073,7 +1684,7 @@ fun QuickRechargeOrDepositDialog(
                                             fallbackTitle = if (isDeposit) "Isi Ulang Saldo Berhasil!" else "Paket Berhasil Diaktifkan!",
                                             fallbackCustomer = cust,
                                             fallbackPlanName = if (isDeposit && customAmount.isNotBlank()) "Top-Up Saldo Manual" else (selectedPlan?.optString("name_plan") ?: "-"),
-                                            fallbackPrice = if (isDeposit && customAmount.isNotBlank()) (customAmount.toDoubleOrNull() ?: 0.0) else (selectedPlan?.optDouble("price", 0.0) ?: 0.0),
+                                            fallbackPrice = if (isDeposit && customAmount.isNotBlank()) (customAmount.toDoubleOrNull() ?: 0.0) else selectedPlan.optSafeDouble("price", 0.0),
                                             fallbackMethod = if (isDeposit) "Deposit" else selectedUsing,
                                             fallbackRouter = selectedPlan?.optString("routers", "-") ?: "-"
                                         )
