@@ -259,6 +259,21 @@ fun AdminPlansScreen(
         }
     }
 
+    // SEMENTARA
+    Column(Modifier.fillMaxSize().padding(horizontal = 14.dp)) {
+    Spacer(Modifier.height(10.dp))
+    ArnetaSubTabBar(
+        tabs = listOf(
+            "Hotspot" to "Hotspot", "PPPOE" to "PPPoE", "Balance" to "Paket Saldo",
+            "VPN" to "VPN", "Bandwidth" to "Bandwidth"
+        ),
+        selectedKey = currentTab,
+        onSelect = { currentTab = it }
+    )
+    Spacer(Modifier.height(8.dp))
+    Text("STUB tab=$currentTab")
+}
+return
     Column(
         modifier = Modifier
             .fillMaxSize()
