@@ -259,21 +259,28 @@ fun AdminPlansScreen(
         }
     }
 
-    // SEMENTARA
-    Column(Modifier.fillMaxSize().padding(horizontal = 14.dp)) {
+val T_HEADER = true    // setelan build 1
+val T_LABELS = true
+val T_SEARCH = false
+val T_CONTENT = false
+
+Column(Modifier.fillMaxSize().padding(horizontal = 14.dp)) {
     Spacer(Modifier.height(10.dp))
+    if (T_HEADER) { /* header Row asli, baris 269-348 */ }
+    Spacer(Modifier.height(8.dp))
     ArnetaSubTabBar(
-        tabs = listOf(
+        tabs = if (T_LABELS) tabItems else listOf(
             "Hotspot" to "Hotspot", "PPPOE" to "PPPoE", "Balance" to "Paket Saldo",
             "VPN" to "VPN", "Bandwidth" to "Bandwidth"
         ),
         selectedKey = currentTab,
         onSelect = { currentTab = it }
     )
+    Spacer(Modifier.height(6.dp))
+    if (T_SEARCH) { /* baris cari asli, baris 360-407 */ }
     Spacer(Modifier.height(8.dp))
-    Text("STUB tab=$currentTab")
+    if (T_CONTENT) { /* blok konten asli, baris 411-595 */ }
 }
-return
     Column(
         modifier = Modifier
             .fillMaxSize()
