@@ -1,4 +1,4 @@
-name: Build Arneta.ID Admin APK
+name: Build PHPNuxBill Admin APK
 
 on:
   workflow_dispatch:
