@@ -72,66 +72,24 @@ fun AdminServicesScreen(
         currentSubTab = initialSubTab
     }
 
-    val cachedPrepaid = remember { ApiClient.getCached("admin_prepaid_list", mapOf("limit" to 250)) }
-    val cachedPlans = remember { ApiClient.getCached("admin_plans") }
-    val cachedVouchers = remember { ApiClient.getCached("admin_vouchers", mapOf("limit" to 200)) }
-    val cachedCoupons = remember { ApiClient.getCached("admin_coupons") }
-    val cachedUsage = remember { ApiClient.getCached("admin_data_usage") }
-
     var isLoading by remember { mutableStateOf(false) }
 
-    var activeList by remember {
-        mutableStateOf(
-            if (cachedPrepaid?.status == true) {
-                parseServicesJsonList(cachedPrepaid.data?.optJSONArray("items") ?: cachedPrepaid.dataArray)
-            } else emptyList()
-        )
-    }
+    var activeList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var activeStatusFilter by remember { mutableStateOf("All") } // All | on | off
 
-    var voucherList by remember {
-        mutableStateOf(
-            if (cachedVouchers?.status == true) {
-                parseServicesJsonList(cachedVouchers.data?.optJSONArray("vouchers") ?: cachedVouchers.dataArray)
-            } else emptyList()
-        )
-    }
-    var usageList by remember {
-        mutableStateOf(
-            if (cachedUsage?.status == true) {
-                parseServicesJsonList(cachedUsage.data?.optJSONArray("items") ?: cachedUsage.data?.optJSONArray("users"))
-            } else emptyList()
-        )
-    }
-    var usageSummary by remember { mutableStateOf(cachedUsage?.data?.optJSONObject("summary")) }
+    var voucherList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var usageList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var usageSummary by remember { mutableStateOf<JSONObject?>(null) }
 
-    var couponList by remember {
-        mutableStateOf(
-            if (cachedCoupons?.status == true) {
-                parseServicesJsonList(cachedCoupons.dataArray ?: cachedCoupons.data?.optJSONArray("coupons"))
-            } else emptyList()
-        )
-    }
+    var couponList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var searchQuery by remember { mutableStateOf("") }
 
     var targetCustomer by remember { mutableStateOf<JSONObject?>(null) }
-    var rawCatalogPlans by remember {
-        mutableStateOf(
-            if (cachedPlans?.status == true) {
-                parseServicesJsonList(cachedPlans.data?.optJSONArray("plans"))
-            } else emptyList()
-        )
-    }
-    var rawCatalogRouters by remember { mutableStateOf(cachedPlans?.data?.optJSONArray("routers")) }
+    var rawCatalogPlans by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var rawCatalogRouters by remember { mutableStateOf<JSONArray?>(null) }
     var selectedRouterFilter by remember { mutableStateOf("All") }
     var paymentUsings by remember {
-        val uArr = cachedPlans?.data?.optJSONArray("usings")
-        val initList = if (uArr != null && uArr.length() > 0) {
-            List(uArr.length()) { i -> uArr.optString(i) }
-        } else {
-            listOf("Cash", "Balance", "Recharge Zero")
-        }
-        mutableStateOf(initList)
+        mutableStateOf(listOf("Cash", "Balance", "Recharge Zero"))
     }
     var selectedUsing by remember { mutableStateOf("") }
     var rechargePlanFilter by remember { mutableStateOf("All") } // All | Hotspot | PPPoE
@@ -172,14 +130,7 @@ fun AdminServicesScreen(
         scope.launch {
             when (currentSubTab) {
                 "active_users" -> {
-                    val cRes = ApiClient.getCached("admin_prepaid_list", mapOf("limit" to 250))
-                    if (cRes?.status == true && activeList.isEmpty()) {
-                        activeList = withContext(Dispatchers.Default) {
-                            parseServicesJsonList(cRes.data?.optJSONArray("items") ?: cRes.dataArray)
-                        }
-                    } else if (activeList.isEmpty()) {
-                        isLoading = true
-                    }
+                    if (activeList.isEmpty()) isLoading = true
                     val res = ApiClient.request("admin_prepaid_list", mapOf("limit" to 250), forceRefresh = forceRefresh)
                     if (res.status) {
                         activeList = withContext(Dispatchers.Default) {
@@ -188,15 +139,7 @@ fun AdminServicesScreen(
                     }
                 }
                 "recharge_plan", "deposit_balance" -> {
-                    val cRes = ApiClient.getCached("admin_plans")
-                    if (cRes?.status == true && cRes.data != null && rawCatalogPlans.isEmpty()) {
-                        rawCatalogPlans = withContext(Dispatchers.Default) {
-                            parseServicesJsonList(cRes.data.optJSONArray("plans"))
-                        }
-                        rawCatalogRouters = cRes.data.optJSONArray("routers")
-                    } else if (rawCatalogPlans.isEmpty()) {
-                        isLoading = true
-                    }
+                    if (rawCatalogPlans.isEmpty()) isLoading = true
                     val res = ApiClient.request("admin_plans", emptyMap(), forceRefresh = forceRefresh)
                     if (res.status && res.data != null) {
                         rawCatalogPlans = withContext(Dispatchers.Default) {
@@ -213,14 +156,7 @@ fun AdminServicesScreen(
                     }
                 }
                 "vouchers" -> {
-                    val cRes = ApiClient.getCached("admin_vouchers", mapOf("limit" to 200))
-                    if (cRes?.status == true && voucherList.isEmpty()) {
-                        voucherList = withContext(Dispatchers.Default) {
-                            parseServicesJsonList(cRes.data?.optJSONArray("vouchers") ?: cRes.dataArray)
-                        }
-                    } else if (voucherList.isEmpty()) {
-                        isLoading = true
-                    }
+                    if (voucherList.isEmpty()) isLoading = true
                     val res = ApiClient.request("admin_vouchers", mapOf("limit" to 200), forceRefresh = forceRefresh)
                     if (res.status) {
                         voucherList = withContext(Dispatchers.Default) {
@@ -229,15 +165,7 @@ fun AdminServicesScreen(
                     }
                 }
                 "data_usage" -> {
-                    val cRes = ApiClient.getCached("admin_data_usage")
-                    if (cRes?.status == true && cRes.data != null && usageList.isEmpty()) {
-                        usageSummary = cRes.data.optJSONObject("summary")
-                        usageList = withContext(Dispatchers.Default) {
-                            parseServicesJsonList(cRes.data.optJSONArray("items") ?: cRes.data.optJSONArray("users"))
-                        }
-                    } else if (usageList.isEmpty()) {
-                        isLoading = true
-                    }
+                    if (usageList.isEmpty()) isLoading = true
                     val res = ApiClient.request("admin_data_usage", emptyMap(), forceRefresh = forceRefresh)
                     if (res.status && res.data != null) {
                         usageSummary = res.data.optJSONObject("summary")
@@ -247,14 +175,7 @@ fun AdminServicesScreen(
                     }
                 }
                 "coupons" -> {
-                    val cRes = ApiClient.getCached("admin_coupons")
-                    if (cRes?.status == true && couponList.isEmpty()) {
-                        couponList = withContext(Dispatchers.Default) {
-                            parseServicesJsonList(cRes.dataArray ?: cRes.data?.optJSONArray("coupons"))
-                        }
-                    } else if (couponList.isEmpty()) {
-                        isLoading = true
-                    }
+                    if (couponList.isEmpty()) isLoading = true
                     val res = ApiClient.request("admin_coupons", emptyMap(), forceRefresh = forceRefresh)
                     if (res.status) {
                         couponList = withContext(Dispatchers.Default) {
@@ -272,7 +193,9 @@ fun AdminServicesScreen(
         selectedUsing = ""
         customDepositAmount = ""
         depositNote = ""
-        loadCurrentTab(forceRefresh = false)
+        if (currentSubTab != "refill_voucher") {
+            loadCurrentTab(forceRefresh = false)
+        }
     }
 
     val displayedRechargePlans = remember(allPlans, rechargePlanFilter, selectedRouterFilter, currentSubTab) {
@@ -954,119 +877,125 @@ fun AdminServicesScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                LazyColumn(
-                    contentPadding = PaddingValues(bottom = 95.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(filteredVoucherList) { v ->
-                        val used = v.optString("status") == "1"
-                        val vCode = v.optString("code")
-                        val vPlan = v.optString("name_plan")
-                        val vType = v.optString("type", "Hotspot")
-                        val vPrice = v.optSafeDouble("price", 0.0)
-                        val vRouter = v.optString("routers", "-")
-                        val vUser = v.optString("user", "0")
-                        val vCreator = v.optString("generated_by_name", "Admin")
+                if (isLoading && voucherList.isEmpty()) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                        CircularProgressIndicator(color = ArnetaGoldPrimary)
+                    }
+                } else {
+                    LazyColumn(
+                        contentPadding = PaddingValues(bottom = 95.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(filteredVoucherList) { v ->
+                            val used = v.optString("status") == "1"
+                            val vCode = v.optString("code")
+                            val vPlan = v.optString("name_plan")
+                            val vType = v.optString("type", "Hotspot")
+                            val vPrice = v.optSafeDouble("price", 0.0)
+                            val vRouter = v.optString("routers", "-")
+                            val vUser = v.optString("user", "0")
+                            val vCreator = v.optString("generated_by_name", "Admin")
 
-                        Card(
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp)
+                            Card(
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Text(
-                                            text = vCode,
-                                            fontFamily = FontFamily.Monospace,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            fontSize = 16.sp,
-                                            color = if (used) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f) else ArnetaGoldPrimary
-                                        )
-                                        Surface(
-                                            color = if (used) ArnetaRedDanger.copy(alpha = 0.18f) else ArnetaGreenSuccess.copy(alpha = 0.18f),
-                                            shape = RoundedCornerShape(4.dp)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp)
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
                                             Text(
-                                                text = if (used) "TERPAKAI" else "AKTIF / READY",
-                                                fontSize = 9.sp,
+                                                text = vCode,
+                                                fontFamily = FontFamily.Monospace,
                                                 fontWeight = FontWeight.ExtraBold,
-                                                color = if (used) ArnetaRedDanger else ArnetaGreenSuccess,
-                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                                fontSize = 16.sp,
+                                                color = if (used) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f) else ArnetaGoldPrimary
                                             )
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "$vPlan ($vType) • ${formatRupiah(vPrice)} • Router: $vRouter",
-                                        fontSize = 11.5.sp
-                                    )
-                                    Text(
-                                        text = "Dibuat: $vCreator" +
-                                            if (used && vUser != "0" && vUser.isNotEmpty()) " • Dipakai oleh: @$vUser" else "",
-                                        fontSize = 10.5.sp,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                    )
-                                }
-
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    IconButton(
-                                        onClick = {
-                                            scope.launch {
-                                                BluetoothPrinterHelper.printReceiptText(
-                                                    context = context,
-                                                    title = "VOUCHER ${ApiClient.companyName.uppercase()}",
-                                                    lines = listOf(
-                                                        "ID Voucher" to v.optInt("id").toString(),
-                                                        "KODE VOUCHER" to vCode,
-                                                        "Nama Paket" to vPlan,
-                                                        "Layanan" to vType,
-                                                        "Masa Aktif" to v.optString("validity", "-"),
-                                                        "Harga" to formatRupiah(vPrice),
-                                                        "Sales/Admin" to vCreator
-                                                    )
+                                            Surface(
+                                                color = if (used) ArnetaRedDanger.copy(alpha = 0.18f) else ArnetaGreenSuccess.copy(alpha = 0.18f),
+                                                shape = RoundedCornerShape(4.dp)
+                                            ) {
+                                                Text(
+                                                    text = if (used) "TERPAKAI" else "AKTIF / READY",
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    color = if (used) ArnetaRedDanger else ArnetaGreenSuccess,
+                                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                                                 )
                                             }
                                         }
-                                    ) {
-                                        Icon(Icons.Filled.Print, contentDescription = "Cetak Voucher", tint = ArnetaCyanIncome)
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = "$vPlan ($vType) • ${formatRupiah(vPrice)} • Router: $vRouter",
+                                            fontSize = 11.5.sp
+                                        )
+                                        Text(
+                                            text = "Dibuat: $vCreator" +
+                                                if (used && vUser != "0" && vUser.isNotEmpty()) " • Dipakai oleh: @$vUser" else "",
+                                            fontSize = 10.5.sp,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                        )
                                     }
 
-                                    IconButton(
-                                        onClick = {
-                                            val waVoucherContent = buildString {
-                                                appendLine("```")
-                                                appendLine(ApiClient.companyName)
-                                                appendLine("==============================")
-                                                appendLine("ID         : ${v.optInt("id")}")
-                                                appendLine("Kode       : $vCode")
-                                                appendLine("Paket      : $vPlan")
-                                                appendLine("Layanan    : $vType")
-                                                appendLine("Harga      : ${formatRupiah(vPrice)}")
-                                                appendLine("Sales      : $vCreator")
-                                                appendLine("==============================")
-                                                append("```")
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        IconButton(
+                                            onClick = {
+                                                scope.launch {
+                                                    BluetoothPrinterHelper.printReceiptText(
+                                                        context = context,
+                                                        title = "VOUCHER ${ApiClient.companyName.uppercase()}",
+                                                        lines = listOf(
+                                                            "ID Voucher" to v.optInt("id").toString(),
+                                                            "KODE VOUCHER" to vCode,
+                                                            "Nama Paket" to vPlan,
+                                                            "Layanan" to vType,
+                                                            "Masa Aktif" to v.optString("validity", "-"),
+                                                            "Harga" to formatRupiah(vPrice),
+                                                            "Sales/Admin" to vCreator
+                                                        )
+                                                    )
+                                                }
                                             }
-                                            BluetoothPrinterHelper.shareToWhatsApp(context, waVoucherContent, "")
+                                        ) {
+                                            Icon(Icons.Filled.Print, contentDescription = "Cetak Voucher", tint = ArnetaCyanIncome)
                                         }
-                                    ) {
-                                        Icon(Icons.Filled.Share, contentDescription = "Kirim WA", tint = ArnetaGreenSuccess)
-                                    }
 
-                                    IconButton(
-                                        onClick = { deletingVoucherTarget = v }
-                                    ) {
-                                        Icon(Icons.Filled.DeleteOutline, contentDescription = "Hapus", tint = ArnetaRedDanger)
+                                        IconButton(
+                                            onClick = {
+                                                val waVoucherContent = buildString {
+                                                    appendLine("```")
+                                                    appendLine(ApiClient.companyName)
+                                                    appendLine("==============================")
+                                                    appendLine("ID         : ${v.optInt("id")}")
+                                                    appendLine("Kode       : $vCode")
+                                                    appendLine("Paket      : $vPlan")
+                                                    appendLine("Layanan    : $vType")
+                                                    appendLine("Harga      : ${formatRupiah(vPrice)}")
+                                                    appendLine("Sales      : $vCreator")
+                                                    appendLine("==============================")
+                                                    append("```")
+                                                }
+                                                BluetoothPrinterHelper.shareToWhatsApp(context, waVoucherContent, "")
+                                            }
+                                        ) {
+                                            Icon(Icons.Filled.Share, contentDescription = "Kirim WA", tint = ArnetaGreenSuccess)
+                                        }
+
+                                        IconButton(
+                                            onClick = { deletingVoucherTarget = v }
+                                        ) {
+                                            Icon(Icons.Filled.DeleteOutline, contentDescription = "Hapus", tint = ArnetaRedDanger)
+                                        }
                                     }
                                 }
                             }
@@ -1405,56 +1334,62 @@ fun AdminServicesScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                LazyColumn(
-                    contentPadding = PaddingValues(bottom = 95.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(usageList) { u ->
-                        Card(
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable { detailActiveCustomerTarget = u }
-                        ) {
-                            Row(
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
+                if (isLoading && usageList.isEmpty()) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                        CircularProgressIndicator(color = ArnetaGoldPrimary)
+                    }
+                } else {
+                    LazyColumn(
+                        contentPadding = PaddingValues(bottom = 95.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(usageList) { u ->
+                            Card(
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(12.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable { detailActiveCustomerTarget = u }
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(u.optString("username"), fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Icon(
-                                            imageVector = Icons.Filled.Speed,
-                                            contentDescription = "Lihat Live Speed",
-                                            tint = ArnetaGoldPrimary,
-                                            modifier = Modifier.size(14.dp)
+                                Row(
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp)
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(u.optString("username"), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Icon(
+                                                imageVector = Icons.Filled.Speed,
+                                                contentDescription = "Lihat Live Speed",
+                                                tint = ArnetaGoldPrimary,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        }
+                                        Text(
+                                            "${u.optString("service")} • IP: ${u.optString("ip_address")} • Uptime: ${u.optString("uptime")}",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                                         )
                                     }
-                                    Text(
-                                        "${u.optString("service")} • IP: ${u.optString("ip_address")} • Uptime: ${u.optString("uptime")}",
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
-                                    )
-                                }
-                                Column(horizontalAlignment = Alignment.End) {
-                                    Text(
-                                        text = u.optString("total"),
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = ArnetaGoldPrimary,
-                                        fontSize = 14.sp
-                                    )
-                                    Text(
-                                        text = "↑ ${u.optString("upload")} | ↓ ${u.optString("download")}",
-                                        fontSize = 10.sp,
-                                        color = ArnetaCyanIncome
-                                    )
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text(
+                                            text = u.optString("total"),
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = ArnetaGoldPrimary,
+                                            fontSize = 14.sp
+                                        )
+                                        Text(
+                                            text = "↑ ${u.optString("upload")} | ↓ ${u.optString("download")}",
+                                            fontSize = 10.sp,
+                                            color = ArnetaCyanIncome
+                                        )
+                                    }
                                 }
                             }
                         }
