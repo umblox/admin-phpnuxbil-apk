@@ -2,10 +2,7 @@ package id.biz.arneta.admin.network
 
 import android.content.Context
 import android.content.SharedPreferences
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -30,7 +27,6 @@ data class ApiResponse(
 object ApiClient {
     private const val PREF_NAME = "arneta_admin_prefs"
     private lateinit var prefs: SharedPreferences
-    private val bgScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val defaultShortcuts = setOf(
         "add_customer",
@@ -205,32 +201,13 @@ object ApiClient {
         return !mutationActions.contains(action) && !nonCacheableActions.contains(action)
     }
 
-    /**
-     * Mengambil snapshot terakhir dari RAM dalam 0 milidetik agar layar langsung tampil tanpa loading spinner.
-     */
     fun getCached(action: String, params: Map<String, Any?> = emptyMap()): ApiResponse? {
         if (!isCacheable(action)) return null
         return memoryCache[buildCacheKey(action, params)]?.response
     }
 
-    /**
-     * Memanaskan data utama di background saat aplikasi dibuka agar perpindahan menu berlangsung 0 detik.
-     */
     fun warmupCacheInBackground() {
-        if (!isLoggedIn()) return
-        bgScope.launch {
-            listOf(
-                "admin_plans" to emptyMap(),
-                "admin_customers" to mapOf("search" to "", "service_type" to "", "limit" to 300),
-                "admin_prepaid_list" to mapOf("limit" to 250),
-                "admin_vouchers" to mapOf("limit" to 200),
-                "admin_coupons" to emptyMap()
-            ).forEach { (act, p) ->
-                if (getCached(act, p) == null) {
-                    runCatching { request(act, p) }
-                }
-            }
-        }
+        // Dikosongkan agar tidak memicu tabrakan state sinkron saat startup
     }
 
     suspend fun request(
@@ -250,8 +227,8 @@ object ApiClient {
 
         if (!forceRefresh && cacheKey != null) {
             val cached = memoryCache[cacheKey]
-            // Cegah request duplikat beruntun dalam rentang 1.5 detik
-            if (cached != null && (System.currentTimeMillis() - cached.timestamp) < 1500L) {
+            // Gunakan cache RAM jika masih segar (< 4 detik) agar perpindahan sub-tab instan
+            if (cached != null && (System.currentTimeMillis() - cached.timestamp) < 4000L) {
                 return@withContext cached.response
             }
         }
@@ -262,12 +239,7 @@ object ApiClient {
         val res = executeHttpPost(endpoint, action, params)
 
         if (isMutation && res.status) {
-            // Reset timestamp cache agar request berikutnya langsung mengambil data terbaru dari server,
-            // namun data lama tetap ada di RAM untuk mencegah layar berkedip menjadi loading spinner.
-            for ((k, v) in memoryCache) {
-                memoryCache[k] = v.copy(timestamp = 0L)
-            }
-            warmupCacheInBackground()
+            memoryCache.clear()
         } else if (cacheKey != null && res.status) {
             memoryCache[cacheKey] = CacheEntry(res, System.currentTimeMillis())
         }
