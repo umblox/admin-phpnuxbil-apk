@@ -130,26 +130,19 @@ fun AdminPlansScreen(
         currentTab = initialTab
     }
 
-    val initBundle = remember {
-        val cached = ApiClient.getCached("admin_plans")
-        if (cached?.status == true && cached.data != null) {
-            parsePlansJsonBundle(cached.data)
-        } else null
-    }
-
-    var plansList by remember { mutableStateOf(initBundle?.plans ?: emptyList()) }
-    var bwList by remember { mutableStateOf(initBundle?.bandwidths ?: emptyList()) }
-    var rateUnitsList by remember { mutableStateOf(initBundle?.rateUnits ?: listOf("Kbps", "Mbps")) }
-    var burstPresetsList by remember { mutableStateOf(initBundle?.burstPresets ?: emptyList()) }
-    var routersList by remember { mutableStateOf(initBundle?.routers ?: emptyList()) }
-    var poolsList by remember { mutableStateOf(initBundle?.pools ?: emptyList()) }
+    var plansList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var bwList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var rateUnitsList by remember { mutableStateOf(listOf("Kbps", "Mbps")) }
+    var burstPresetsList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var routersList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var poolsList by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var devicesList by remember {
         mutableStateOf(
-            initBundle?.devices ?: listOf("MikrotikHotspot", "MikrotikPppoe", "MikrotikVpn", "Radius", "Dummy")
+            listOf("MikrotikHotspot", "MikrotikPppoe", "MikrotikVpn", "Radius", "Dummy")
         )
     }
 
-    var isLoading by remember { mutableStateOf(plansList.isEmpty() && bwList.isEmpty()) }
+    var isLoading by remember { mutableStateOf(false) }
     var isSyncing by remember { mutableStateOf(false) }
 
     var showPlanDialog by remember { mutableStateOf(false) }
@@ -163,22 +156,9 @@ fun AdminPlansScreen(
 
     fun loadPlansData(forceRefresh: Boolean = false) {
         scope.launch {
-            val cached = ApiClient.getCached("admin_plans")
-            if (cached?.status == true && cached.data != null && plansList.isEmpty() && bwList.isEmpty()) {
-                val cBundle = withContext(Dispatchers.Default) {
-                    parsePlansJsonBundle(cached.data)
-                }
-                plansList = cBundle.plans
-                bwList = cBundle.bandwidths
-                rateUnitsList = cBundle.rateUnits
-                burstPresetsList = cBundle.burstPresets
-                routersList = cBundle.routers
-                poolsList = cBundle.pools
-                devicesList = cBundle.devices
-            } else if (plansList.isEmpty() && bwList.isEmpty()) {
+            if (plansList.isEmpty() && bwList.isEmpty()) {
                 isLoading = true
             }
-
             val res = ApiClient.request("admin_plans", emptyMap(), forceRefresh = forceRefresh)
             if (res.status && res.data != null) {
                 val parsed = withContext(Dispatchers.Default) {
