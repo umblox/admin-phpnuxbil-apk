@@ -14,7 +14,6 @@ import java.net.URL
 import java.net.URLEncoder
 import java.text.NumberFormat
 import java.util.Locale
-import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.GZIPInputStream
 
 data class ApiResponse(
@@ -40,65 +39,6 @@ object ApiClient {
         "webview_admin"
     )
 
-    private data class CacheEntry(
-        val response: ApiResponse,
-        val timestamp: Long
-    )
-
-    private val memoryCache = ConcurrentHashMap<String, CacheEntry>()
-
-    private val nonCacheableActions = setOf(
-        "admin_login",
-        "admin_user_live_traffic",
-        "admin_resend_invoice_wa",
-        "admin_test_notif",
-        "admin_system_tools",
-        "admin_db_backup",
-        "admin_kick_user",
-        "admin_router_reboot",
-        "admin_customer_sync"
-    )
-
-    private val mutationActions = setOf(
-        "admin_customer_save",
-        "admin_customer_delete",
-        "admin_prepaid_recharge",
-        "admin_prepaid_edit",
-        "admin_prepaid_extend",
-        "admin_prepaid_delete",
-        "admin_deposit",
-        "admin_voucher_generate",
-        "admin_voucher_refill",
-        "admin_voucher_delete",
-        "admin_plan_save",
-        "admin_plan_delete",
-        "admin_plan_sync",
-        "admin_bandwidth_save",
-        "admin_bandwidth_delete",
-        "admin_router_save",
-        "admin_router_delete",
-        "admin_pool_save",
-        "admin_pool_delete",
-        "admin_coupon_save",
-        "admin_coupon_status",
-        "admin_coupon_delete",
-        "admin_asset_save",
-        "admin_asset_delete",
-        "admin_settings_save",
-        "admin_notifications_save",
-        "admin_staff_save",
-        "admin_staff_delete",
-        "admin_change_password",
-        "admin_page_save",
-        "admin_pg_action",
-        "pg_action",
-        "admin_genieacs_host_save",
-        "admin_genieacs_host_action",
-        "admin_genieacs_device_action",
-        "admin_genieacs_wan_save",
-        "admin_genieacs_wlan_save"
-    )
-
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
     }
@@ -111,7 +51,6 @@ object ApiClient {
             if (::prefs.isInitialized) {
                 prefs.edit().putString("base_url", clean).apply()
             }
-            clearCache()
         }
 
     var token: String
@@ -175,12 +114,11 @@ object ApiClient {
     fun isLoggedIn(): Boolean = token.isNotBlank() && baseUrl.isNotBlank()
 
     fun clearCache() {
-        memoryCache.clear()
+        // Cache RAM dinonaktifkan sepenuhnya
     }
 
     fun logout() {
         token = ""
-        clearCache()
     }
 
     fun buildWebViewSsoUrl(redirect: String = "dashboard"): String {
@@ -189,25 +127,13 @@ object ApiClient {
         return "$baseUrl/system/api.php?r=plugin/mobile_api/webview_sso&redirect=$encodedRedirect&token=$encodedToken"
     }
 
-    private fun buildCacheKey(action: String, params: Map<String, Any?>): String {
-        val sortedParams = params.entries
-            .filter { it.value != null && it.value.toString().isNotEmpty() }
-            .sortedBy { it.key }
-            .joinToString("&") { "${it.key}=${it.value}" }
-        return "$baseUrl|$action|$sortedParams"
-    }
-
-    private fun isCacheable(action: String): Boolean {
-        return !mutationActions.contains(action) && !nonCacheableActions.contains(action)
-    }
-
-    fun getCached(action: String, params: Map<String, Any?> = emptyMap()): ApiResponse? {
-        if (!isCacheable(action)) return null
-        return memoryCache[buildCacheKey(action, params)]?.response
-    }
+    /**
+     * Selalu mengembalikan null agar tidak ada menu/dialog yang menggunakan 0-detik cache.
+     */
+    fun getCached(action: String, params: Map<String, Any?> = emptyMap()): ApiResponse? = null
 
     fun warmupCacheInBackground() {
-        // Dikosongkan agar tidak memicu tabrakan state sinkron saat startup
+        // Dinonaktifkan sepenuhnya
     }
 
     suspend fun request(
@@ -222,29 +148,10 @@ object ApiClient {
             )
         }
 
-        val isMutation = mutationActions.contains(action)
-        val cacheKey = if (isCacheable(action)) buildCacheKey(action, params) else null
-
-        if (!forceRefresh && cacheKey != null) {
-            val cached = memoryCache[cacheKey]
-            // Gunakan cache RAM jika masih segar (< 4 detik) agar perpindahan sub-tab instan
-            if (cached != null && (System.currentTimeMillis() - cached.timestamp) < 4000L) {
-                return@withContext cached.response
-            }
-        }
-
         val encodedAction = URLEncoder.encode(action, "UTF-8")
         val endpoint = "$baseUrl/system/api.php?r=plugin/mobile_api/$encodedAction"
 
-        val res = executeHttpPost(endpoint, action, params)
-
-        if (isMutation && res.status) {
-            memoryCache.clear()
-        } else if (cacheKey != null && res.status) {
-            memoryCache[cacheKey] = CacheEntry(res, System.currentTimeMillis())
-        }
-
-        res
+        executeHttpPost(endpoint, action, params)
     }
 
     private fun executeHttpPost(
