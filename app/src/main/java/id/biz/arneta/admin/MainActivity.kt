@@ -102,7 +102,6 @@ fun ArnetaAdminMainShell(
     var showQuickActionSheet by remember { mutableStateOf(false) }
     var quickShortcuts by remember { mutableStateOf(ApiClient.customQuickShortcuts) }
 
-    // Grup menu yang sedang diekspansi di Sidebar
     var expandedSidebarGroup by remember { mutableStateOf("layanan") }
 
     fun toggleGroup(groupKey: String) {
@@ -198,7 +197,6 @@ fun ArnetaAdminMainShell(
                         .verticalScroll(rememberScrollState())
                         .padding(vertical = 10.dp)
                 ) {
-                    // 1. DASBOR
                     SidebarMainItem(
                         icon = Icons.Outlined.DesktopWindows,
                         label = "Dasbor",
@@ -206,7 +204,6 @@ fun ArnetaAdminMainShell(
                         onClick = { navigateTo("dashboard") }
                     )
 
-                    // 2. PELANGGAN (EXPANDABLE)
                     SidebarExpandableGroup(
                         icon = Icons.Filled.People,
                         label = "Pelanggan",
@@ -222,7 +219,6 @@ fun ArnetaAdminMainShell(
                         onSubItemClick = { navigateTo(it) }
                     )
 
-                    // 3. LAYANAN & VOUCHER (EXPANDABLE)
                     SidebarExpandableGroup(
                         icon = Icons.Filled.ConfirmationNumber,
                         label = "Layanan",
@@ -241,7 +237,6 @@ fun ArnetaAdminMainShell(
                         onSubItemClick = { navigateTo(it) }
                     )
 
-                    // 4. PAKET INTERNET & BANDWIDTH (EXPANDABLE)
                     SidebarExpandableGroup(
                         icon = Icons.Filled.ViewInAr,
                         label = "Paket Internet",
@@ -258,7 +253,6 @@ fun ArnetaAdminMainShell(
                         onSubItemClick = { navigateTo(it) }
                     )
 
-                    // 5. LAPORAN & AUDIT PAYMENT GATEWAY (DIGABUNG & EXPANDABLE)
                     SidebarExpandableGroup(
                         icon = Icons.Filled.Assessment,
                         label = "Laporan & Payment Gateway",
@@ -272,7 +266,6 @@ fun ArnetaAdminMainShell(
                         onSubItemClick = { navigateTo(it) }
                     )
 
-                    // 6. JARINGAN & MIKROTIK (EXPANDABLE)
                     SidebarExpandableGroup(
                         icon = Icons.Filled.Hub,
                         label = "Jaringan & MikroTik",
@@ -289,7 +282,6 @@ fun ArnetaAdminMainShell(
                         onSubItemClick = { navigateTo(it) }
                     )
 
-                    // 7. GENIEACS TR-069 (EXPANDABLE)
                     SidebarExpandableGroup(
                         icon = Icons.Filled.SettingsInputAntenna,
                         label = "GenieACS (TR-069)",
@@ -304,7 +296,6 @@ fun ArnetaAdminMainShell(
                         onSubItemClick = { navigateTo(it) }
                     )
 
-                    // 8. PETA & INVENTARIS ASET (DIGABUNG & EXPANDABLE)
                     SidebarExpandableGroup(
                         icon = Icons.Filled.LocationOn,
                         label = "Peta & Aset Jaringan",
@@ -318,7 +309,6 @@ fun ArnetaAdminMainShell(
                         onSubItemClick = { navigateTo(it) }
                     )
 
-                    // 9. PESAN & HALAMAN STATIS (DIGABUNG & EXPANDABLE)
                     SidebarExpandableGroup(
                         icon = Icons.Filled.ChatBubble,
                         label = "Pesan & Halaman",
@@ -332,7 +322,6 @@ fun ArnetaAdminMainShell(
                         onSubItemClick = { navigateTo(it) }
                     )
 
-                    // 10. PENGATURAN SISTEM (EXPANDABLE)
                     SidebarExpandableGroup(
                         icon = Icons.Filled.Settings,
                         label = "Pengaturan",
@@ -351,7 +340,6 @@ fun ArnetaAdminMainShell(
                         onSubItemClick = { navigateTo(it) }
                     )
 
-                    // 11. WEB ADMIN PANEL
                     SidebarMainItem(
                         icon = Icons.Filled.Language,
                         label = "Web Admin Panel",
