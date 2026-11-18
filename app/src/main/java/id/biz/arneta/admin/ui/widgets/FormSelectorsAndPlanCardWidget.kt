@@ -1,5 +1,6 @@
 package id.biz.arneta.admin.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -34,8 +35,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * BAR SUB-TAB HORIZONTAL MURNI COMPOSE (ANTI-BLANK & ANTI-STUCK)
- * Menggunakan Row + horizontalScroll(rememberScrollState()) + key(tabKey) + FilterChip
+ * BAR SUB-TAB HORIZONTAL MURNI SURFACE + ROW COMPOSE (TANPA FILTERCHIP SHADOWING)
+ * 100% responsif untuk diklik maupun digeser, dan tidak pernah blank saat loading.
  */
 @Composable
 fun ArnetaSubTabBar(
@@ -55,46 +56,50 @@ fun ArnetaSubTabBar(
             .horizontalScroll(scrollState)
     ) {
         tabs.forEach { (tabKey, tabLabel) ->
-            key(tabKey) {
-                val isSelected = selectedKey.equals(tabKey, ignoreCase = true)
-                FilterChip(
-                    selected = isSelected,
-                    onClick = { currentOnSelect(tabKey) },
-                    label = {
-                        Text(
-                            text = tabLabel,
-                            fontSize = 12.sp,
-                            fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
-                            maxLines = 1
-                        )
-                    },
-                    leadingIcon = if (isSelected) {
-                        {
-                            Icon(
-                                imageVector = Icons.Filled.Check,
-                                contentDescription = null,
-                                tint = ArnetaGoldPrimary,
-                                modifier = Modifier.size(15.dp)
-                            )
-                        }
-                    } else null,
-                    shape = RoundedCornerShape(10.dp),
-                    colors = FilterChipDefaults.filterChipColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                        labelColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.88f),
-                        selectedContainerColor = ArnetaIndigoAccent.copy(alpha = 0.48f),
-                        selectedLabelColor = ArnetaGoldPrimary,
-                        selectedLeadingIconColor = ArnetaGoldPrimary
-                    ),
-                    border = FilterChipDefaults.filterChipBorder(
-                        enabled = true,
-                        selected = isSelected,
-                        borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f),
-                        selectedBorderColor = ArnetaGoldPrimary,
-                        borderWidth = 1.dp,
-                        selectedBorderWidth = 1.5.dp
-                    )
+            val isSelected = selectedKey.equals(tabKey, ignoreCase = true)
+            Surface(
+                onClick = { currentOnSelect(tabKey) },
+                shape = RoundedCornerShape(10.dp),
+                color = if (isSelected) {
+                    ArnetaIndigoAccent.copy(alpha = 0.48f)
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                },
+                border = BorderStroke(
+                    width = if (isSelected) 1.5.dp else 1.dp,
+                    color = if (isSelected) {
+                        ArnetaGoldPrimary
+                    } else {
+                        MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+                    }
                 )
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    if (isSelected) {
+                        Icon(
+                            imageVector = Icons.Filled.Check,
+                            contentDescription = null,
+                            tint = ArnetaGoldPrimary,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
+                    Text(
+                        text = tabLabel,
+                        fontSize = 12.sp,
+                        fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.SemiBold,
+                        color = if (isSelected) {
+                            ArnetaGoldPrimary
+                        } else {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.88f)
+                        },
+                        maxLines = 1
+                    )
+                }
             }
         }
     }
@@ -233,19 +238,11 @@ fun CustomerLiveSearchPicker(
     label: String = "Cari & Pilih Pelanggan"
 ) {
     val defaultParams = remember { mapOf("search" to "", "service_type" to "", "limit" to 300) }
-    val fallbackParams = remember { mapOf("limit" to 300) }
 
-    var allCustomers by remember {
-        val cached = ApiClient.getCached("admin_customers", defaultParams)
-            ?: ApiClient.getCached("admin_customers", fallbackParams)
-        mutableStateOf(
-            if (cached != null && cached.status) parseCustomersJsonList(cached.data, cached.dataArray)
-            else emptyList()
-        )
-    }
+    var allCustomers by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var searchText by remember { mutableStateOf("") }
     var isExpanded by remember { mutableStateOf(selectedCustomer == null) }
-    var isLoading by remember { mutableStateOf(allCustomers.isEmpty()) }
+    var isLoading by remember { mutableStateOf(true) }
 
     LaunchedEffect(selectedCustomer) {
         if (selectedCustomer == null) {
@@ -254,7 +251,7 @@ fun CustomerLiveSearchPicker(
     }
 
     LaunchedEffect(Unit) {
-        if (allCustomers.isEmpty()) isLoading = true
+        isLoading = allCustomers.isEmpty()
         val res = ApiClient.request("admin_customers", defaultParams)
         if (res.status) {
             allCustomers = withContext(Dispatchers.Default) {
